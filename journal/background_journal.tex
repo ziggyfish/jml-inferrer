@@ -58,7 +58,7 @@ This captures that reaching a throw statement violates the normal execution assu
 \subsection{Strongest Postcondition Analysis}
 \label{subsec:sp-theory}
 
-In contrast to WP analysis, strongest postcondition (SP) analysis computes the forward effects of program execution, starting from known initial conditions~\cite{hoare1969axiomatic}.
+In contrast to WP analysis, strongest postcondition (SP) analysis computes the forward effects of program execution, starting from known initial conditions~\cite{hoare1969axiomatic}. This forward reasoning complements WP's backward analysis, and together they form the foundation of many program verification and specification inference techniques~\cite{cousot1977abstract, cousot2010gentle}.
 
 \begin{definition}[Strongest Postcondition]
 For a statement $S$ and precondition $P$, the strongest postcondition $\text{SP}(S, P)$ is:

@@ -5,7 +5,10 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.jml.inferrer.analysis.CallGraph;
+import com.jml.inferrer.analysis.CallGraphBuilder;
 import com.jml.inferrer.analysis.ClassFileSpecificationReader;
+import com.jml.inferrer.analysis.SpecificationCache;
 import com.jml.inferrer.evaluation.MetricsCollector;
 import com.jml.inferrer.visitor.JMLInferenceVisitor;
 import org.slf4j.Logger;
@@ -41,7 +44,10 @@ public class CodebaseProcessor {
 
     /**
      * Processes all Java files in the given codebase path.
-     * Uses two-pass analysis for interprocedural specification inference.
+     * Uses three-pass analysis:
+     * - Pass 0: Build call graph for inheritance and call analysis
+     * - Pass 1: Infer specifications and populate cache
+     * - Pass 2: Re-infer with interprocedural analysis
      * Also loads specifications from compiled class files if available.
      *
      * @param codebasePath Path to the root directory of the Java codebase
@@ -60,20 +66,16 @@ public class CodebaseProcessor {
 
         // Collect all Java files first
         java.util.List<Path> javaFiles = new java.util.ArrayList<>();
-        try (Stream<Path> paths = Files.walk(codebasePath)) {
+        try (java.util.stream.Stream<Path> paths = Files.walk(codebasePath)) {
             paths.filter(Files::isRegularFile)
                  .filter(path -> path.toString().endsWith(".java"))
                  .forEach(javaFiles::add);
         }
 
-        logger.info("Found {} Java files. Starting two-pass analysis...", javaFiles.size());
+        logger.info("Found {} Java files. Starting three-pass analysis...", javaFiles.size());
 
-        // Pre-pass: Load specifications from compiled class files if available
-        JMLInferenceVisitor visitor = new JMLInferenceVisitor();
-        loadExistingSpecificationsFromClassFiles(codebasePath, visitor);
-
-        // First pass: Infer specifications and populate cache
-        logger.info("Pass 1: Building specification cache...");
+        // Parse all files first
+        java.util.List<CompilationUnit> allCompilationUnits = new java.util.ArrayList<>();
         java.util.Map<Path, CompilationUnit> compilationUnits = new java.util.HashMap<>();
 
         for (Path javaFile : javaFiles) {
@@ -81,6 +83,33 @@ public class CodebaseProcessor {
                 CompilationUnit cu = javaParser.parse(javaFile).getResult()
                     .orElseThrow(() -> new IOException("Failed to parse file: " + javaFile));
                 compilationUnits.put(javaFile, cu);
+                allCompilationUnits.add(cu);
+            } catch (Exception e) {
+                logger.error("Error parsing file: {}", javaFile, e);
+            }
+        }
+
+        // Pass 0: Build call graph
+        logger.info("Pass 0: Building call graph for inheritance and call analysis...");
+        CallGraphBuilder callGraphBuilder = new CallGraphBuilder();
+        CallGraph callGraph = callGraphBuilder.buildFromCompilationUnits(allCompilationUnits);
+        logger.info("Call graph built: {}", callGraph.getStatistics());
+
+        // Create shared specification cache
+        SpecificationCache cache = new SpecificationCache();
+
+        // Pre-pass: Load specifications from compiled class files if available
+        loadExistingSpecificationsFromClassFiles(codebasePath, cache);
+
+        // Create visitor with call graph and cache
+        JMLInferenceVisitor visitor = new JMLInferenceVisitor(cache, callGraph);
+
+        // First pass: Infer specifications and populate cache
+        logger.info("Pass 1: Building specification cache...");
+
+        for (java.util.Map.Entry<Path, CompilationUnit> entry : compilationUnits.entrySet()) {
+            try {
+                CompilationUnit cu = entry.getValue();
                 visitor.visit(cu, null);
 
                 // Collect metrics after first pass
@@ -89,7 +118,7 @@ public class CodebaseProcessor {
                     collectMetricsFromCompilationUnit(cu);
                 }
             } catch (Exception e) {
-                logger.error("Error in first pass for file: {}", javaFile, e);
+                logger.error("Error in first pass for file: {}", entry.getKey(), e);
             }
         }
 
@@ -97,7 +126,7 @@ public class CodebaseProcessor {
         logger.info("Pass 2: Applying interprocedural analysis...");
         visitor.enableSecondPass();
 
-        AtomicInteger processedCount = new AtomicInteger(0);
+        java.util.concurrent.atomic.AtomicInteger processedCount = new java.util.concurrent.atomic.AtomicInteger(0);
         for (java.util.Map.Entry<Path, CompilationUnit> entry : compilationUnits.entrySet()) {
             try {
                 Path javaFile = entry.getKey();
@@ -164,9 +193,9 @@ public class CodebaseProcessor {
      * Looks for target/classes, build/classes, or bin directories.
      *
      * @param codebasePath The codebase root path
-     * @param visitor The visitor containing the specification cache
+     * @param cache The specification cache to populate
      */
-    private void loadExistingSpecificationsFromClassFiles(Path codebasePath, JMLInferenceVisitor visitor) {
+    private void loadExistingSpecificationsFromClassFiles(Path codebasePath, SpecificationCache cache) {
         ClassFileSpecificationReader reader = new ClassFileSpecificationReader();
 
         // Look for common build output directories
@@ -182,7 +211,7 @@ public class CodebaseProcessor {
             Path classesDir = codebasePath.resolve(dir);
             if (Files.exists(classesDir) && Files.isDirectory(classesDir)) {
                 logger.info("Loading existing specifications from: {}", classesDir);
-                reader.loadSpecificationsFromDirectory(classesDir, visitor.getCache());
+                reader.loadSpecificationsFromDirectory(classesDir, cache);
             }
         }
     }

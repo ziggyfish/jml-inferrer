@@ -16,26 +16,66 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 
 /**
+ * Set of all JML-related annotation names that indicate a method already has specifications.
+ * When any of these are present, the method should be skipped to avoid duplicates.
+ */
+
+/**
  * AST Visitor that traverses Java classes and methods to infer JML specifications.
  * Performs two-pass analysis for interprocedural specification inference.
  */
 public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
 
     private static final Logger logger = LoggerFactory.getLogger(JMLInferenceVisitor.class);
+
+    /**
+     * Set of all JML-related annotation names that indicate a method already has specifications.
+     * When any of these are present, the method should be skipped to avoid duplicates.
+     */
+    private static final Set<String> JML_ANNOTATION_NAMES = Set.of(
+        // Core JML specifications
+        "Requires", "Ensures", "LoopInvariant", "Signals", "Assignable",
+        // Method properties
+        "Pure", "Observer", "Mutator", "ThreadSafe",
+        // Nullability
+        "NonNull", "Nullable",
+        // Class-level
+        "Invariant", "Immutable", "MustCall",
+        // Complexity
+        "Complexity",
+        // Inference control
+        "SkipInference",
+        // Confidence and inheritance
+        "Confidence", "InheritedSpec"
+    );
+
     private final MethodSpecificationInferrer specificationInferrer;
     private final ClassInvariantInferrer classInvariantInferrer;
     private final NullabilityAnalyzer nullabilityAnalyzer;
     private final SpecificationCache cache;
+    private final CallGraph callGraph;
     private boolean hasModifications = false;
     private String currentClassName = "";
+    private boolean currentClassSkipInference = false;
 
     // For two-pass analysis
     private final Map<MethodDeclaration, String> methodSignatures = new HashMap<>();
     private boolean isSecondPass = false;
 
     public JMLInferenceVisitor() {
-        this.cache = new SpecificationCache();
-        this.specificationInferrer = new MethodSpecificationInferrer(cache);
+        this(new SpecificationCache(), null);
+    }
+
+    /**
+     * Creates a new visitor with a specification cache and optional call graph.
+     *
+     * @param cache The specification cache for interprocedural analysis
+     * @param callGraph The call graph for inheritance and call analysis (may be null)
+     */
+    public JMLInferenceVisitor(SpecificationCache cache, CallGraph callGraph) {
+        this.cache = cache != null ? cache : new SpecificationCache();
+        this.callGraph = callGraph;
+        this.specificationInferrer = new MethodSpecificationInferrer(this.cache, this.callGraph);
         this.classInvariantInferrer = new ClassInvariantInferrer();
         this.nullabilityAnalyzer = new NullabilityAnalyzer();
     }
@@ -52,8 +92,21 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
     @Override
     public void visit(ClassOrInterfaceDeclaration classDecl, Void arg) {
         String previousClassName = currentClassName;
+        boolean previousSkipInference = currentClassSkipInference;
+
         currentClassName = classDecl.getNameAsString();
-        logger.debug("Analyzing class: {}", currentClassName);
+        currentClassSkipInference = hasSkipInferenceAnnotation(classDecl);
+
+        logger.debug("Analyzing class: {}{}", currentClassName,
+                currentClassSkipInference ? " (skipped - @SkipInference)" : "");
+
+        // Skip class-level analysis if @SkipInference is present
+        if (currentClassSkipInference) {
+            super.visit(classDecl, arg);
+            currentClassName = previousClassName;
+            currentClassSkipInference = previousSkipInference;
+            return;
+        }
 
         // Analyze class-level specifications
         if (!isSecondPass) {
@@ -70,6 +123,18 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
 
         super.visit(classDecl, arg);
         currentClassName = previousClassName;
+        currentClassSkipInference = previousSkipInference;
+    }
+
+    /**
+     * Checks if a class has the @SkipInference annotation.
+     */
+    private boolean hasSkipInferenceAnnotation(ClassOrInterfaceDeclaration classDecl) {
+        return classDecl.getAnnotations().stream()
+            .anyMatch(ann -> {
+                String name = ann.getNameAsString();
+                return name.equals("SkipInference") || name.endsWith(".SkipInference");
+            });
     }
 
     /**
@@ -199,14 +264,29 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
      * @return true if the method should be processed
      */
     private boolean shouldProcessMethod(MethodDeclaration methodDecl) {
+        // Skip if class-level @SkipInference is set
+        if (currentClassSkipInference) {
+            logger.debug("Method {} skipped - class has @SkipInference", methodDecl.getNameAsString());
+            return false;
+        }
+
+        // Skip abstract methods
         if (methodDecl.isAbstract()) {
             return false;
         }
 
+        // Skip methods without body
         if (!methodDecl.getBody().isPresent()) {
             return false;
         }
 
+        // Skip if method has @SkipInference annotation
+        if (hasMethodSkipInferenceAnnotation(methodDecl)) {
+            logger.debug("Method {} has @SkipInference, skipping", methodDecl.getNameAsString());
+            return false;
+        }
+
+        // Skip if method already has JML specifications
         if (hasExistingJMLSpecification(methodDecl)) {
             logger.debug("Method {} already has JML specifications, skipping", methodDecl.getNameAsString());
             return false;
@@ -216,7 +296,21 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
     }
 
     /**
+     * Checks if a method has the @SkipInference annotation.
+     */
+    private boolean hasMethodSkipInferenceAnnotation(MethodDeclaration methodDecl) {
+        return methodDecl.getAnnotations().stream()
+            .anyMatch(ann -> {
+                String name = ann.getNameAsString();
+                return name.equals("SkipInference") || name.endsWith(".SkipInference");
+            });
+    }
+
+    /**
      * Checks if the method already has JML specifications in its annotations.
+     * Uses the comprehensive JML_ANNOTATION_NAMES set to detect any existing specs.
+     * Handles both simple names (e.g., "Requires") and fully qualified names
+     * (e.g., "com.jml.inferrer.annotations.Requires").
      *
      * @param methodDecl The method declaration
      * @return true if JML specifications are present
@@ -225,8 +319,17 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
         return methodDecl.getAnnotations().stream()
             .anyMatch(ann -> {
                 String name = ann.getNameAsString();
-                return name.equals("Requires") || name.equals("Ensures") ||
-                       name.equals("LoopInvariant");
+                // Check simple name
+                if (JML_ANNOTATION_NAMES.contains(name)) {
+                    return true;
+                }
+                // Check if it's a fully qualified name ending with one of our annotations
+                int lastDot = name.lastIndexOf('.');
+                if (lastDot >= 0) {
+                    String simpleName = name.substring(lastDot + 1);
+                    return JML_ANNOTATION_NAMES.contains(simpleName);
+                }
+                return false;
             });
     }
 
@@ -237,6 +340,12 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
      * @param specification The inferred specification
      */
     private void addJMLComment(MethodDeclaration methodDecl, MethodSpecification specification) {
+        // Add @Confidence annotation based on overall confidence
+        addConfidenceAnnotation(methodDecl, specification);
+
+        // Add @InheritedSpec annotations for inherited specifications
+        addInheritedSpecAnnotations(methodDecl, specification);
+
         // Add @Requires annotations
         for (String precondition : specification.getPreconditions()) {
             AnnotationExpr annotation = createAnnotation("com.jml.inferrer.annotations.Requires", precondition);
@@ -327,6 +436,56 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
         );
     }
 
+    /**
+     * Adds a @Confidence annotation based on the specification's overall confidence.
+     */
+    private void addConfidenceAnnotation(MethodDeclaration methodDecl, MethodSpecification specification) {
+        MethodSpecification.ConfidenceLevel level = specification.getOverallConfidence();
+
+        // Only add explicit confidence annotation for non-medium confidence
+        if (level != MethodSpecification.ConfidenceLevel.MEDIUM) {
+            // Create: @Confidence(Confidence.Level.HIGH) or @Confidence(Confidence.Level.LOW)
+            FieldAccessExpr levelExpr = new FieldAccessExpr(
+                new FieldAccessExpr(new NameExpr("Confidence"), "Level"),
+                level.name()
+            );
+
+            SingleMemberAnnotationExpr annotation = new SingleMemberAnnotationExpr(
+                new Name("com.jml.inferrer.annotations.Confidence"),
+                levelExpr
+            );
+            methodDecl.addAnnotation(annotation);
+        }
+    }
+
+    /**
+     * Adds @InheritedSpec annotations for specifications inherited from parent classes/interfaces.
+     */
+    private void addInheritedSpecAnnotations(MethodDeclaration methodDecl, MethodSpecification specification) {
+        // Collect all unique sources
+        java.util.Set<String> sources = new java.util.LinkedHashSet<>();
+
+        specification.getInheritedPreconditions().values().forEach(sources::add);
+        specification.getInheritedPostconditions().values().forEach(sources::add);
+
+        // Add an @InheritedSpec annotation for each source
+        for (String source : sources) {
+            SingleMemberAnnotationExpr annotation = new SingleMemberAnnotationExpr(
+                new Name("com.jml.inferrer.annotations.InheritedSpec"),
+                new StringLiteralExpr(source)
+            );
+            // Need to use NormalAnnotationExpr for the 'from' parameter
+            NodeList<MemberValuePair> pairs = new NodeList<>();
+            pairs.add(new MemberValuePair("from", new StringLiteralExpr(source)));
+
+            NormalAnnotationExpr inheritedAnnotation = new NormalAnnotationExpr(
+                new Name("com.jml.inferrer.annotations.InheritedSpec"),
+                pairs
+            );
+            methodDecl.addAnnotation(inheritedAnnotation);
+        }
+    }
+
     public boolean hasModifications() {
         return hasModifications;
     }
@@ -338,5 +497,14 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
      */
     public SpecificationCache getCache() {
         return cache;
+    }
+
+    /**
+     * Gets the call graph (may be null if not provided).
+     *
+     * @return The call graph or null
+     */
+    public CallGraph getCallGraph() {
+        return callGraph;
     }
 }

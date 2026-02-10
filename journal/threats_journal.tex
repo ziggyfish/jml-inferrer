@@ -56,21 +56,21 @@ However, the consistent improvement from P1 to P3 (even on well-known methods) s
 Our tool and evaluation are Java-specific. While WP/SP principles are language-agnostic, implementation details (syntax, type system, exception handling) affect applicability to other languages. Extension to languages with different paradigms (functional, dynamic) requires further research.
 
 \paragraph{Single LLM Model.}
-We used Google's Gemini 2.0. Results may differ with other models (GPT-4, Claude, open-source models). The JML specification format is standard and should transfer, but absolute test counts and mutation scores may vary.
+We used Google's Gemini 2.0. Results may differ with other models (GPT-4, Claude, open-source models such as CodeGen~\cite{nijkamp2023codegen}). The JML specification format is standard and should transfer, but absolute test counts and mutation scores may vary. Recent comparisons of LLM-based test generation~\cite{schafer2023adaptive, yuan2024chatunitest} suggest qualitative findings often generalize across models.
 
 \subsection{Construct Validity}
 
 Construct validity concerns whether our metrics accurately measure the intended concepts.
 
 \paragraph{Mutation Score as Test Quality Proxy.}
-Mutation testing measures fault detection capability but has limitations:
+Mutation testing measures fault detection capability but has limitations~\cite{papadakis2019mutation}:
 \begin{itemize}
     \item Equivalent mutants (that don't change behavior) inflate difficulty
     \item Mutation operators may not reflect real fault patterns
     \item High mutation scores don't guarantee absence of real bugs
 \end{itemize}
 
-We used PiTest's default operators, which have been validated in prior research~\cite{coles2016pitest}, and excluded trivially equivalent mutants.
+We used PiTest's default operators, which have been validated in prior research~\cite{coles2016pitest, hamlet1994random}, and excluded trivially equivalent mutants.
 
 \paragraph{Test Count as Metric.}
 The number of tests is a weak indicator of quality. We addressed this by:

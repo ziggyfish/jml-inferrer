@@ -20,7 +20,7 @@ Daikon~\cite{ernst2007daikon} pioneered dynamic invariant detection, inferring l
     \item Applicability depends on test suite quality
 \end{itemize}
 
-Perkins et al.~\cite{perkins2009automatically} extended dynamic inference to detect and repair program errors. Our static approach complements dynamic methods by providing guaranteed-correct specifications that can seed dynamic refinement.
+Perkins et al.~\cite{perkins2009automatically} extended dynamic inference to detect and repair program errors. Related work on specification mining~\cite{ammons2002mining, yang2006automatically, shoham2008static} has explored extracting temporal properties and API usage patterns from execution traces. Our static approach complements these dynamic methods by providing guaranteed-correct specifications that can seed dynamic refinement.
 
 \subsubsection{Natural Language Processing Approaches}
 
@@ -35,7 +35,7 @@ Pandita et al.~\cite{pandita2012inferring} used NLP to infer resource specificat
 
 \subsubsection{Symbolic Execution Approaches}
 
-PreInfer~\cite{preinfer2017} infers preconditions using symbolic execution via Microsoft's Pex framework. Key differences from our approach:
+Symbolic execution~\cite{king1976symbolic} has been widely applied to program analysis and test generation. KLEE~\cite{cadar2008klee} and DART~\cite{godefroid2005dart} pioneered practical symbolic execution for automated testing. PreInfer~\cite{preinfer2017} infers preconditions using symbolic execution via Microsoft's Pex framework. Key differences from our approach:
 \begin{itemize}
     \item PreInfer uses dynamic symbolic execution; we use static analysis
     \item PreInfer handles complex conditions including quantifiers; we focus on scalable inference of simpler conditions
@@ -55,7 +55,7 @@ Recent work has explored using LLMs for specification inference. Ma et al.~\cite
 
 \subsubsection{LLM-Based Test Generation}
 
-LLMs have shown promise for automated test generation~\cite{chen2022codet, schafer2023adaptive}. Sch\"{a}fer et al.~\cite{schafer2023adaptive} use adaptive test generation with LLMs, achieving 70\% compilation rates. Our work demonstrates that providing formal specifications to LLMs improves both compilation rates (91.5\%) and test quality (mutation score).
+LLMs have shown promise for automated test generation~\cite{chen2022codet, schafer2023adaptive, chen2021codex}. The Codex model~\cite{chen2021codex} demonstrated that large language models trained on code can generate functionally correct programs, spurring research into LLM-based testing~\cite{deng2023large, yuan2024chatunitest}. Sch\"{a}fer et al.~\cite{schafer2023adaptive} use adaptive test generation with LLMs, achieving 70\% compilation rates. Our work demonstrates that providing formal specifications to LLMs improves both compilation rates (91.5\%) and test quality (mutation score).
 
 Lemieux et al.~\cite{lemieux2023codamosa} combine coverage-guided fuzzing with LLM test generation. Their approach could potentially benefit from specification-guided generation, which we leave as future work.
 
@@ -63,7 +63,7 @@ Lemieux et al.~\cite{lemieux2023codamosa} combine coverage-guided fuzzing with L
 
 \subsubsection{Specification-Based Oracles}
 
-Specification-based testing~\cite{zhu_software_1997, ammann2016introduction} has long used formal specifications as test oracles. Our contribution is automating the specification inference step, reducing the manual effort required.
+Specification-based testing~\cite{zhu_software_1997, ammann2016introduction} has long used formal specifications as test oracles. Traditional automated test generation tools such as EvoSuite~\cite{fraser2011evosuite}, Randoop~\cite{pacheco2007randoop}, and Korat~\cite{boyapati2002korat} focus on generating inputs but struggle with oracle generation. Our contribution is automating the specification inference step, reducing the manual effort required and enabling specification-guided test generation.
 
 Peters and Parnas~\cite{peters1998using} demonstrated using formal documentation as test oracles. Our work extends this by generating specifications where documentation is absent.
 
@@ -75,7 +75,7 @@ Metamorphic testing~\cite{chen2018metamorphic} uses metamorphic relations as imp
 
 \subsubsection{Industrial Formal Verification}
 
-Large-scale formal verification projects~\cite{andronick_large-scale_2012, klein2014sel4} demonstrate both the value and cost of formal methods. Matichuk et al.~\cite{matichuk_cost_2015} report that specification development accounts for approximately 50\% of formal verification effort. Our automation aims to reduce this barrier.
+Large-scale formal verification projects~\cite{andronick_large-scale_2012, klein2014sel4} demonstrate both the value and cost of formal methods. Woodcock et al.~\cite{woodcock2009formal} surveyed industrial applications of formal methods, finding that specification effort remains a key barrier. Matichuk et al.~\cite{matichuk_cost_2015} report that specification development accounts for approximately 50\% of formal verification effort. Our automation aims to reduce this barrier.
 
 \subsubsection{Lightweight Formal Methods}
 
@@ -83,7 +83,7 @@ Zimmermann and Wehrheim~\cite{zimmermann2019lightweight} advocate for lightweigh
 
 \subsubsection{Contract-Based Design}
 
-Design by Contract~\cite{meyer1992design} and the JML language~\cite{jml} promote specification as a design activity. Our tool supports this paradigm by providing initial specifications that developers can refine.
+Design by Contract~\cite{meyer1992design} and the JML language~\cite{jml, leavens2006design} promote specification as a design activity. Extended Static Checking for Java (ESC/Java)~\cite{flanagan2002extended, chalin2010jml} pioneered automatic verification of JML specifications, and modern tools like Facebook Infer~\cite{calcagno2015infer} and FindBugs~\cite{hovemeyer2004finding} apply static analysis at scale. Our tool supports this paradigm by providing initial specifications that developers can refine.
 
 \subsection{Program Comprehension}
 

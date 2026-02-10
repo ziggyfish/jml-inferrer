@@ -20,7 +20,7 @@ We selected Apache Commons Lang 3.14 as our primary evaluation subject for the f
     \item \textbf{Documentation}: Extensive Javadoc documentation allows validation of inferred specifications against documented behavior.
     \item \textbf{Maturity}: As one of the most widely-used Java utility libraries, the codebase is stable and well-tested.
     \item \textbf{Testability}: Pure utility functions with deterministic outputs are ideal for mutation testing evaluation.
-    \item \textbf{Research Precedent}: Commons Lang is frequently used in software engineering research (e.g., Randoop, EvoSuite studies).
+    \item \textbf{Research Precedent}: Commons Lang is frequently used in software engineering research, including studies of automated test generation tools such as Randoop~\cite{pacheco2007randoop} and EvoSuite~\cite{fraser2011evosuite}.
 \end{enumerate}
 
 \subsubsection{Selection Criteria}
@@ -174,7 +174,7 @@ Proportion of compiling tests that pass when executed:
 \]
 
 \paragraph{Mutation Score.}
-Proportion of injected mutants killed by the test suite, computed using PiTest~\cite{coles2016pitest}:
+Proportion of injected mutants killed by the test suite, computed using PiTest~\cite{coles2016pitest}. Mutation testing is a well-established technique for assessing test suite quality~\cite{papadakis2019mutation, ammann2016introduction}:
 \[
 \text{Mutation Score} = \frac{|\text{Killed Mutants}|}{|\text{Total Mutants}|}
 \]

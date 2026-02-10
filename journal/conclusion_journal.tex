@@ -29,9 +29,9 @@ Beyond the empirical findings, this work makes several practical contributions:
 Our results have implications for software engineering practice:
 
 \begin{enumerate}
-    \item \textbf{Formal methods can be lightweight.} Automated inference removes the primary barrier to specification adoption: manual effort.
+    \item \textbf{Formal methods can be lightweight.} Automated inference removes the primary barrier to specification adoption: manual effort~\cite{zimmermann2019lightweight, hall1990seven}.
 
-    \item \textbf{Specifications complement documentation.} Our tool infers specifications for undocumented methods, filling gaps that NLP-based approaches cannot address.
+    \item \textbf{Specifications complement documentation.} Our tool infers specifications for undocumented methods, filling gaps that NLP-based approaches~\cite{jdoctor2018, pandita2012inferring} cannot address.
 
     \item \textbf{CI/CD integration is feasible.} With 23ms average per method, the tool can be integrated into continuous integration pipelines without significant overhead.
 \end{enumerate}
@@ -41,17 +41,17 @@ Our results have implications for software engineering practice:
 Several directions merit further investigation:
 
 \begin{enumerate}
-    \item \textbf{Enhanced loop invariant inference.} Machine learning approaches may improve success rates beyond our current 85.3\%.
+    \item \textbf{Enhanced loop invariant inference.} Machine learning approaches~\cite{wei2011inferring} and hybrid static-dynamic techniques~\cite{ernst2007daikon} may improve success rates beyond our current 85.3\%.
 
-    \item \textbf{Object-oriented extensions.} Handling inheritance, polymorphism, and class invariants would broaden applicability.
+    \item \textbf{Object-oriented extensions.} Handling inheritance, polymorphism, and class invariants~\cite{meyer1992design, leavens2006design} would broaden applicability.
 
     \item \textbf{Concurrency specifications.} Thread safety and atomicity properties are increasingly important in modern software.
 
     \item \textbf{Multi-language support.} Extending the approach to Python, JavaScript, and other languages would increase impact.
 
-    \item \textbf{Interactive refinement.} Developer feedback could improve specification quality for complex methods.
+    \item \textbf{Interactive refinement.} Developer feedback could improve specification quality for complex methods~\cite{cousot2011contract}.
 
-    \item \textbf{Runtime verification integration.} Using inferred specifications for runtime contract checking could detect violations in production.
+    \item \textbf{Runtime verification integration.} Using inferred specifications for runtime contract checking~\cite{meyer1992design} could detect violations in production.
 \end{enumerate}
 
 \subsection{Closing Remarks}

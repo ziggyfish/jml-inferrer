@@ -4,6 +4,7 @@ package experiment.sample_code;
  * Sample class demonstrating Utility/Helper methods.
  */
 @com.jml.inferrer.annotations.ThreadSafe
+@com.jml.inferrer.annotations.ThreadSafe
 public class UtilityMethods {
 
     // String utility

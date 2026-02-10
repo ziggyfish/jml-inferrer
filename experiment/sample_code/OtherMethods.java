@@ -7,14 +7,19 @@ import java.io.PrintStream;
  */
 @com.jml.inferrer.annotations.Invariant("output != null")
 @com.jml.inferrer.annotations.Invariant("lastMessage != null")
+@com.jml.inferrer.annotations.Invariant("output != null")
+@com.jml.inferrer.annotations.Invariant("lastMessage != null")
 public class OtherMethods {
 
+    @com.jml.inferrer.annotations.Nullable
     @com.jml.inferrer.annotations.Nullable
     private PrintStream output;
 
     @com.jml.inferrer.annotations.Nullable
+    @com.jml.inferrer.annotations.Nullable
     private Runnable callback;
 
+    @com.jml.inferrer.annotations.Nullable
     @com.jml.inferrer.annotations.Nullable
     private String lastMessage;
 

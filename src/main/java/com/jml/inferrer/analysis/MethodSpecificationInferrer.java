@@ -21,6 +21,18 @@ public class MethodSpecificationInferrer {
     private static final Logger logger = LoggerFactory.getLogger(MethodSpecificationInferrer.class);
 
     private final SpecificationCache cache;
+    private final CallGraph callGraph;
+
+    /**
+     * Creates a new inferrer with a specification cache and call graph for interprocedural analysis.
+     *
+     * @param cache The specification cache
+     * @param callGraph The call graph for inheritance analysis (may be null)
+     */
+    public MethodSpecificationInferrer(SpecificationCache cache, CallGraph callGraph) {
+        this.cache = cache != null ? cache : new SpecificationCache();
+        this.callGraph = callGraph;
+    }
 
     /**
      * Creates a new inferrer with a specification cache for interprocedural analysis.
@@ -28,14 +40,14 @@ public class MethodSpecificationInferrer {
      * @param cache The specification cache
      */
     public MethodSpecificationInferrer(SpecificationCache cache) {
-        this.cache = cache != null ? cache : new SpecificationCache();
+        this(cache, null);
     }
 
     /**
      * Creates a new inferrer without interprocedural analysis.
      */
     public MethodSpecificationInferrer() {
-        this(new SpecificationCache());
+        this(new SpecificationCache(), null);
     }
 
     /**
@@ -63,7 +75,195 @@ public class MethodSpecificationInferrer {
         inferComplexity(methodDecl, spec);
         inferThreadSafety(methodDecl, spec);
 
+        // Phase 3: Stream API analysis
+        inferStreamSpecifications(methodDecl, spec);
+
+        // Phase 3: Inheritance propagation
+        propagateInheritedSpecifications(methodDecl, spec);
+
+        // Phase 3: Generic type constraint analysis
+        inferGenericTypeConstraints(methodDecl, spec);
+
+        // Phase 4: Switch and bitwise analysis
+        analyzeSwitchStatements(methodDecl, spec);
+        analyzeBitwiseOperations(methodDecl, spec);
+
+        // Calculate overall confidence
+        spec.calculateOverallConfidence();
+
         return spec;
+    }
+
+    /**
+     * Infers specifications from Stream API operations.
+     */
+    private void inferStreamSpecifications(MethodDeclaration methodDecl, MethodSpecification spec) {
+        StreamOperationAnalyzer streamAnalyzer = new StreamOperationAnalyzer();
+        Set<String> streamSpecs = streamAnalyzer.inferStreamPostconditions(methodDecl);
+        for (String postcond : streamSpecs) {
+            spec.addPostcondition(postcond, MethodSpecification.ConfidenceLevel.MEDIUM);
+        }
+    }
+
+    /**
+     * Propagates specifications from parent classes and interfaces.
+     * Following the Liskov Substitution Principle:
+     * - Preconditions from parent should be at least as strong
+     * - Postconditions from parent should be at least as weak
+     */
+    private void propagateInheritedSpecifications(MethodDeclaration methodDecl, MethodSpecification spec) {
+        if (callGraph == null) {
+            return;
+        }
+
+        // Check if this method overrides a parent method
+        String methodSignature = buildMethodSignatureForCache(methodDecl);
+        String overriddenMethod = callGraph.getOverriddenMethod(methodSignature);
+
+        if (overriddenMethod != null) {
+            // Try to get specs for the overridden method
+            MethodSpecification parentSpec = cache.get(overriddenMethod);
+
+            if (parentSpec != null) {
+                String source = extractClassName(overriddenMethod);
+
+                // Inherit preconditions
+                for (String precond : parentSpec.getPreconditions()) {
+                    // Only inherit if not already present
+                    if (!spec.getPreconditions().contains(precond)) {
+                        spec.addInheritedPrecondition(precond, source);
+                        logger.debug("Inherited precondition from {}: {}", source, precond);
+                    }
+                }
+
+                // Inherit postconditions
+                for (String postcond : parentSpec.getPostconditions()) {
+                    // Only inherit if not already present
+                    if (!spec.getPostconditions().contains(postcond)) {
+                        spec.addInheritedPostcondition(postcond, source);
+                        logger.debug("Inherited postcondition from {}: {}", source, postcond);
+                    }
+                }
+            }
+        }
+
+        // Also check interfaces implemented by the class
+        String className = getClassName(methodDecl);
+        if (className != null) {
+            Set<String> interfaces = callGraph.getAllImplementedInterfaces(className);
+            for (String iface : interfaces) {
+                String ifaceMethod = iface + "." + methodDecl.getNameAsString();
+                MethodSpecification ifaceSpec = cache.get(ifaceMethod);
+
+                if (ifaceSpec != null) {
+                    // Inherit from interface
+                    for (String precond : ifaceSpec.getPreconditions()) {
+                        if (!spec.getPreconditions().contains(precond)) {
+                            spec.addInheritedPrecondition(precond, iface);
+                        }
+                    }
+                    for (String postcond : ifaceSpec.getPostconditions()) {
+                        if (!spec.getPostconditions().contains(postcond)) {
+                            spec.addInheritedPostcondition(postcond, iface);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Analyzes generic type parameters and constraints.
+     */
+    private void inferGenericTypeConstraints(MethodDeclaration methodDecl, MethodSpecification spec) {
+        // Check method type parameters
+        methodDecl.getTypeParameters().forEach(typeParam -> {
+            String paramName = typeParam.getNameAsString();
+
+            // Check bounds
+            typeParam.getTypeBound().forEach(bound -> {
+                String boundName = bound.asString();
+                if (!boundName.equals("Object")) {
+                    spec.addTypeConstraint(paramName + " extends " + boundName);
+                }
+            });
+        });
+
+        // Check parameter types for generic constraints
+        methodDecl.getParameters().forEach(param -> {
+            String paramType = param.getType().asString();
+
+            // Check for Comparable bound
+            if (paramType.contains("Comparable")) {
+                spec.addPrecondition(param.getNameAsString() + " is Comparable",
+                        MethodSpecification.ConfidenceLevel.HIGH);
+            }
+
+            // Check for Collection subtypes
+            if (paramType.matches(".*<\\? extends \\w+>.*")) {
+                // Upper bounded wildcard
+                String bound = extractWildcardBound(paramType, "extends");
+                if (bound != null) {
+                    spec.addTypeConstraint(param.getNameAsString() + " contains elements extending " + bound);
+                }
+            }
+
+            if (paramType.matches(".*<\\? super \\w+>.*")) {
+                // Lower bounded wildcard
+                String bound = extractWildcardBound(paramType, "super");
+                if (bound != null) {
+                    spec.addTypeConstraint(param.getNameAsString() + " accepts elements of type " + bound + " or supertypes");
+                }
+            }
+        });
+    }
+
+    /**
+     * Extracts the bound from a wildcard type parameter.
+     */
+    private String extractWildcardBound(String type, String keyword) {
+        int idx = type.indexOf("? " + keyword + " ");
+        if (idx >= 0) {
+            int start = idx + 2 + keyword.length() + 1;
+            int end = type.indexOf('>', start);
+            if (end > start) {
+                return type.substring(start, end).trim();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Builds a method signature suitable for cache lookup.
+     */
+    private String buildMethodSignatureForCache(MethodDeclaration methodDecl) {
+        StringBuilder sig = new StringBuilder();
+        String className = getClassName(methodDecl);
+        if (className != null) {
+            sig.append(className).append(".");
+        }
+        sig.append(methodDecl.getNameAsString());
+        return sig.toString();
+    }
+
+    /**
+     * Gets the class name containing a method.
+     */
+    private String getClassName(MethodDeclaration methodDecl) {
+        return methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(c -> c.getNameAsString())
+                .orElse(null);
+    }
+
+    /**
+     * Extracts the class name from a method signature.
+     */
+    private String extractClassName(String methodSignature) {
+        int dotIdx = methodSignature.lastIndexOf('.');
+        if (dotIdx > 0) {
+            return methodSignature.substring(0, dotIdx);
+        }
+        return methodSignature;
     }
 
     /**
@@ -903,7 +1103,18 @@ public class MethodSpecificationInferrer {
     }
 
     /**
-     * Analyzes String return value properties.
+     * Analyzes String return value properties with enhanced string operation support.
+     *
+     * Handles:
+     * - toUpperCase/toLowerCase: preserves length
+     * - trim/strip/stripLeading/stripTrailing: length <= original
+     * - substring: length <= original, with specific bounds if args are literals
+     * - concat: length == sum of lengths
+     * - repeat: length == original * n
+     * - split: returns non-null array
+     * - join: returns non-null String
+     * - format: returns non-null String
+     * - valueOf: returns non-null String
      */
     private void analyzeStringReturnProperties(MethodDeclaration methodDecl, Set<String> postconditions) {
         List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
@@ -915,55 +1126,262 @@ public class MethodSpecificationInferrer {
 
         for (ReturnStmt returnStmt : returnStmts) {
             returnStmt.getExpression().ifPresent(expr -> {
-                // Check for StringBuilder/StringBuffer usage
-                if (expr instanceof MethodCallExpr) {
-                    MethodCallExpr call = (MethodCallExpr) expr;
-                    if (call.getNameAsString().equals("toString")) {
-                        call.getScope().ifPresent(scope -> {
-                            if (scope.toString().contains("StringBuilder") ||
-                                scope.toString().contains("StringBuffer")) {
-                                postconditions.add("\\result != null");
-                            }
-                        });
-                    }
+                analyzeStringExpression(expr, methodDecl, postconditions);
+            });
+        }
+    }
 
-                    // String manipulation methods
-                    String methodName = call.getNameAsString();
-                    call.getScope().ifPresent(scope -> {
-                        String scopeStr = scope.toString();
-                        if (methodDecl.getParameters().stream()
-                                .anyMatch(p -> p.getNameAsString().equals(scopeStr) &&
-                                               p.getType().asString().equals("String"))) {
-                            switch (methodName) {
-                                case "toUpperCase":
-                                case "toLowerCase":
-                                    postconditions.add("\\result.length() == " + scopeStr + ".length()");
-                                    break;
-                                case "trim":
-                                    postconditions.add("\\result.length() <= " + scopeStr + ".length()");
-                                    break;
-                                case "substring":
-                                    postconditions.add("\\result.length() <= " + scopeStr + ".length()");
-                                    break;
-                                case "replace":
-                                case "replaceAll":
-                                case "replaceFirst":
-                                    postconditions.add("\\result != null");
-                                    break;
-                            }
-                        }
-                    });
-                }
+    /**
+     * Analyzes a string expression for postcondition inference.
+     */
+    private void analyzeStringExpression(Expression expr, MethodDeclaration methodDecl, Set<String> postconditions) {
+        // Check for StringBuilder/StringBuffer usage
+        if (expr instanceof MethodCallExpr) {
+            MethodCallExpr call = (MethodCallExpr) expr;
+            String methodName = call.getNameAsString();
 
-                // Check for empty string returns
-                if (expr instanceof StringLiteralExpr) {
-                    String value = ((StringLiteralExpr) expr).asString();
-                    if (value.isEmpty()) {
-                        postconditions.add("\\result.isEmpty() || \\result.length() > 0");
+            if (methodName.equals("toString")) {
+                call.getScope().ifPresent(scope -> {
+                    String scopeStr = scope.toString();
+                    if (scopeStr.contains("StringBuilder") || scopeStr.contains("StringBuffer")) {
+                        postconditions.add("\\result != null");
                     }
+                });
+            }
+
+            // Static String methods
+            if (methodName.equals("valueOf") || methodName.equals("format") ||
+                methodName.equals("join")) {
+                postconditions.add("\\result != null");
+            }
+
+            // Instance string methods
+            call.getScope().ifPresent(scope -> {
+                String scopeStr = scope.toString();
+                boolean isStringParam = methodDecl.getParameters().stream()
+                        .anyMatch(p -> p.getNameAsString().equals(scopeStr) &&
+                                       p.getType().asString().equals("String"));
+
+                // Also check for string fields or local variables
+                boolean mightBeString = isStringParam ||
+                        methodDecl.findAll(VariableDeclarationExpr.class).stream()
+                            .flatMap(v -> v.getVariables().stream())
+                            .anyMatch(v -> v.getNameAsString().equals(scopeStr) &&
+                                          v.getType().asString().equals("String"));
+
+                if (isStringParam || mightBeString) {
+                    analyzeStringMethodCall(methodName, scopeStr, call, postconditions);
                 }
             });
         }
+
+        // Check for string concatenation with +
+        if (expr instanceof BinaryExpr) {
+            BinaryExpr binExpr = (BinaryExpr) expr;
+            if (binExpr.getOperator() == BinaryExpr.Operator.PLUS) {
+                // Check if this is string concatenation
+                boolean leftIsString = isStringExpression(binExpr.getLeft(), methodDecl);
+                boolean rightIsString = isStringExpression(binExpr.getRight(), methodDecl);
+
+                if (leftIsString || rightIsString) {
+                    postconditions.add("\\result != null");
+
+                    // If both operands are parameters, we can say something about length
+                    String leftName = binExpr.getLeft().toString();
+                    String rightName = binExpr.getRight().toString();
+
+                    boolean leftIsParam = isStringParameter(leftName, methodDecl);
+                    boolean rightIsParam = isStringParameter(rightName, methodDecl);
+
+                    if (leftIsParam && rightIsParam) {
+                        postconditions.add("\\result.length() == " + leftName + ".length() + " + rightName + ".length()");
+                    } else if (leftIsParam && binExpr.getRight() instanceof StringLiteralExpr) {
+                        int literalLen = ((StringLiteralExpr) binExpr.getRight()).asString().length();
+                        postconditions.add("\\result.length() == " + leftName + ".length() + " + literalLen);
+                    } else if (rightIsParam && binExpr.getLeft() instanceof StringLiteralExpr) {
+                        int literalLen = ((StringLiteralExpr) binExpr.getLeft()).asString().length();
+                        postconditions.add("\\result.length() == " + literalLen + " + " + rightName + ".length()");
+                    }
+                }
+            }
+        }
+
+        // Check for empty string returns
+        if (expr instanceof StringLiteralExpr) {
+            String value = ((StringLiteralExpr) expr).asString();
+            postconditions.add("\\result != null");
+            postconditions.add("\\result.length() == " + value.length());
+            if (value.isEmpty()) {
+                postconditions.add("\\result.isEmpty()");
+            }
+        }
+    }
+
+    /**
+     * Analyzes a specific string method call for postconditions.
+     */
+    private void analyzeStringMethodCall(String methodName, String scopeStr,
+                                         MethodCallExpr call, Set<String> postconditions) {
+        switch (methodName) {
+            // Length-preserving operations
+            case "toUpperCase":
+            case "toLowerCase":
+                postconditions.add("\\result != null");
+                postconditions.add("\\result.length() == " + scopeStr + ".length()");
+                break;
+
+            // Trimming operations - length can only decrease
+            case "trim":
+            case "strip":
+            case "stripLeading":
+            case "stripTrailing":
+                postconditions.add("\\result != null");
+                postconditions.add("\\result.length() <= " + scopeStr + ".length()");
+                break;
+
+            // Substring - length can only decrease
+            case "substring":
+                postconditions.add("\\result != null");
+                if (call.getArguments().size() == 1) {
+                    // substring(beginIndex) - returns from beginIndex to end
+                    Expression beginArg = call.getArguments().get(0);
+                    if (beginArg instanceof IntegerLiteralExpr) {
+                        int begin = ((IntegerLiteralExpr) beginArg).asInt();
+                        postconditions.add("\\result.length() == " + scopeStr + ".length() - " + begin);
+                    } else {
+                        postconditions.add("\\result.length() <= " + scopeStr + ".length()");
+                    }
+                } else if (call.getArguments().size() == 2) {
+                    // substring(beginIndex, endIndex)
+                    Expression beginArg = call.getArguments().get(0);
+                    Expression endArg = call.getArguments().get(1);
+                    if (beginArg instanceof IntegerLiteralExpr && endArg instanceof IntegerLiteralExpr) {
+                        int begin = ((IntegerLiteralExpr) beginArg).asInt();
+                        int end = ((IntegerLiteralExpr) endArg).asInt();
+                        postconditions.add("\\result.length() == " + (end - begin));
+                    } else {
+                        postconditions.add("\\result.length() <= " + scopeStr + ".length()");
+                    }
+                }
+                break;
+
+            // Concatenation
+            case "concat":
+                postconditions.add("\\result != null");
+                if (call.getArguments().size() == 1) {
+                    Expression arg = call.getArguments().get(0);
+                    if (arg instanceof StringLiteralExpr) {
+                        int argLen = ((StringLiteralExpr) arg).asString().length();
+                        postconditions.add("\\result.length() == " + scopeStr + ".length() + " + argLen);
+                    } else {
+                        postconditions.add("\\result.length() >= " + scopeStr + ".length()");
+                    }
+                }
+                break;
+
+            // Repeat (Java 11+)
+            case "repeat":
+                postconditions.add("\\result != null");
+                if (call.getArguments().size() == 1) {
+                    Expression arg = call.getArguments().get(0);
+                    if (arg instanceof IntegerLiteralExpr) {
+                        int count = ((IntegerLiteralExpr) arg).asInt();
+                        postconditions.add("\\result.length() == " + scopeStr + ".length() * " + count);
+                    } else {
+                        String argName = arg.toString();
+                        postconditions.add("\\result.length() == " + scopeStr + ".length() * " + argName);
+                    }
+                }
+                break;
+
+            // Replace operations
+            case "replace":
+            case "replaceAll":
+            case "replaceFirst":
+                postconditions.add("\\result != null");
+                // Length can increase or decrease depending on replacement
+                break;
+
+            // Split returns array
+            case "split":
+                postconditions.add("\\result != null");
+                postconditions.add("\\result.length >= 1");
+                break;
+
+            // Character access
+            case "charAt":
+                // Returns a char, not a String
+                break;
+
+            // Comparison methods return boolean
+            case "equals":
+            case "equalsIgnoreCase":
+            case "startsWith":
+            case "endsWith":
+            case "contains":
+            case "matches":
+            case "isEmpty":
+            case "isBlank":
+                // Boolean return, no String postconditions
+                break;
+
+            // Methods returning int
+            case "length":
+            case "indexOf":
+            case "lastIndexOf":
+            case "compareTo":
+            case "compareToIgnoreCase":
+                // Int return
+                break;
+
+            // Intern returns the same or pooled string
+            case "intern":
+                postconditions.add("\\result != null");
+                postconditions.add("\\result.equals(" + scopeStr + ")");
+                break;
+
+            // Default case - at least we know it returns non-null for most String methods
+            default:
+                postconditions.add("\\result != null");
+                break;
+        }
+    }
+
+    /**
+     * Checks if an expression represents a String type.
+     */
+    private boolean isStringExpression(Expression expr, MethodDeclaration methodDecl) {
+        if (expr instanceof StringLiteralExpr) {
+            return true;
+        }
+        if (expr instanceof NameExpr) {
+            String name = expr.toString();
+            // Check if it's a String parameter
+            return methodDecl.getParameters().stream()
+                    .anyMatch(p -> p.getNameAsString().equals(name) &&
+                                   p.getType().asString().equals("String"));
+        }
+        if (expr instanceof MethodCallExpr) {
+            MethodCallExpr call = (MethodCallExpr) expr;
+            // Common methods that return String
+            String methodName = call.getNameAsString();
+            return methodName.equals("toString") || methodName.equals("substring") ||
+                   methodName.equals("concat") || methodName.equals("toUpperCase") ||
+                   methodName.equals("toLowerCase") || methodName.equals("trim") ||
+                   methodName.equals("strip") || methodName.equals("replace") ||
+                   methodName.equals("replaceAll") || methodName.equals("valueOf") ||
+                   methodName.equals("format") || methodName.equals("join");
+        }
+        return false;
+    }
+
+    /**
+     * Checks if a name is a String parameter.
+     */
+    private boolean isStringParameter(String name, MethodDeclaration methodDecl) {
+        return methodDecl.getParameters().stream()
+                .anyMatch(p -> p.getNameAsString().equals(name) &&
+                               p.getType().asString().equals("String"));
     }
 
     /**
@@ -1338,41 +1756,75 @@ public class MethodSpecificationInferrer {
 
     /**
      * Propagates a precondition from a called method to the calling method.
-     * Maps parameter names from the called method to the actual arguments.
+     * Maps parameter names from the called method to the actual arguments
+     * using positional matching.
      */
     private String propagatePrecondition(MethodCallExpr call, String precondition,
                                          MethodDeclaration callingMethod) {
-        // For now, do simple propagation
-        // TODO: Could map parameter names to actual argument names for more precision
-
-        // If the precondition is about a parameter being non-null,
-        // and we pass a parameter to that position, we need that parameter non-null
         List<Expression> args = call.getArguments();
+        List<Parameter> callingParams = callingMethod.getParameters();
 
-        // Simple heuristic: if precondition says "param != null" and we pass a parameter,
-        // we need that parameter to be non-null
+        // Build a mapping from called method parameter positions to calling method arguments
+        // The precondition contains a parameter name from the called method
+        // We need to find which argument position it corresponds to, then substitute
+
+        // Try to find the called method's parameter list from cache
+        String calleeSignature = buildCalleeSignatureForLookup(call);
+        MethodSpecification calledSpec = cache.get(calleeSignature);
+
+        // Extract the parameter name from the precondition
+        String paramInPrecondition = extractParameterName(precondition);
+        if (paramInPrecondition == null) {
+            return null;
+        }
+
+        // Try to find which position this parameter is at
+        // We'll use a heuristic: common parameter names like "value", "index", etc.
+        // or positional matching if we can infer the position
+
+        // Strategy 1: Direct positional mapping for simple cases
         for (int i = 0; i < args.size(); i++) {
             Expression arg = args.get(i);
+
             if (arg instanceof NameExpr) {
                 String argName = arg.toString();
 
                 // Check if this argument is a parameter of the calling method
-                boolean isParameter = callingMethod.getParameters().stream()
+                boolean isParameter = callingParams.stream()
                         .anyMatch(p -> p.getNameAsString().equals(argName));
 
                 if (isParameter) {
-                    // Check if precondition mentions null check
-                    if (precondition.contains("!= null") && !precondition.startsWith("!")) {
-                        return argName + " != null";
+                    // Try to match by position - check if precondition's param could be at position i
+                    String substituted = substituteParameterInPrecondition(precondition, paramInPrecondition, argName);
+                    if (substituted != null) {
+                        return substituted;
                     }
-                    // Check for numeric constraints
-                    if (precondition.matches(".*[><=].*\\d+.*")) {
-                        // Try to substitute parameter name
-                        // This is a simple version - could be more sophisticated
-                        String[] tokens = precondition.split(" ");
-                        if (tokens.length >= 3) {
-                            // Format: paramName op value
-                            return argName + " " + tokens[1] + " " + tokens[2];
+                }
+            }
+        }
+
+        // Strategy 2: Match by type similarity
+        for (int i = 0; i < args.size(); i++) {
+            Expression arg = args.get(i);
+
+            if (arg instanceof NameExpr) {
+                String argName = arg.toString();
+
+                // Find the parameter in the calling method
+                Optional<Parameter> callingParam = callingParams.stream()
+                        .filter(p -> p.getNameAsString().equals(argName))
+                        .findFirst();
+
+                if (callingParam.isPresent()) {
+                    String argType = callingParam.get().getType().asString();
+
+                    // Check if the precondition matches this type
+                    // e.g., "param != null" applies to reference types
+                    // "param >= 0" applies to numeric types
+                    if (preconditionMatchesType(precondition, argType)) {
+                        String substituted = substituteParameterInPrecondition(precondition, paramInPrecondition, argName);
+                        if (substituted != null) {
+                            return substituted;
                         }
                     }
                 }
@@ -1380,6 +1832,92 @@ public class MethodSpecificationInferrer {
         }
 
         return null;
+    }
+
+    /**
+     * Extracts the parameter name from a precondition string.
+     * Examples:
+     * - "param != null" -> "param"
+     * - "index >= 0" -> "index"
+     * - "value.length() > 0" -> "value"
+     */
+    private String extractParameterName(String precondition) {
+        // Handle common patterns
+        String[] tokens = precondition.split("\\s+|\\.");
+        if (tokens.length > 0) {
+            String first = tokens[0];
+            // Skip negation
+            if (first.equals("!") && tokens.length > 1) {
+                first = tokens[1];
+            }
+            // Basic identifier check
+            if (first.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+                return first;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Substitutes a parameter name in a precondition with a new name.
+     */
+    private String substituteParameterInPrecondition(String precondition, String oldParam, String newParam) {
+        // Use word boundary replacement to avoid partial matches
+        String result = precondition.replaceAll("\\b" + oldParam + "\\b", newParam);
+        // Only return if something changed
+        return result.equals(precondition) ? null : result;
+    }
+
+    /**
+     * Checks if a precondition's constraint type matches a parameter type.
+     */
+    private boolean preconditionMatchesType(String precondition, String type) {
+        boolean isReferenceType = isReferenceType(type);
+        boolean isNumericType = type.equals("int") || type.equals("long") || type.equals("double") ||
+                type.equals("float") || type.equals("Integer") || type.equals("Long") ||
+                type.equals("Double") || type.equals("Float") || type.equals("short") || type.equals("byte");
+        boolean isStringType = type.equals("String");
+        boolean isArrayType = type.contains("[]");
+        boolean isCollectionType = isCollectionType(type);
+
+        // Null check applies to reference types
+        if (precondition.contains("!= null") || precondition.contains("== null")) {
+            return isReferenceType;
+        }
+
+        // Numeric comparisons apply to numeric types
+        if (precondition.matches(".*[<>]=?\\s*\\d+.*") || precondition.matches(".*\\d+\\s*[<>]=?.*")) {
+            return isNumericType;
+        }
+
+        // isEmpty(), length() applies to strings and collections
+        if (precondition.contains(".isEmpty()") || precondition.contains(".length()")) {
+            return isStringType || isCollectionType || isArrayType;
+        }
+
+        // .size() applies to collections
+        if (precondition.contains(".size()")) {
+            return isCollectionType;
+        }
+
+        return false;
+    }
+
+    /**
+     * Builds a callee signature suitable for cache lookup.
+     */
+    private String buildCalleeSignatureForLookup(MethodCallExpr call) {
+        StringBuilder signature = new StringBuilder();
+
+        call.getScope().ifPresent(scope -> {
+            String scopeStr = scope.toString();
+            if (!scopeStr.equals("this") && !scopeStr.equals("super")) {
+                signature.append(scopeStr).append(".");
+            }
+        });
+
+        signature.append(call.getNameAsString());
+        return signature.toString();
     }
 
     /**
@@ -1475,6 +2013,7 @@ public class MethodSpecificationInferrer {
     /**
      * Phase 1: Infer exception specifications (@signals).
      * Determines which exceptions are thrown and under what conditions.
+     * Also analyzes try-catch patterns for exception handling strategies.
      */
     private void inferExceptionSpecifications(MethodDeclaration methodDecl, MethodSpecification spec) {
         // Find all throw statements
@@ -1486,7 +2025,8 @@ public class MethodSpecificationInferrer {
             throwStmt.findAncestor(IfStmt.class).ifPresent(ifStmt -> {
                 String condition = getThrowCondition(ifStmt, throwStmt);
                 if (condition != null && !condition.isEmpty()) {
-                    spec.addExceptionSpecification(exceptionType + " when " + condition);
+                    spec.addExceptionSpecification(exceptionType + " when " + condition,
+                            MethodSpecification.ConfidenceLevel.HIGH);
                 } else {
                     spec.addExceptionSpecification(exceptionType);
                 }
@@ -1500,8 +2040,167 @@ public class MethodSpecificationInferrer {
 
         // Check method signature for declared exceptions
         methodDecl.getThrownExceptions().forEach(thrownType -> {
-            spec.addExceptionSpecification(thrownType.asString());
+            spec.addExceptionSpecification(thrownType.asString(),
+                    MethodSpecification.ConfidenceLevel.HIGH);
         });
+
+        // Analyze try-catch blocks for exception handling patterns
+        analyzeExceptionHandling(methodDecl, spec);
+    }
+
+    /**
+     * Recovery patterns for exception handling.
+     */
+    public enum RecoveryPattern {
+        RETHROW,           // catch and immediately rethrow (same or different exception)
+        WRAP_AND_THROW,    // wrap exception in another and throw
+        LOG_AND_CONTINUE,  // log the exception and continue execution
+        RETURN_DEFAULT,    // return a default value
+        SUPPRESS,          // catch and ignore (empty catch block)
+        RECOVER_AND_RETRY, // attempt recovery and retry the operation
+        FALLBACK           // use a fallback mechanism
+    }
+
+    /**
+     * Analyzes try-catch blocks to identify exception handling patterns.
+     */
+    private void analyzeExceptionHandling(MethodDeclaration methodDecl, MethodSpecification spec) {
+        methodDecl.findAll(TryStmt.class).forEach(tryStmt -> {
+            tryStmt.getCatchClauses().forEach(catchClause -> {
+                RecoveryPattern pattern = identifyRecoveryPattern(catchClause);
+                String exceptionType = catchClause.getParameter().getType().asString();
+
+                switch (pattern) {
+                    case RETHROW:
+                        spec.addExceptionSpecification("propagates " + exceptionType);
+                        break;
+                    case WRAP_AND_THROW:
+                        // Find the wrapped exception type
+                        catchClause.getBody().findAll(ThrowStmt.class).stream()
+                            .findFirst()
+                            .ifPresent(throwStmt -> {
+                                String wrappedType = getExceptionType(throwStmt.getExpression());
+                                spec.addExceptionSpecification("wraps " + exceptionType + " in " + wrappedType);
+                            });
+                        break;
+                    case LOG_AND_CONTINUE:
+                        spec.addExceptionSpecification("handles " + exceptionType + " (logs and continues)");
+                        break;
+                    case RETURN_DEFAULT:
+                        catchClause.getBody().findAll(ReturnStmt.class).stream()
+                            .findFirst()
+                            .ifPresent(returnStmt -> {
+                                String returnValue = returnStmt.getExpression()
+                                        .map(Expression::toString)
+                                        .orElse("void");
+                                spec.addExceptionSpecification("on " + exceptionType + " returns " + returnValue);
+                            });
+                        break;
+                    case SUPPRESS:
+                        spec.addExceptionSpecification("suppresses " + exceptionType);
+                        break;
+                    case RECOVER_AND_RETRY:
+                        spec.addExceptionSpecification("recovers from " + exceptionType + " and retries");
+                        break;
+                    case FALLBACK:
+                        spec.addExceptionSpecification("falls back on " + exceptionType);
+                        break;
+                }
+            });
+
+            // Analyze finally block
+            tryStmt.getFinallyBlock().ifPresent(finallyBlock -> {
+                if (!finallyBlock.getStatements().isEmpty()) {
+                    // Check for resource cleanup patterns
+                    boolean hasClose = finallyBlock.findAll(MethodCallExpr.class).stream()
+                            .anyMatch(call -> call.getNameAsString().equals("close"));
+                    if (hasClose) {
+                        spec.addExceptionSpecification("ensures resources are closed");
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * Identifies the recovery pattern used in a catch clause.
+     */
+    private RecoveryPattern identifyRecoveryPattern(CatchClause catchClause) {
+        BlockStmt body = catchClause.getBody();
+        List<ThrowStmt> throwStmts = body.findAll(ThrowStmt.class);
+        List<ReturnStmt> returnStmts = body.findAll(ReturnStmt.class);
+        List<MethodCallExpr> methodCalls = body.findAll(MethodCallExpr.class);
+
+        // Empty catch block = suppress
+        if (body.getStatements().isEmpty()) {
+            return RecoveryPattern.SUPPRESS;
+        }
+
+        // Check for rethrow patterns
+        if (!throwStmts.isEmpty()) {
+            ThrowStmt throwStmt = throwStmts.get(0);
+            Expression thrownExpr = throwStmt.getExpression();
+
+            // Direct rethrow: throw e;
+            if (thrownExpr instanceof NameExpr) {
+                String varName = thrownExpr.toString();
+                if (varName.equals(catchClause.getParameter().getNameAsString())) {
+                    return RecoveryPattern.RETHROW;
+                }
+            }
+
+            // Wrap and throw: throw new RuntimeException(e);
+            if (thrownExpr instanceof ObjectCreationExpr) {
+                ObjectCreationExpr creation = (ObjectCreationExpr) thrownExpr;
+                // Check if the caught exception is passed as an argument
+                boolean wrapsOriginal = creation.getArguments().stream()
+                        .anyMatch(arg -> arg.toString().equals(catchClause.getParameter().getNameAsString()));
+                if (wrapsOriginal) {
+                    return RecoveryPattern.WRAP_AND_THROW;
+                }
+                return RecoveryPattern.RETHROW;
+            }
+        }
+
+        // Check for return patterns
+        if (!returnStmts.isEmpty()) {
+            return RecoveryPattern.RETURN_DEFAULT;
+        }
+
+        // Check for logging patterns
+        boolean hasLogging = methodCalls.stream()
+                .anyMatch(call -> {
+                    String name = call.getNameAsString();
+                    String scope = call.getScope().map(Object::toString).orElse("");
+                    return name.equals("error") || name.equals("warn") || name.equals("info") ||
+                           name.equals("log") || name.equals("printStackTrace") ||
+                           scope.contains("log") || scope.contains("LOG") || scope.contains("logger");
+                });
+
+        if (hasLogging) {
+            // Check if there's also a retry pattern
+            boolean hasRetry = methodCalls.stream()
+                    .anyMatch(call -> call.getNameAsString().contains("retry"));
+            if (hasRetry) {
+                return RecoveryPattern.RECOVER_AND_RETRY;
+            }
+            return RecoveryPattern.LOG_AND_CONTINUE;
+        }
+
+        // Check for fallback patterns
+        boolean hasFallback = methodCalls.stream()
+                .anyMatch(call -> {
+                    String name = call.getNameAsString().toLowerCase();
+                    return name.contains("fallback") || name.contains("default") ||
+                           name.contains("backup") || name.contains("alternate");
+                });
+
+        if (hasFallback) {
+            return RecoveryPattern.FALLBACK;
+        }
+
+        // Default to log and continue if we can't determine the pattern
+        return RecoveryPattern.LOG_AND_CONTINUE;
     }
 
     private String getExceptionType(Expression thrownExpr) {
@@ -1728,6 +2427,264 @@ public class MethodSpecificationInferrer {
                                 .orElse(false)
                     );
                 }).orElse(false);
+    }
+
+    /**
+     * Phase 4: Analyzes switch statements and expressions for postcondition inference.
+     *
+     * Handles:
+     * - Switch expressions with arrow cases (Java 14+)
+     * - Traditional switch statements
+     * - Exhaustive enum switches
+     * - Default case analysis
+     */
+    private void analyzeSwitchStatements(MethodDeclaration methodDecl, MethodSpecification spec) {
+        // Analyze switch expressions (Java 14+)
+        methodDecl.findAll(SwitchExpr.class).forEach(switchExpr -> {
+            analyzeSwitchCases(switchExpr.getSelector(), switchExpr.getEntries(), spec, true);
+        });
+
+        // Analyze traditional switch statements
+        methodDecl.findAll(SwitchStmt.class).forEach(switchStmt -> {
+            analyzeSwitchCases(switchStmt.getSelector(), switchStmt.getEntries(), spec, false);
+        });
+    }
+
+    /**
+     * Analyzes switch cases to infer specifications.
+     */
+    private void analyzeSwitchCases(Expression selector, List<SwitchEntry> entries,
+                                    MethodSpecification spec, boolean isExpression) {
+        String selectorStr = selector.toString();
+        Set<String> caseValues = new LinkedHashSet<>();
+        boolean hasDefault = false;
+
+        for (SwitchEntry entry : entries) {
+            if (entry.getLabels().isEmpty()) {
+                hasDefault = true;
+            } else {
+                entry.getLabels().forEach(label -> caseValues.add(label.toString()));
+            }
+
+            // Check for return statements in cases
+            entry.getStatements().forEach(stmt -> {
+                if (stmt instanceof ReturnStmt) {
+                    ReturnStmt returnStmt = (ReturnStmt) stmt;
+                    returnStmt.getExpression().ifPresent(returnExpr -> {
+                        // For enum switches, we can relate case to return value
+                        entry.getLabels().forEach(label -> {
+                            String labelStr = label.toString();
+                            String returnVal = returnExpr.toString();
+                            // This is informational - we can't easily add it as a formal spec
+                            logger.debug("Switch case {} returns {}", labelStr, returnVal);
+                        });
+                    });
+                }
+            });
+        }
+
+        // If switch is exhaustive (has default or covers all enum values), add postcondition
+        if (hasDefault) {
+            spec.addPostcondition("switch on " + selectorStr + " is exhaustive",
+                    MethodSpecification.ConfidenceLevel.HIGH);
+        }
+
+        // For switch expressions, the result is always defined
+        if (isExpression) {
+            spec.addPostcondition("switch expression on " + selectorStr + " always yields a value",
+                    MethodSpecification.ConfidenceLevel.HIGH);
+        }
+
+        // Check if selector is a parameter
+        boolean selectorIsParam = spec.getPreconditions().stream()
+                .anyMatch(p -> p.contains(selectorStr));
+
+        // If we have case values and selector is a parameter, we can infer range
+        if (!caseValues.isEmpty() && selectorIsParam) {
+            // Check if all case values are integers
+            try {
+                List<Integer> intValues = caseValues.stream()
+                        .map(Integer::parseInt)
+                        .sorted()
+                        .toList();
+
+                if (!intValues.isEmpty()) {
+                    int min = intValues.get(0);
+                    int max = intValues.get(intValues.size() - 1);
+                    spec.addPrecondition(selectorStr + " >= " + min + " && " + selectorStr + " <= " + max,
+                            MethodSpecification.ConfidenceLevel.MEDIUM);
+                }
+            } catch (NumberFormatException e) {
+                // Not integer cases, might be enum or string
+            }
+        }
+    }
+
+    /**
+     * Phase 4: Analyzes bitwise operations for bounds inference.
+     *
+     * Handles:
+     * - AND (&): result <= min(operands)
+     * - OR (|): result >= max(operands)
+     * - XOR (^): result bounds depend on operand bounds
+     * - Shifts (<<, >>, >>>): result bounds from shift amount
+     */
+    private void analyzeBitwiseOperations(MethodDeclaration methodDecl, MethodSpecification spec) {
+        methodDecl.findAll(BinaryExpr.class).forEach(binExpr -> {
+            BinaryExpr.Operator op = binExpr.getOperator();
+
+            switch (op) {
+                case BINARY_AND:
+                    analyzeBitwiseAnd(binExpr, methodDecl, spec);
+                    break;
+                case BINARY_OR:
+                    analyzeBitwiseOr(binExpr, methodDecl, spec);
+                    break;
+                case XOR:
+                    analyzeBitwiseXor(binExpr, methodDecl, spec);
+                    break;
+                case LEFT_SHIFT:
+                    analyzeLeftShift(binExpr, methodDecl, spec);
+                    break;
+                case SIGNED_RIGHT_SHIFT:
+                case UNSIGNED_RIGHT_SHIFT:
+                    analyzeRightShift(binExpr, methodDecl, spec);
+                    break;
+            }
+        });
+    }
+
+    /**
+     * Analyzes bitwise AND for bounds.
+     * result = a & b implies result <= min(a, b) for positive values
+     * Also: result >= 0 when masking with positive constant
+     */
+    private void analyzeBitwiseAnd(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {
+        Expression left = binExpr.getLeft();
+        Expression right = binExpr.getRight();
+
+        // Check for masking with a constant
+        if (right instanceof IntegerLiteralExpr) {
+            int mask = ((IntegerLiteralExpr) right).asInt();
+            if (mask >= 0) {
+                // result is bounded by the mask
+                // Add postcondition if this is in a return statement
+                binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
+                    spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
+                    spec.addPostcondition("\\result <= " + mask, MethodSpecification.ConfidenceLevel.HIGH);
+                });
+            }
+        }
+
+        // Common pattern: x & 1 to check odd/even
+        if (right instanceof IntegerLiteralExpr &&
+            ((IntegerLiteralExpr) right).asInt() == 1) {
+            binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
+                spec.addPostcondition("\\result == 0 || \\result == 1",
+                        MethodSpecification.ConfidenceLevel.HIGH);
+            });
+        }
+    }
+
+    /**
+     * Analyzes bitwise OR for bounds.
+     * result = a | b implies result >= max(a, b) for positive values
+     */
+    private void analyzeBitwiseOr(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {
+        Expression left = binExpr.getLeft();
+        Expression right = binExpr.getRight();
+
+        // If ORing with a non-negative constant, result >= that constant
+        if (right instanceof IntegerLiteralExpr) {
+            int value = ((IntegerLiteralExpr) right).asInt();
+            if (value >= 0) {
+                binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
+                    spec.addPostcondition("\\result >= " + value, MethodSpecification.ConfidenceLevel.MEDIUM);
+                });
+            }
+        }
+    }
+
+    /**
+     * Analyzes bitwise XOR.
+     * XOR doesn't have simple bounds, but we can note it's a toggle operation.
+     */
+    private void analyzeBitwiseXor(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {
+        // XOR with same value = 0
+        if (binExpr.getLeft().toString().equals(binExpr.getRight().toString())) {
+            binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
+                spec.addPostcondition("\\result == 0", MethodSpecification.ConfidenceLevel.HIGH);
+            });
+        }
+    }
+
+    /**
+     * Analyzes left shift for bounds.
+     * x << n multiplies by 2^n (for non-negative x)
+     */
+    private void analyzeLeftShift(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {
+        Expression right = binExpr.getRight();
+
+        if (right instanceof IntegerLiteralExpr) {
+            int shiftAmount = ((IntegerLiteralExpr) right).asInt();
+            long multiplier = 1L << shiftAmount;
+
+            binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
+                String leftStr = binExpr.getLeft().toString();
+                if (isNonNegativeExpression(binExpr.getLeft(), methodDecl)) {
+                    spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
+                }
+            });
+        }
+    }
+
+    /**
+     * Analyzes right shift for bounds.
+     * x >> n divides by 2^n (for non-negative x)
+     * x >>> n is always non-negative if x is int
+     */
+    private void analyzeRightShift(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {
+        boolean isUnsigned = binExpr.getOperator() == BinaryExpr.Operator.UNSIGNED_RIGHT_SHIFT;
+
+        binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
+            if (isUnsigned) {
+                // Unsigned right shift always produces non-negative result (for int)
+                spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
+            }
+
+            Expression right = binExpr.getRight();
+            if (right instanceof IntegerLiteralExpr) {
+                int shiftAmount = ((IntegerLiteralExpr) right).asInt();
+
+                // Result is smaller in magnitude
+                String leftStr = binExpr.getLeft().toString();
+                if (isNonNegativeExpression(binExpr.getLeft(), methodDecl)) {
+                    spec.addPostcondition("\\result <= " + leftStr, MethodSpecification.ConfidenceLevel.MEDIUM);
+                }
+            }
+        });
+    }
+
+    /**
+     * Checks if an expression is known to be non-negative.
+     */
+    private boolean isNonNegativeExpression(Expression expr, MethodDeclaration methodDecl) {
+        if (expr instanceof IntegerLiteralExpr) {
+            return ((IntegerLiteralExpr) expr).asInt() >= 0;
+        }
+
+        if (expr instanceof MethodCallExpr) {
+            String name = ((MethodCallExpr) expr).getNameAsString();
+            return name.equals("abs") || name.equals("length") || name.equals("size");
+        }
+
+        // Check if it's a parameter with a non-negative precondition
+        if (expr instanceof NameExpr) {
+            String name = expr.toString();
+            // Would need to check preconditions, but for simplicity return false
+        }
+
+        return false;
     }
 
     /**

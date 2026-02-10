@@ -10,11 +10,11 @@ This section discusses the implications of our findings, the practical utility o
 Our results demonstrate that static analysis can automatically generate useful specifications for a substantial majority of methods (96.3\% received non-trivial specifications). These specifications serve multiple purposes:
 
 \begin{enumerate}
-    \item \textbf{Machine-checkable documentation}: Unlike natural language comments, inferred specifications can be automatically validated against implementation changes.
+    \item \textbf{Machine-checkable documentation}: Unlike natural language comments, inferred specifications can be automatically validated against implementation changes~\cite{peters1998using}.
 
-    \item \textbf{Onboarding assistance}: New developers can understand method contracts without reading implementation details.
+    \item \textbf{Onboarding assistance}: New developers can understand method contracts without reading implementation details, addressing common code comprehension challenges~\cite{sillito2008questions}.
 
-    \item \textbf{API evolution tracking}: When specifications change between versions, this signals behavioral changes that may affect clients.
+    \item \textbf{API evolution tracking}: When specifications change between versions, this signals behavioral changes that may affect clients~\cite{tip2002practical}.
 \end{enumerate}
 
 \subsubsection{Integration with Modern Development Workflows}
@@ -72,7 +72,7 @@ While we evaluated on OpenJDK, the technique is applicable to any Java codebase.
 
 \subsubsection{Beyond the Evaluated LLM}
 
-We used Gemini 2.0 for test generation, but the specifications are LLM-agnostic. The JML format is widely recognized, and other LLMs (GPT-4, Claude, Llama) should show similar improvements, though absolute test counts may vary.
+We used Gemini 2.0 for test generation, but the specifications are LLM-agnostic. The JML format is widely recognized~\cite{leavens2006design}, and other LLMs (GPT-4~\cite{chen2021codex}, Claude, CodeGen~\cite{nijkamp2023codegen}) should show similar improvements, though absolute test counts may vary. Recent work on LLM-based testing~\cite{austin2021program, yuan2024chatunitest} suggests that specification-guided approaches generalize across models.
 
 \subsubsection{Application Contexts}
 
@@ -106,7 +106,8 @@ When loop heuristics fail (14.7\% of looping methods), the resulting weak specif
 \begin{itemize}
     \item Machine learning-based invariant synthesis
     \item Interactive refinement with developer feedback
-    \item Integration with dynamic analysis for invariant discovery
+    \item Integration with dynamic analysis for invariant discovery~\cite{ernst2007daikon}
+    \item Abstract interpretation techniques~\cite{cousot1977abstract, cousot2010gentle}
 \end{itemize}
 
 \subsubsection{Object-Oriented Features}

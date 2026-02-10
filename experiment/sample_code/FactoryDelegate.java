@@ -8,11 +8,15 @@ import java.util.List;
  */
 @com.jml.inferrer.annotations.Invariant("items != null")
 @com.jml.inferrer.annotations.Invariant("builder != null")
+@com.jml.inferrer.annotations.Invariant("items != null")
+@com.jml.inferrer.annotations.Invariant("builder != null")
 public class FactoryDelegate {
 
     @com.jml.inferrer.annotations.Nullable
+    @com.jml.inferrer.annotations.Nullable
     private List<String> items;
 
+    @com.jml.inferrer.annotations.Nullable
     @com.jml.inferrer.annotations.Nullable
     private StringBuilder builder;
 

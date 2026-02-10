@@ -1,59 +1,59 @@
 {
   "timing": {
-    "totalAnalysisTimeMs": 370,
-    "averageTimePerFile": 61.67,
-    "averageTimePerClass": 61.67
+    "totalAnalysisTimeMs": 312,
+    "averageTimePerFile": 62.40,
+    "averageTimePerClass": 62.40
   },
   "codeMetrics": {
-    "totalFiles": 6,
-    "totalClasses": 6,
-    "totalMethods": 67,
-    "totalLinesOfCode": 946
+    "totalFiles": 5,
+    "totalClasses": 5,
+    "totalMethods": 51,
+    "totalLinesOfCode": 755
   },
   "coverage": {
-    "classAnnotationCoverage": 83.33,
+    "classAnnotationCoverage": 80.00,
     "methodAnnotationCoverage": 100.00,
-    "preconditionCoverage": 34.33,
-    "postconditionCoverage": 64.18,
-    "loopInvariantCoverage": 14.93,
+    "preconditionCoverage": 37.25,
+    "postconditionCoverage": 68.63,
+    "loopInvariantCoverage": 17.65,
     "frameConditionCoverage": 100.00
   },
   "annotationCounts": {
-    "Invariant": 9,
-    "LoopInvariant": 21,
-    "Requires": 43,
-    "Mutator": 21,
-    "ThreadSafe": 24,
-    "Observer": 28,
-    "Ensures": 53,
+    "Invariant": 12,
+    "Mutator": 12,
+    "LoopInvariant": 18,
+    "Requires": 36,
+    "Observer": 21,
+    "ThreadSafe": 25,
+    "Ensures": 44,
     "Override": 3,
     "Pure": 18,
-    "Assignable": 72,
-    "Complexity": 67
+    "Assignable": 51,
+    "Complexity": 51
   },
   "specificationStrength": {
-    "weak": 24,
-    "medium": 24,
-    "strong": 5
+    "weak": 23,
+    "medium": 21,
+    "strong": 0
   },
   "methodPurity": {
     "pure": 18,
-    "observer": 28,
-    "mutator": 21
+    "observer": 21,
+    "mutator": 12
   },
   "complexityDistribution": {
-    "O(n)": 10,
-    "O(1)": 49,
+    "O(n)": 9,
+    "O(1)": 34,
     "O(2^n)": 8
   },
   "classLevelMetrics": {
-    "classesWithInvariants": 9,
+    "classesWithInvariants": 12,
     "classesWithImmutable": 0,
-    "classesWithThreadSafe": 1,
+    "classesWithThreadSafe": 2,
     "classesWithMustCall": 0
   },
   "nullability": {
     "nonNullAnnotations": 0,
-    "nullableAnnotations": 9
+    "nullableAnnotations": 14
   }
 }
