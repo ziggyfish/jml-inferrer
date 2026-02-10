@@ -35,19 +35,20 @@ hs_err_pid*
 .claude/
 
 # LaTeX build artifacts
-paper/**/*.aux
-paper/**/*.bbl
-paper/**/*.blg
-paper/**/*.fdb_latexmk
-paper/**/*.fls
-paper/**/*.out
-paper/**/*.synctex.gz
-paper/**/*.toc
-paper/**/*.lof
-paper/**/*.lot
-paper/**/*.nav
-paper/**/*.snm
-paper/**/*.vrb
+journal/*.aux
+journal/*.bbl
+journal/*.blg
+journal/*.fdb_latexmk
+journal/*.fls
+journal/*.out
+journal/*.synctex.gz
+journal/*.toc
+journal/*.lof
+journal/*.lot
+journal/*.nav
+journal/*.snm
+journal/*.vrb
+journal/*.log
 
 # Experiment temporary files
 experiment/commons-lang/
