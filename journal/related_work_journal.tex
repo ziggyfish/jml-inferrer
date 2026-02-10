@@ -28,7 +28,7 @@ Toradocu~\cite{toradocu2016} and its successor Jdoctor~\cite{jdoctor2018} use NL
 \begin{itemize}
     \item Jdoctor achieves 92\% precision and 83\% recall on documented exceptions
     \item Our tool achieves 94.2\% precision and 89.3\% recall from code analysis
-    \item 735 specifications were uniquely found by Jdoctor; 1,091 uniquely by our tool
+    \item 735 specifications were uniquely found by Jdoctor; 1,091 uniquely by JML-Inferrer
 \end{itemize}
 
 Pandita et al.~\cite{pandita2012inferring} used NLP to infer resource specifications from API documentation. Their approach is limited to documented behaviors, while our code-based analysis can infer undocumented constraints.
@@ -46,7 +46,7 @@ Symbolic execution~\cite{king1976symbolic} has been widely applied to program an
 
 \subsubsection{LLM Specification Inference}
 
-Recent work has explored using LLMs for specification inference. Ma et al.~\cite{ma2024specgen} propose SpecGen, which uses GPT-4 to generate specifications from code. Compared to our approach:
+Recent work has explored using LLMs for specification inference. Ma et al.~\cite{ma2024specgen} propose SpecGen, which uses GPT-4 to generate specifications from code. Endres et al.~\cite{endres2024can} investigate whether LLMs can transform natural language intent into formal postconditions, finding that while LLMs show promise, they struggle with complex specifications. A comprehensive survey by Jiang et al.~\cite{jiang2024survey} covers LLMs for code generation, including specification-related tasks. Compared to our approach:
 \begin{itemize}
     \item LLMs achieve higher recall (91.2\% vs 89.3\%) but lower precision (78.6\% vs 94.2\%)
     \item LLM outputs are non-deterministic (67.3\% consistency across runs)
@@ -84,6 +84,20 @@ Zimmermann and Wehrheim~\cite{zimmermann2019lightweight} advocate for lightweigh
 \subsubsection{Contract-Based Design}
 
 Design by Contract~\cite{meyer1992design} and the JML language~\cite{jml, leavens2006design} promote specification as a design activity. Extended Static Checking for Java (ESC/Java)~\cite{flanagan2002extended, chalin2010jml} pioneered automatic verification of JML specifications, and modern tools like Facebook Infer~\cite{calcagno2015infer} and FindBugs~\cite{hovemeyer2004finding} apply static analysis at scale. Our tool supports this paradigm by providing initial specifications that developers can refine.
+
+\subsubsection{Formal Verification Tools}
+
+Several tools verify Java code against JML specifications:
+
+\begin{itemize}
+    \item \textbf{OpenJML}: Provides runtime assertion checking and static verification via SMT solvers. Unlike our inference approach, OpenJML \emph{verifies} user-provided specifications rather than generating them.
+
+    \item \textbf{KeY}: A deductive verification system for Java that proves program correctness using interactive theorem proving. KeY requires complete specifications and significant user guidance.
+
+    \item \textbf{JMLUnitNG}: Generates unit tests from JML specifications, complementing our approach---we generate specifications that tools like JMLUnitNG can consume.
+\end{itemize}
+
+Our tool is complementary to these verification tools: we generate specifications automatically, which can then be verified or used for test generation by existing tools.
 
 \subsection{Program Comprehension}
 

@@ -38,7 +38,7 @@ Our comparison with Jdoctor reveals complementary strengths:
     \item \textbf{Our tool}: Best for inferring specifications from code structure, especially for undocumented or incompletely documented methods.
 \end{itemize}
 
-A practical workflow might combine both tools: use Jdoctor to extract documented specifications, then our tool to fill gaps and verify consistency between documentation and implementation.
+A practical workflow might combine both tools: use Jdoctor to extract documented specifications, then JML-Inferrer to fill gaps and verify consistency between documentation and implementation.
 
 \subsection{Why Specifications Improve Test Generation}
 
@@ -141,7 +141,7 @@ Based on our findings, we offer the following recommendations for practitioners:
 \begin{enumerate}
     \item \textbf{Start with high-value methods}: Focus initial specification inference on public APIs and frequently-used utilities where specifications provide the most value.
 
-    \item \textbf{Combine with documentation extraction}: Use Jdoctor or similar tools to capture documented behavior, then fill gaps with our tool.
+    \item \textbf{Combine with documentation extraction}: Use Jdoctor or similar tools to capture documented behavior, then fill gaps with JML-Inferrer.
 
     \item \textbf{Review weak specifications}: Methods receiving weak specifications should be prioritized for manual review or enhanced heuristics.
 

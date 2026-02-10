@@ -239,7 +239,7 @@
   doi       = {10.1007/978-3-540-78800-3_24}
 }
 
-@inproceedings{ernst2007daikon,
+@article{ernst2007daikon,
   author    = {Michael D. Ernst and Jeff H. Perkins and Philip J. Guo and Stephen McCamant and Carlos Pacheco and Matthew S. Tschantz and Chen Xiao},
   title     = {The {Daikon} System for Dynamic Detection of Likely Invariants},
   journal   = {Science of Computer Programming},
@@ -299,11 +299,14 @@
   year      = {2023}
 }
 
-@inproceedings{schafer2023adaptive,
+@article{schafer2023adaptive,
   author    = {Max Sch{\"a}fer and others},
   title     = {An Empirical Evaluation of Using Large Language Models for Automated Unit Test Generation},
   journal   = {IEEE Transactions on Software Engineering},
-  year      = {2023},
+  volume    = {50},
+  number    = {1},
+  pages     = {85--105},
+  year      = {2024},
   doi       = {10.1109/TSE.2023.3334955}
 }
 
@@ -327,7 +330,7 @@
   doi       = {10.1145/3143561}
 }
 
-@inproceedings{klein2014sel4,
+@article{klein2014sel4,
   author    = {Gerwin Klein and others},
   title     = {Comprehensive Formal Verification of an {OS} Microkernel},
   journal   = {ACM Transactions on Computer Systems},
@@ -357,7 +360,7 @@
   note         = {Accessed: 2025-01-15}
 }
 
-@inproceedings{peters1998using,
+@article{peters1998using,
   author    = {Dennis K. Peters and David Lorge Parnas},
   title     = {Using Test Oracles Generated from Program Documentation},
   journal   = {IEEE Transactions on Software Engineering},
@@ -476,7 +479,7 @@
 }
 
 % Abstract Interpretation
-@article{cousot1977abstract,
+@inproceedings{cousot1977abstract,
   author    = {Patrick Cousot and Radhia Cousot},
   title     = {Abstract Interpretation: A Unified Lattice Model for Static Analysis of Programs by Construction or Approximation of Fixpoints},
   booktitle = {ACM Symposium on Principles of Programming Languages (POPL)},
@@ -511,7 +514,7 @@
   year      = {2023}
 }
 
-@inproceedings{austin2021program,
+@article{austin2021program,
   author    = {Jacob Austin and Augustus Odena and Maxwell Nye and Maarten Bosma and Henryk Michalewski and David Dohan and Ellen Jiang and Carrie Cai and Michael Terry and Quoc Le and Charles Sutton},
   title     = {Program Synthesis with Large Language Models},
   journal   = {arXiv preprint arXiv:2108.07732},
@@ -519,7 +522,7 @@
 }
 
 % Specification Mining
-@article{ammons2002mining,
+@inproceedings{ammons2002mining,
   author    = {Glenn Ammons and Rastislav Bod{\'i}k and James R. Larus},
   title     = {Mining Specifications},
   booktitle = {ACM Symposium on Principles of Programming Languages (POPL)},
@@ -613,7 +616,7 @@
 }
 
 % Code Analysis and Comprehension
-@article{von2012code,
+@inproceedings{yamashita2012code,
   author    = {Aiko Yamashita and Leon Moonen},
   title     = {Do Code Smells Reflect Important Maintainability Aspects?},
   booktitle = {28th IEEE International Conference on Software Maintenance (ICSM)},
@@ -622,7 +625,7 @@
   doi       = {10.1109/ICSM.2012.6405287}
 }
 
-@inproceedings{sillito2008questions,
+@article{sillito2008questions,
   author    = {Jonathan Sillito and Gail C. Murphy and Kris De Volder},
   title     = {Asking and Answering Questions During a Programming Change Task},
   journal   = {IEEE Transactions on Software Engineering},
@@ -634,7 +637,7 @@
 }
 
 % Java Analysis
-@inproceedings{tip2002practical,
+@article{tip2002practical,
   author    = {Frank Tip and Peter F. Sweeney and Chris Laffra and Aldo Eisma and David Streeter},
   title     = {Practical Extraction Techniques for {Java}},
   journal   = {ACM Transactions on Programming Languages and Systems},
@@ -655,7 +658,7 @@
   doi       = {10.1145/3597926.3598067}
 }
 
-@inproceedings{yuan2024chatunitest,
+@article{yuan2024chatunitest,
   author    = {Zhiqiang Yuan and Yiling Lou and Mingwei Liu and Shiji Ding and Kaixin Wang and Yixuan Chen and Xin Peng},
   title     = {No More Manual Tests? Evaluating and Improving {ChatGPT} for Unit Test Generation},
   journal   = {arXiv preprint arXiv:2305.04207},
@@ -683,4 +686,38 @@
   pages     = {11--19},
   year      = {1990},
   doi       = {10.1109/52.57887}
+}
+
+% Recent 2024-2025 LLM and specification work
+
+@inproceedings{xia2024fuzz4all,
+  author    = {Chunqiu Steven Xia and Matteo Paltenghi and Jia Le Tian and Michael Pradel and Lingming Zhang},
+  title     = {{Fuzz4All}: Universal Fuzzing with Large Language Models},
+  booktitle = {46th IEEE/ACM International Conference on Software Engineering (ICSE)},
+  year      = {2024},
+  pages     = {1--13},
+  doi       = {10.1145/3597503.3639121}
+}
+
+@inproceedings{ryan2024code,
+  author    = {Gabriel Ryan and Justin Wong and Jianan Yao and Ronghui Gu and Suman Jana},
+  title     = {Code Llama: Open Foundation Models for Code},
+  journal   = {arXiv preprint arXiv:2308.12950},
+  year      = {2024}
+}
+
+@article{jiang2024survey,
+  author    = {Juyong Jiang and Fan Wang and Jiasi Shen and Sungju Kim and Sunghun Kim},
+  title     = {A Survey on Large Language Models for Code Generation},
+  journal   = {arXiv preprint arXiv:2406.00515},
+  year      = {2024}
+}
+
+@inproceedings{endres2024can,
+  author    = {Madeline Endres and Sarah Fakhoury and Saikat Chakraborty and Shuvendu K. Lahiri},
+  title     = {Can Large Language Models Transform Natural Language Intent into Formal Method Postconditions?},
+  booktitle = {ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ESEC/FSE)},
+  year      = {2024},
+  pages     = {1--12},
+  doi       = {10.1145/3660773}
 }
