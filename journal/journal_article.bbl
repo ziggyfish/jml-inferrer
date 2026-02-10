@@ -1,0 +1,283 @@
+\begin{thebibliography}{38}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Ahmed and Devanbu(2022)]{ahmed2022few}
+Toufique Ahmed and Premkumar Devanbu.
+\newblock Few-shot training {LLMs} for project-specific code-summarization.
+\newblock In \emph{37th IEEE/ACM International Conference on Automated Software
+  Engineering (ASE)}, pages 177:1--177:5, 2022.
+\newblock \doi{10.1145/3551349.3559555}.
+
+\bibitem[Ammann and Offutt(2016)]{ammann2016introduction}
+Paul Ammann and Jeff Offutt.
+\newblock \emph{Introduction to Software Testing}.
+\newblock Cambridge University Press, 2016.
+
+\bibitem[Andronick et~al.(2012)Andronick, Jeffery, Klein, Kolanski, Staples,
+  Zhang, and Zhu]{andronick_large-scale_2012}
+June Andronick, Ross Jeffery, Gerwin Klein, Rafal Kolanski, Mark Staples,
+  He~Zhang, and Liming Zhu.
+\newblock Large-scale formal verification in practice: A process perspective.
+\newblock In \emph{34th International Conference on Software Engineering
+  (ICSE)}, pages 1002--1011, 2012.
+\newblock \doi{10.1109/ICSE.2012.6227120}.
+
+\bibitem[Barnett and Leino(2005)]{barnett2005weakest}
+Mike Barnett and K.~Rustan~M. Leino.
+\newblock Weakest-precondition of unstructured programs.
+\newblock In \emph{Workshop on Program Analysis for Software Tools and
+  Engineering (PASTE)}, pages 82--87, 2005.
+\newblock \doi{10.1145/1108792.1108813}.
+
+\bibitem[Blasi et~al.(2018)Blasi, Goffi, Kuznetsov, Gorla, Ernst, Pezz\`{e},
+  and Castellanos]{jdoctor2018}
+Arianna Blasi, Alberto Goffi, Konstantin Kuznetsov, Alessandra Gorla,
+  Michael~D. Ernst, Mauro Pezz\`{e}, and Sergio~Delgado Castellanos.
+\newblock Translating code comments to procedure specifications.
+\newblock In \emph{Proceedings of the 27th ACM SIGSOFT International Symposium
+  on Software Testing and Analysis}, ISSTA '18, pages 242--253. ACM, July 2018.
+\newblock \doi{10.1145/3213846.3213872}.
+\newblock URL \url{http://dx.doi.org/10.1145/3213846.3213872}.
+
+\bibitem[Chen et~al.(2023)]{chen2022codet}
+Bei Chen et~al.
+\newblock {CodeT}: Code generation with generated tests.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2023.
+
+\bibitem[Chen et~al.(2018)Chen, Kuo, Liu, Poon, Towey, Tse, and
+  Zhou]{chen2018metamorphic}
+Tsong~Yueh Chen, Fei-Ching Kuo, Huai Liu, Pak-Lok Poon, Dave Towey, T.~H. Tse,
+  and Zhi~Quan Zhou.
+\newblock Metamorphic testing: A review of challenges and opportunities.
+\newblock \emph{ACM Computing Surveys}, 51\penalty0 (1):\penalty0 4:1--4:27,
+  2018.
+\newblock \doi{10.1145/3143561}.
+
+\bibitem[Coles(2016)]{coles2016pitest}
+Henry Coles.
+\newblock {PiTest}: Mutation testing system for {Java}.
+\newblock \url{https://pitest.org}, 2016.
+\newblock Accessed: 2025-04-14.
+
+\bibitem[de~Moura and Bj{\o}rner(2008)]{z3}
+Leonardo de~Moura and Nikolaj Bj{\o}rner.
+\newblock Z3: An efficient {SMT} solver.
+\newblock In \emph{International Conference on Tools and Algorithms for the
+  Construction and Analysis of Systems (TACAS)}, pages 337--340, 2008.
+\newblock \doi{10.1007/978-3-540-78800-3_24}.
+
+\bibitem[de~Toledo et~al.(2020)de~Toledo, Martini, and
+  Sj{\o}berg]{de_toledo_improving_2020}
+Saulo~S. de~Toledo, Antonio Martini, and Dag I.~K. Sj{\o}berg.
+\newblock Improving agility by managing shared libraries in microservices.
+\newblock In \emph{Agile Processes in Software Engineering and Extreme
+  Programming -- Workshops}, pages 195--202. Springer International Publishing,
+  2020.
+\newblock \doi{10.1007/978-3-030-58858-8_21}.
+
+\bibitem[Dijkstra(1975)]{dijkstra_guarded_1975}
+Edsger~W. Dijkstra.
+\newblock Guarded commands, nondeterminacy and formal derivation of programs.
+\newblock \emph{Communications of the ACM}, 18\penalty0 (8):\penalty0 453--457,
+  1975.
+\newblock \doi{10.1145/360933.360975}.
+
+\bibitem[Dijkstra(1976)]{dijkstra1976discipline}
+Edsger~W. Dijkstra.
+\newblock \emph{A Discipline of Programming}.
+\newblock Prentice-Hall, Englewood Cliffs, NJ, USA, 1976.
+
+\bibitem[Dragan et~al.(2006)Dragan, Collard, and Maletic]{dragan2006reverse}
+Natalia Dragan, Michael~L. Collard, and Jonathan~I. Maletic.
+\newblock Reverse engineering method stereotypes.
+\newblock In \emph{22nd IEEE International Conference on Software Maintenance
+  (ICSM)}, pages 24--34, 2006.
+\newblock \doi{10.1109/ICSM.2006.68}.
+
+\bibitem[D'Silva et~al.(2008)D'Silva, Kroening, and
+  Weissenbacher]{dsilva_survey_2008}
+Vijay D'Silva, Daniel Kroening, and Georg Weissenbacher.
+\newblock A survey of automated techniques for formal software verification.
+\newblock \emph{IEEE Transactions on Computer-Aided Design of Integrated
+  Circuits and Systems}, 27\penalty0 (7):\penalty0 1165--1178, 2008.
+\newblock \doi{10.1109/TCAD.2008.923410}.
+
+\bibitem[Easterbrook and Callahan(1998)]{easterbrook_formal_1998}
+Steve Easterbrook and John Callahan.
+\newblock Formal methods for verification and validation of partial
+  specifications: A case study.
+\newblock \emph{Journal of Systems and Software}, 40\penalty0 (3):\penalty0
+  199--210, 1998.
+\newblock \doi{10.1016/S0164-1212(97)00167-2}.
+
+\bibitem[Ernst et~al.(2007)Ernst, Perkins, Guo, McCamant, Pacheco, Tschantz,
+  and Xiao]{ernst2007daikon}
+Michael~D. Ernst, Jeff~H. Perkins, Philip~J. Guo, Stephen McCamant, Carlos
+  Pacheco, Matthew~S. Tschantz, and Chen Xiao.
+\newblock The {Daikon} system for dynamic detection of likely invariants.
+\newblock volume~69, pages 35--45, 2007.
+\newblock \doi{10.1016/j.scico.2007.01.015}.
+
+\bibitem[Fowler(2004)]{fowler2004refactoring}
+Martin Fowler.
+\newblock \emph{Refactoring: Improving the Design of Existing Code}.
+\newblock Addison-Wesley, 2004.
+
+\bibitem[Goffi et~al.(2016)Goffi, Gorla, Ernst, and Pezz\`{e}]{toradocu2016}
+Alberto Goffi, Alessandra Gorla, Michael~D. Ernst, and Mauro Pezz\`{e}.
+\newblock Automatic generation of oracles for exceptional behaviors.
+\newblock In \emph{International Symposium on Software Testing and Analysis
+  (ISSTA)}, pages 213--224, 2016.
+\newblock \doi{10.1145/2931037.2931061}.
+
+\bibitem[Hasan and Tahar(2015)]{hasan_formal_2015}
+Osman Hasan and Sofi\`{e}ne Tahar.
+\newblock Formal verification methods.
+\newblock In \emph{Encyclopedia of Information Science and Technology, Third
+  Edition}, pages 7162--7170. IGI Global, 2015.
+\newblock \doi{10.4018/978-1-4666-5888-2.ch705}.
+
+\bibitem[Hoare(1969)]{hoare1969axiomatic}
+C.~A.~R. Hoare.
+\newblock An axiomatic basis for computer programming.
+\newblock \emph{Communications of the ACM}, 12\penalty0 (10):\penalty0
+  576--580, 1969.
+\newblock \doi{10.1145/363235.363259}.
+
+\bibitem[{JavaParser Team}(2024)]{javaparser}
+{JavaParser Team}.
+\newblock {JavaParser}: Java parser and abstract syntax tree.
+\newblock \url{https://javaparser.org}, 2024.
+\newblock Accessed: 2025-01-15.
+
+\bibitem[Klein et~al.(2014)]{klein2014sel4}
+Gerwin Klein et~al.
+\newblock Comprehensive formal verification of an {OS} microkernel.
+\newblock volume~32, pages 2:1--2:70, 2014.
+\newblock \doi{10.1145/2560537}.
+
+\bibitem[Leavens et~al.(2013)]{jml}
+Gary~T. Leavens et~al.
+\newblock {JML} reference manual.
+\newblock \url{http://www.jmlspecs.org}, 2013.
+\newblock Accessed: 2025-01-15.
+
+\bibitem[Lemieux et~al.(2023)]{lemieux2023codamosa}
+Caroline Lemieux et~al.
+\newblock {CodaMOSA}: Escaping coverage plateaus in test generation with
+  pre-trained large language models.
+\newblock In \emph{45th International Conference on Software Engineering
+  (ICSE)}, pages 919--931, 2023.
+\newblock \doi{10.1109/ICSE48619.2023.00085}.
+
+\bibitem[Ma et~al.(2024)]{ma2024specgen}
+Wei Ma et~al.
+\newblock {SpecGen}: Automated generation of formal program specifications via
+  large language models.
+\newblock \emph{arXiv preprint arXiv:2401.08807}, 2024.
+
+\bibitem[Matichuk et~al.(2015)Matichuk, Murray, Andronick, Jeffery, Klein, and
+  Staples]{matichuk_cost_2015}
+Daniel Matichuk, Toby Murray, June Andronick, Ross Jeffery, Gerwin Klein, and
+  Mark Staples.
+\newblock Empirical study towards a leading indicator for cost of formal
+  software verification.
+\newblock In \emph{37th IEEE International Conference on Software Engineering
+  (ICSE)}, pages 722--732, 2015.
+\newblock \doi{10.1109/ICSE.2015.76}.
+
+\bibitem[Meyer(1992)]{meyer1992design}
+Bertrand Meyer.
+\newblock Applying ``design by contract''.
+\newblock \emph{Computer}, 25\penalty0 (10):\penalty0 40--51, 1992.
+\newblock \doi{10.1109/2.161279}.
+
+\bibitem[Morgan(1990)]{morgan_programming_1990}
+Carroll Morgan.
+\newblock \emph{Programming from Specifications}.
+\newblock Prentice-Hall, USA, 1990.
+\newblock ISBN 978-0-13-726225-0.
+
+\bibitem[Pandita et~al.(2012)Pandita, Xiao, Zhong, Xie, Oney, and
+  Paradkar]{pandita2012inferring}
+Rahul Pandita, Xusheng Xiao, Hao Zhong, Tao Xie, Stephen Oney, and Amit
+  Paradkar.
+\newblock Inferring method specifications from natural language {API}
+  descriptions.
+\newblock In \emph{34th International Conference on Software Engineering
+  (ICSE)}, pages 815--825, 2012.
+\newblock \doi{10.1109/ICSE.2012.6227137}.
+
+\bibitem[Papadakis et~al.(2019)Papadakis, Kintis, Zhang, Jia, Traon, and
+  Harman]{papadakis2019mutation}
+Mike Papadakis, Marinos Kintis, Jie Zhang, Yue Jia, Yves~Le Traon, and Mark
+  Harman.
+\newblock Mutation testing advances: An analysis and survey.
+\newblock \emph{Advances in Computers}, 112:\penalty0 275--378, 2019.
+\newblock \doi{10.1016/bs.adcom.2018.03.015}.
+
+\bibitem[Perkins et~al.(2009)]{perkins2009automatically}
+Jeff~H. Perkins et~al.
+\newblock Automatically patching errors in deployed software.
+\newblock In \emph{ACM SIGOPS Symposium on Operating Systems Principles
+  (SOSP)}, pages 87--102, 2009.
+\newblock \doi{10.1145/1629575.1629585}.
+
+\bibitem[Peters and Parnas(1998)]{peters1998using}
+Dennis~K. Peters and David~Lorge Parnas.
+\newblock Using test oracles generated from program documentation.
+\newblock volume~24, pages 161--173, 1998.
+\newblock \doi{10.1109/32.667877}.
+
+\bibitem[Pinto et~al.(2017)Pinto, Reboucas, and Castor]{pinto_inadequate_2017}
+Gustavo Pinto, Marcel Reboucas, and Fernando Castor.
+\newblock Inadequate testing, time pressure, and (over) confidence: A tale of
+  continuous integration users.
+\newblock In \emph{10th International Workshop on Cooperative and Human Aspects
+  of Software Engineering (CHASE)}, pages 74--77, 2017.
+\newblock \doi{10.1109/CHASE.2017.13}.
+
+\bibitem[Sch{\"a}fer et~al.(2023)]{schafer2023adaptive}
+Max Sch{\"a}fer et~al.
+\newblock An empirical evaluation of using large language models for automated
+  unit test generation.
+\newblock 2023.
+\newblock \doi{10.1109/TSE.2023.3334955}.
+
+\bibitem[Wang et~al.(2017)Wang, Dillig, and Piskac]{preinfer2017}
+Xinyu Wang, Isil Dillig, and Ruzica Piskac.
+\newblock {PreInfer}: Inferring preconditions via symbolic execution.
+\newblock In \emph{ACM SIGPLAN International Conference on Object-Oriented
+  Programming, Systems, Languages, and Applications (OOPSLA)}, pages 779--793,
+  2017.
+\newblock \doi{10.1145/3133876}.
+
+\bibitem[Wohlin et~al.(2012)Wohlin, Runeson, H{\"o}st, Ohlsson, Regnell, and
+  Wessl{\'e}n]{wohlin2012experimentation}
+Claes Wohlin, Per Runeson, Martin H{\"o}st, Magnus~C. Ohlsson, Bj{\"o}rn
+  Regnell, and Anders Wessl{\'e}n.
+\newblock \emph{Experimentation in Software Engineering}.
+\newblock Springer, 2012.
+\newblock \doi{10.1007/978-3-642-29044-2}.
+
+\bibitem[Zhu et~al.(1997)Zhu, Hall, and May]{zhu_software_1997}
+Hong Zhu, Patrick A.~V. Hall, and John H.~R. May.
+\newblock Software unit test coverage and adequacy.
+\newblock \emph{ACM Computing Surveys}, 29\penalty0 (4):\penalty0 366--427,
+  1997.
+\newblock \doi{10.1145/267580.267590}.
+
+\bibitem[Zimmermann and Wehrheim(2019)]{zimmermann2019lightweight}
+Daniel Zimmermann and Heike Wehrheim.
+\newblock Increasing the practicality of formal methods for devops with
+  lightweight specifications.
+\newblock In \emph{Formal Methods for Industrial Critical Systems (FMICS)},
+  volume 11815 of \emph{LNCS}, pages 3--20. Springer, 2019.
+\newblock \doi{10.1007/978-3-030-30942-8_1}.
+
+\end{thebibliography}

@@ -1,0 +1,56 @@
+This is BibTeX, Version 0.99e
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: journal_article.aux
+Reallocating 'name_of_file' (item size: 1) to 9 items.
+The style file: plainnat.bst
+Reallocating 'name_of_file' (item size: 1) to 11 items.
+Database file #1: references.bib
+Warning--empty booktitle in ernst2007daikon
+Warning--can't use both volume and number fields in ernst2007daikon
+Warning--empty booktitle in klein2014sel4
+Warning--can't use both volume and number fields in klein2014sel4
+Warning--empty booktitle in peters1998using
+Warning--can't use both volume and number fields in peters1998using
+Warning--empty booktitle in schafer2023adaptive
+You've used 38 entries,
+            2773 wiz_defined-function locations,
+            841 strings with 12175 characters,
+and the built_in function-call counts, 20638 in all, are:
+= -- 1921
+> -- 1099
+< -- 46
++ -- 374
+- -- 336
+* -- 1552
+:= -- 3015
+add.period$ -- 152
+call.type$ -- 38
+change.case$ -- 214
+chr.to.int$ -- 38
+cite$ -- 83
+duplicate$ -- 985
+empty$ -- 1696
+format.name$ -- 397
+if$ -- 4504
+int.to.chr$ -- 1
+int.to.str$ -- 1
+missing$ -- 40
+newline$ -- 232
+num.names$ -- 152
+pop$ -- 485
+preamble$ -- 1
+purify$ -- 181
+quote$ -- 0
+skip$ -- 820
+stack$ -- 0
+substring$ -- 872
+swap$ -- 228
+text.length$ -- 23
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 393
+warning$ -- 7
+while$ -- 187
+width$ -- 0
+write$ -- 565
+(There were 7 warnings)

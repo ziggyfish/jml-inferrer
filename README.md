@@ -158,13 +158,12 @@ src/
 ├── experiment/                                   # Evaluation on Apache Commons Lang
 │   ├── commons-lang-subset/                     # Annotated source files
 │   └── sample_code/                             # Example Java files
-└── paper/                                        # Research paper
-    └── journal/                                  # Journal article LaTeX source
+└── journal/                                      # Research paper LaTeX source
 ```
 
 ## Research Paper
 
-A comprehensive research paper is included in the `paper/journal/` directory, covering:
+A comprehensive research paper is included in the `journal/` directory, covering:
 - Theoretical foundation (Weakest Precondition and Strongest Postcondition logic)
 - Implementation details and algorithm specification
 - Evaluation results using mutation testing
@@ -172,7 +171,7 @@ A comprehensive research paper is included in the `paper/journal/` directory, co
 
 To compile the paper:
 ```bash
-cd paper/journal
+cd journal
 pdflatex journal_article.tex
 bibtex journal_article
 pdflatex journal_article.tex
