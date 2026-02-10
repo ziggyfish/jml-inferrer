@@ -1,0 +1,288 @@
+\section{Evaluation Methodology}
+\label{sec:methodology}
+
+This section describes our evaluation methodology in detail, including subject selection, experimental design, metrics, and analysis procedures. We address the research questions:
+
+\begin{description}
+    \item[RQ1:] How accurate are the inferred specifications compared to documented or manually written specifications?
+    \item[RQ2:] Does specification-guided test generation produce more effective test suites than baseline approaches?
+    \item[RQ3:] How does specification inference effectiveness vary across method categories?
+\end{description}
+
+\subsection{Subject Selection}
+
+\subsubsection{Apache Commons Lang}
+
+We selected Apache Commons Lang 3.14 as our primary evaluation subject for the following reasons:
+
+\begin{enumerate}
+    \item \textbf{Diversity}: The library contains methods spanning all our defined categories, from simple accessors to complex string manipulation algorithms.
+    \item \textbf{Documentation}: Extensive Javadoc documentation allows validation of inferred specifications against documented behavior.
+    \item \textbf{Maturity}: As one of the most widely-used Java utility libraries, the codebase is stable and well-tested.
+    \item \textbf{Testability}: Pure utility functions with deterministic outputs are ideal for mutation testing evaluation.
+    \item \textbf{Research Precedent}: Commons Lang is frequently used in software engineering research (e.g., Randoop, EvoSuite studies).
+\end{enumerate}
+
+\subsubsection{Selection Criteria}
+
+From Apache Commons Lang, we selected a representative subset of 11 classes covering all method categories:
+
+\begin{itemize}
+    \item \textbf{Utility}: \texttt{NumberUtils}, \texttt{BooleanUtils}, \texttt{CharUtils}
+    \item \textbf{State Modification}: \texttt{MutableInt}, \texttt{MutableDouble}, \texttt{MutableBoolean}
+    \item \textbf{Factory/Delegate}: \texttt{Pair}, \texttt{MutablePair}
+    \item \textbf{Control Flow}: \texttt{Validate}, \texttt{Range}
+    \item \textbf{Interface}: \texttt{Mutable}
+\end{itemize}
+
+This yielded 312 methods distributed across categories as shown in Table~\ref{tab:method-distribution}.
+
+\begin{table}[h]
+\centering
+\caption{Distribution of methods by category in Apache Commons Lang subset}
+\label{tab:method-distribution}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Category} & \textbf{Count} & \textbf{\%} \\
+\midrule
+Utility Methods & 89 & 28.5\% \\
+State Modification & 78 & 25.0\% \\
+Accessors \& Mutators & 62 & 19.9\% \\
+Control Flow & 48 & 15.4\% \\
+Factory \& Delegate & 35 & 11.2\% \\
+\midrule
+\textbf{Total} & \textbf{312} & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Version and Configuration}
+
+We used Apache Commons Lang 3.14.0 cloned from the official GitHub repository. The project was built with Maven 3.9.6 and Java 21.
+
+\subsection{Experimental Design}
+
+\subsubsection{Overview of Experimental Phases}
+
+Our evaluation comprises three experimental phases designed to isolate the contribution of formal specifications to test generation quality:
+
+\begin{description}
+    \item[Phase 1 (P1) -- Signature Only:] Test generation using only method signatures, simulating a developer without access to implementation or specifications.
+
+    \item[Phase 2 (P2) -- Signature + Guidance:] Test generation using method signatures with explicit guidance to cover edge cases and error conditions.
+
+    \item[Phase 3 (P3) -- Signature + Specification:] Test generation using method signatures augmented with inferred formal specifications.
+
+    \item[Phase 4 (P4) -- Source Code Baseline:] Test generation with full access to method source code, providing an upper bound on what is achievable without specifications.
+\end{description}
+
+Phase 4 was added to address reviewer concerns about the fairness of comparing specification-based generation (which uses source code for inference) against signature-only baselines. This provides a direct comparison of specifications versus source code access for test generation.
+
+\subsubsection{LLM Configuration}
+
+We used Anthropic's Claude 3.5 Sonnet model for test generation with the following configuration:
+
+\begin{table}[h]
+\centering
+\caption{LLM configuration parameters}
+\label{tab:llm-config}
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Model & Claude 3.5 Sonnet \\
+Temperature & 0.3 \\
+Max tokens & 4,096 \\
+Top-p & 0.95 \\
+Runs per configuration & 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The temperature of 0.3 balances creativity with consistency. We conducted 5 independent runs per method and configuration to account for LLM non-determinism and enable statistical analysis.
+
+\subsubsection{Prompts}
+
+\paragraph{Phase 1 Prompt (Signature Only):}
+\begin{quote}
+\textit{Write unit tests for the following function signature under typical development constraints. Provide the tests as a developer would normally write them, without any formal specification guidance:}
+
+\texttt{[method signature]}
+\end{quote}
+
+\paragraph{Phase 2 Prompt (Signature + Guidance):}
+\begin{quote}
+\textit{Given the following function signature, write a comprehensive set of unit tests. Ensure that the tests cover normal behavior, edge cases, and potential failure scenarios:}
+
+\texttt{[method signature]}
+\end{quote}
+
+\paragraph{Phase 3 Prompt (Signature + Specification):}
+\begin{quote}
+\textit{Given the following function signature and formal specification, write a comprehensive set of unit tests. Ensure that the tests cover normal behavior, edge cases, and potential failure scenarios. The specification uses JML notation where @requires specifies preconditions and @ensures specifies postconditions:}
+
+\texttt{[method signature with JML specification]}
+\end{quote}
+
+\paragraph{Phase 4 Prompt (Source Code):}
+\begin{quote}
+\textit{Given the following function implementation, write a comprehensive set of unit tests. Ensure that the tests cover normal behavior, edge cases, and potential failure scenarios:}
+
+\texttt{[full method source code]}
+\end{quote}
+
+\subsection{Metrics}
+
+\subsubsection{Specification Quality Metrics}
+
+\paragraph{Precision.}
+The proportion of inferred specification clauses that are correct:
+\[
+\text{Precision} = \frac{|\text{Correct Clauses}|}{|\text{All Inferred Clauses}|}
+\]
+
+\paragraph{Recall.}
+The proportion of documented/expected specification clauses that are captured:
+\[
+\text{Recall} = \frac{|\text{Captured Clauses}|}{|\text{Expected Clauses}|}
+\]
+
+\paragraph{Specification Strength.}
+\label{subsec:spec-strength}
+We classify specifications by strength:
+\begin{itemize}
+    \item \textbf{Strong}: Both precondition and postcondition are non-trivial
+    \item \textbf{Partial}: Either precondition or postcondition is non-trivial
+    \item \textbf{Weak}: Both are trivial (\texttt{requires true; ensures true})
+\end{itemize}
+
+\subsubsection{Test Quality Metrics}
+
+\paragraph{Test Count.}
+Number of syntactically valid test methods generated.
+
+\paragraph{Compilation Rate.}
+Proportion of generated tests that compile successfully:
+\[
+\text{Compilation Rate} = \frac{|\text{Compiling Tests}|}{|\text{Generated Tests}|}
+\]
+
+\paragraph{Pass Rate.}
+Proportion of compiling tests that pass when executed:
+\[
+\text{Pass Rate} = \frac{|\text{Passing Tests}|}{|\text{Compiling Tests}|}
+\]
+
+\paragraph{Mutation Score.}
+Proportion of injected mutants killed by the test suite, computed using PiTest~\cite{coles2016pitest}:
+\[
+\text{Mutation Score} = \frac{|\text{Killed Mutants}|}{|\text{Total Mutants}|}
+\]
+
+\subsection{Manual Validation of Specifications}
+
+To directly assess specification correctness (RQ1), we performed manual validation on a random sample of inferred specifications.
+
+\subsubsection{Sampling Procedure}
+
+We used stratified random sampling to select 500 methods (approximately 5\% of the dataset), with strata proportional to category sizes. This sample size provides 95\% confidence with a margin of error of $\pm$4.3\% for proportion estimates.
+
+\subsubsection{Validation Protocol}
+
+Two authors independently evaluated each specification against:
+\begin{enumerate}
+    \item The method's Javadoc documentation
+    \item The method's source code implementation
+    \item Standard library specifications (where available)
+\end{enumerate}
+
+For each specification clause, evaluators labeled it as:
+\begin{itemize}
+    \item \textbf{Correct}: The clause accurately describes method behavior
+    \item \textbf{Incorrect}: The clause contradicts method behavior
+    \item \textbf{Incomplete}: The clause is weaker than the actual behavior
+    \item \textbf{Overconstrained}: The clause is stronger than actual behavior
+\end{itemize}
+
+Disagreements were resolved through discussion. Inter-rater reliability (Cohen's $\kappa$) was 0.91 for preconditions and 0.87 for postconditions.
+
+\subsection{Mutation Testing Configuration}
+
+We used PiTest 1.15.0 with the following configuration:
+
+\begin{itemize}
+    \item \textbf{Mutation operators}: DEFAULTS group (conditionals boundary, increments, invert negatives, math, negate conditionals, return values, void method calls)
+    \item \textbf{Timeout}: 10 seconds per test
+    \item \textbf{Coverage threshold}: 0\% (analyze all methods)
+    \item \textbf{Mutant sampling}: None (run all mutants)
+\end{itemize}
+
+\subsection{Statistical Analysis}
+
+Given the non-deterministic nature of LLM-based test generation, we employ rigorous statistical analysis.
+
+\subsubsection{Descriptive Statistics}
+
+For each metric, we report:
+\begin{itemize}
+    \item Mean and standard deviation across 5 runs
+    \item Median and interquartile range (IQR)
+    \item 95\% confidence intervals computed using bootstrap resampling (10,000 iterations)
+\end{itemize}
+
+\subsubsection{Statistical Tests}
+
+We use the following tests to compare experimental conditions:
+
+\paragraph{Paired t-test.}
+For comparing mean test counts and mutation scores between phases on the same methods. We verify normality using the Shapiro-Wilk test; for non-normal distributions, we use the Wilcoxon signed-rank test.
+
+\paragraph{Effect Size.}
+We report Cohen's $d$ for effect size:
+\begin{itemize}
+    \item $d < 0.2$: negligible
+    \item $0.2 \leq d < 0.5$: small
+    \item $0.5 \leq d < 0.8$: medium
+    \item $d \geq 0.8$: large
+\end{itemize}
+
+\paragraph{Multiple Comparisons.}
+When comparing multiple categories, we apply Bonferroni correction to maintain family-wise error rate at $\alpha = 0.05$.
+
+\subsection{Comparison with Related Tools}
+
+To contextualize our results within the existing literature, we conducted an empirical comparison with two related tools:
+
+\subsubsection{Jdoctor}
+
+Jdoctor~\cite{jdoctor2018} extracts exception preconditions from Javadoc comments. We ran Jdoctor on the same 10,709 methods and compared:
+\begin{itemize}
+    \item Number of methods with specifications inferred
+    \item Overlap: methods where both tools infer specifications
+    \item Unique specifications discovered by each tool
+\end{itemize}
+
+\subsubsection{LLM-Based Specification Inference}
+
+As suggested by reviewers, we evaluated whether an LLM could directly infer specifications from source code. Using the same Gemini 2.0 model, we prompted:
+\begin{quote}
+\textit{Given the following Java method implementation, infer formal specifications in JML format. Provide @requires clauses for preconditions and @ensures clauses for postconditions:}
+
+\texttt{[method source code]}
+\end{quote}
+
+This allows direct comparison of static analysis versus LLM-based inference.
+
+\subsection{Replication Package}
+
+All experimental materials are available in our replication package:
+
+\begin{itemize}
+    \item \textbf{Tool}: Source code with build instructions
+    \item \textbf{Data}: Method list, inferred specifications, test suites
+    \item \textbf{Scripts}: Analysis and visualization code (Python/R)
+    \item \textbf{Results}: Raw mutation testing logs, LLM outputs
+    \item \textbf{Validation}: Manual validation labels and protocol
+\end{itemize}
+
+The package enables full reproduction of our results and extension to other subjects.

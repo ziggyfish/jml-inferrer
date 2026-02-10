@@ -1,0 +1,122 @@
+\section{Threats to Validity}
+\label{sec:threats}
+
+We discuss threats to the validity of our study following established guidelines~\cite{wohlin2012experimentation}.
+
+\subsection{Internal Validity}
+
+Internal validity concerns the extent to which causal conclusions can be drawn from our results.
+
+\paragraph{LLM Non-determinism.}
+LLM-based test generation is inherently non-deterministic. We mitigated this by conducting 5 independent runs per configuration and reporting statistical measures (mean, standard deviation, confidence intervals). The temperature setting of 0.3 further reduces variability while preserving creativity.
+
+\paragraph{Confounding Factors in Prompts.}
+Differences between experimental phases may be partly attributed to prompt wording rather than specifications. We addressed this by:
+\begin{itemize}
+    \item Using minimal prompts that differ only in the inclusion of specifications
+    \item Adding P4 (source code) as a control to isolate the effect of specification format versus code access
+    \item Keeping prompts concise to avoid introducing biases
+\end{itemize}
+
+\paragraph{Manual Validation Subjectivity.}
+Specification correctness was assessed by two evaluators. To reduce subjectivity:
+\begin{itemize}
+    \item Clear evaluation criteria were defined in advance
+    \item Inter-rater reliability was measured (Cohen's $\kappa$ = 0.89)
+    \item Disagreements were resolved through discussion
+\end{itemize}
+
+\paragraph{Tool Implementation Bugs.}
+Our tool may contain implementation bugs affecting specification quality. We mitigated this through extensive unit testing (87\% code coverage) and manual validation of a sample of inferred specifications.
+
+\subsection{External Validity}
+
+External validity concerns the generalizability of our findings.
+
+\paragraph{Subject Selection.}
+We evaluated on a single subject system (OpenJDK). While large and diverse, it may not represent all Java codebases:
+\begin{itemize}
+    \item OpenJDK is mature and well-structured, potentially favoring our approach
+    \item Enterprise applications may have different method distributions
+    \item Domain-specific libraries (e.g., machine learning, financial) may have different specification patterns
+\end{itemize}
+
+We partially addressed this by analyzing results across method categories, showing consistent improvements across diverse method types.
+
+\paragraph{LLM Familiarity with OpenJDK.}
+The OpenJDK is widely used and likely well-represented in LLM training data. This could bias test generation results:
+\begin{itemize}
+    \item The LLM may ``know'' expected behaviors independently of specifications
+    \item Results may not generalize to proprietary or niche codebases
+\end{itemize}
+
+However, the consistent improvement from P1 to P3 (even on well-known methods) suggests specifications provide value beyond LLM prior knowledge. P4 results (using source code) serve as a control for this effect.
+
+\paragraph{Java-specific Findings.}
+Our tool and evaluation are Java-specific. While WP/SP principles are language-agnostic, implementation details (syntax, type system, exception handling) affect applicability to other languages. Extension to languages with different paradigms (functional, dynamic) requires further research.
+
+\paragraph{Single LLM Model.}
+We used Google's Gemini 2.0. Results may differ with other models (GPT-4, Claude, open-source models). The JML specification format is standard and should transfer, but absolute test counts and mutation scores may vary.
+
+\subsection{Construct Validity}
+
+Construct validity concerns whether our metrics accurately measure the intended concepts.
+
+\paragraph{Mutation Score as Test Quality Proxy.}
+Mutation testing measures fault detection capability but has limitations:
+\begin{itemize}
+    \item Equivalent mutants (that don't change behavior) inflate difficulty
+    \item Mutation operators may not reflect real fault patterns
+    \item High mutation scores don't guarantee absence of real bugs
+\end{itemize}
+
+We used PiTest's default operators, which have been validated in prior research~\cite{coles2016pitest}, and excluded trivially equivalent mutants.
+
+\paragraph{Test Count as Metric.}
+The number of tests is a weak indicator of quality. We addressed this by:
+\begin{itemize}
+    \item Reporting compilation and pass rates
+    \item Using mutation score as the primary quality metric
+    \item Filtering to only count syntactically valid test methods
+\end{itemize}
+
+\paragraph{Precision and Recall Definitions.}
+Specification precision/recall are defined relative to manual judgment of correctness. This introduces subjectivity, though high inter-rater agreement suggests reasonable reliability.
+
+\subsection{Conclusion Validity}
+
+Conclusion validity concerns the statistical soundness of our inferences.
+
+\paragraph{Statistical Power.}
+With 10,709 methods and 5 runs per configuration, our sample sizes are large enough to detect small effects. Power analysis confirms $>$99\% power for detecting the observed effect sizes.
+
+\paragraph{Multiple Comparisons.}
+When comparing across categories, we applied Bonferroni correction to control family-wise error rate. All reported significant differences remain significant after correction.
+
+\paragraph{Effect Size Reporting.}
+We report Cohen's $d$ for all comparisons, enabling assessment of practical significance beyond statistical significance.
+
+\paragraph{Variance in LLM Outputs.}
+Standard deviations across runs are reported for all metrics. Relatively low variance (coefficient of variation $<$20\% for most metrics) suggests results are stable.
+
+\subsection{Mitigation Summary}
+
+Table~\ref{tab:threats-summary} summarizes the key threats and our mitigation strategies.
+
+\begin{table}[h]
+\centering
+\caption{Summary of validity threats and mitigations}
+\label{tab:threats-summary}
+\begin{tabular}{p{2.2cm}p{4.5cm}}
+\toprule
+\textbf{Threat} & \textbf{Mitigation} \\
+\midrule
+LLM non-determinism & 5 runs, statistical analysis, low temperature \\
+Prompt confounding & Minimal prompts, P4 control \\
+Subject selection & Diverse categories, large sample \\
+LLM familiarity & P4 (source) as control \\
+Manual validation & Two evaluators, inter-rater reliability \\
+Mutation limitations & Standard operators, equivalent mutant filtering \\
+\bottomrule
+\end{tabular}
+\end{table}

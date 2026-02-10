@@ -1,0 +1,20 @@
+\section{Introduction}
+
+Modern software systems are increasingly distributed, modular, and service-oriented. In these environments, \emph{shared libraries} play a critical role by encapsulating common functionality and standardizing communication between microservices~\cite{de_toledo_improving_2020}. However, as these systems evolve, maintaining correctness, consistency, and interoperability across components becomes significantly more complex. This complexity is exacerbated by the lack of precise behavioral specifications, particularly in large-scale or legacy codebases where documentation may be insufficient or outdated.
+
+\emph{Formal specifications} offer a rigorous mechanism for specifying the intended behavior of software components, thereby enhancing program understanding, preventing regression, and facilitating automated verification~\cite{hasan_formal_2015, dsilva_survey_2008}. However, their adoption remains limited, as the manual development of such specifications is prohibitively expensive and error-prone, often necessitating extensive domain expertise and considerable engineering effort~\cite{matichuk_cost_2015, easterbrook_formal_1998}. Consequently, formal methods are generally constrained to high-assurance systems or isolated use cases, while the broader software industry continues to rely heavily on unit tests, which often suffer from incomplete coverage, particularly in distributed systems~\cite{pinto_inadequate_2017, zhu_software_1997}.
+
+This paper introduces a static analysis tool that automatically infers normal-behavior specifications for existing software, providing machine-checkable contracts that improve correctness, testability, and maintainability. In this context, \textit{normal behaviour} refers to the anticipated outcomes and side effects of a program when it operates under valid inputs and within its intended environment, explicitly excluding error states or exceptional conditions. We assume that exceptions are undesirable and that well-formed client calls should be written so as not to trigger them. These inferred specifications delineate how a program should behave during standard execution, expressed as machine-checkable behavioral contracts. They enable developers to validate interface correctness, detect discrepancies in expected usage, and enhance test completeness, even when complete implementation details or manually written formal specifications are unavailable.
+
+We demonstrate that embedding inferred specifications into shared libraries directly supports the \emph{evolution and maintenance of distributed systems} by:
+\begin{itemize}
+\item Enabling automated contract validation at service boundaries,
+\item Enhancing regression test quality through specification-informed generation, and
+\item Reducing dependency-related failures during library upgrades or refactoring.
+\end{itemize}
+
+Through a comprehensive evaluation of the OpenJDK core library, we show that our tool significantly enhances both test coverage and mutation resistance. It generates up to twice as many tests compared to baseline methods and achieves mutation scores as high as 95.7\% in several method categories, including accessors, factory methods, and control flow structures.
+
+While this paper focuses on the inference and validation of normal-behaviour specifications, future work will examine how these inferred contracts can be leveraged to improve automated testing of library clients and service integrations. This direction aims to extend specification-based reasoning beyond individual components to the broader distributed ecosystem.
+
+In doing so, this work contributes to a \emph{practically deployable tool} that improves software maintenance and evolution in real-world systems, bridging the gap between \emph{formal specification inference} and \emph{continuous integration workflows}~\cite{zimmermann2019lightweight}.

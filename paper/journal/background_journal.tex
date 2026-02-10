@@ -1,0 +1,173 @@
+\section{Background: Formal Specification Theory}
+\label{sec:background}
+
+This section provides the theoretical foundation for our specification inference approach. We present the formal definitions of weakest precondition (WP) and strongest postcondition (SP) analysis, which form the core of our inference engine.
+
+\subsection{Weakest Precondition Analysis}
+\label{subsec:wp-theory}
+
+The weakest precondition calculus, introduced by Dijkstra~\cite{dijkstra_guarded_1975}, identifies the minimal requirements that must hold before executing a program to ensure a specified postcondition holds afterward. This backward analysis systematically propagates correctness constraints from the end of a program to its beginning.
+
+\begin{definition}[Weakest Precondition]
+For a statement $S$ and postcondition $Q$, the weakest precondition $\text{WP}(S, Q)$ is defined as:
+\[
+\text{WP}(S, Q) = \{\, \sigma \mid \forall \sigma'.\, (\sigma \xrightarrow{S} \sigma') \Rightarrow Q(\sigma') \,\}
+\]
+That is, all initial states $\sigma$ for which every possible outcome $\sigma'$ of executing $S$ satisfies $Q$.
+\end{definition}
+
+For example, given $x := x + 1$ and postcondition $Q = (x > 5)$:
+\[
+\text{WP}(x := x + 1, x > 5) = x > 4
+\]
+
+\subsubsection{WP Rules for Statement Types}
+
+\paragraph{Assignment Statements.}
+For an assignment $x := e$ and postcondition $Q$, the weakest precondition incorporates both the substitution and definedness conditions~\cite{dijkstra1976discipline, morgan_programming_1990}:
+\[
+\text{WP}(x := e, Q) = \text{def}(e) \land Q[x \leftarrow e]
+\]
+where $\text{def}(e)$ represents conditions ensuring $e$ is well-defined (e.g., non-null dereferences, valid array indices, non-zero divisors).
+
+\paragraph{Sequential Composition.}
+For a sequence $S_1; S_2$:
+\[
+\text{WP}(S_1; S_2, Q) = \text{WP}(S_1, \text{WP}(S_2, Q))
+\]
+
+\paragraph{Conditional Statements.}
+For conditionals with condition $C$, true branch $S_1$, and false branch $S_2$:
+\[
+\text{WP}(\text{if } C, Q) = (C \rightarrow \text{WP}(S_1, Q)) \land (\neg C \rightarrow \text{WP}(S_2, Q))
+\]
+
+\paragraph{Return Statements.}
+We model \texttt{return e} as an assignment to a distinguished variable \texttt{result}~\cite{morgan_programming_1990}:
+\[
+\text{WP}(\texttt{return } e, Q) = \text{WP}(\texttt{result} := e, Q)
+\]
+
+\paragraph{Throw Statements.}
+Since we infer only \emph{normal behaviour} specifications, throw statements represent contract violations. We model:
+\[
+\text{WP}(\texttt{throw } e, Q) = \texttt{false}
+\]
+This captures that reaching a throw statement violates the normal execution assumption, generating a precondition that excludes paths leading to exceptions.
+
+\subsection{Strongest Postcondition Analysis}
+\label{subsec:sp-theory}
+
+In contrast to WP analysis, strongest postcondition (SP) analysis computes the forward effects of program execution, starting from known initial conditions~\cite{hoare1969axiomatic}.
+
+\begin{definition}[Strongest Postcondition]
+For a statement $S$ and precondition $P$, the strongest postcondition $\text{SP}(S, P)$ is:
+\[
+\text{SP}(S, P) = \{\, \sigma' \mid \exists \sigma.\, P(\sigma) \land \sigma \xrightarrow{S} \sigma' \,\}
+\]
+\end{definition}
+
+\subsubsection{SP Rules for Statement Types}
+
+\paragraph{Assignment Statements.}
+For $x := e$ with precondition $P$:
+\[
+\text{SP}(x := e, P) = \exists x_0.\, (P[x \leftarrow x_0] \land x = e[x \leftarrow x_0])
+\]
+
+For example, with $P = (x > 5)$ and $x := x + 1$:
+\[
+\text{SP}(x := x + 1, x > 5) = \exists x_0.\, (x_0 > 5 \land x = x_0 + 1) \equiv x > 6
+\]
+
+\paragraph{Conditional Statements.}
+For conditionals:
+\[
+\text{SP}(\text{if } C \text{ then } S_1 \text{ else } S_2, P) = \text{SP}(S_1, P \land C) \lor \text{SP}(S_2, P \land \neg C)
+\]
+
+\paragraph{Return Statements.}
+\[
+\text{SP}(\texttt{return } e, P) = P \land \texttt{result} = e
+\]
+
+\subsection{Interaction Between WP and SP in Our Approach}
+\label{subsec:wp-sp-interaction}
+
+Our tool employs both WP and SP analyses in a complementary manner, as illustrated in Figure~\ref{fig:wp-sp-interaction}. The interaction proceeds as follows:
+
+\begin{enumerate}
+    \item \textbf{Initial WP Pass}: Starting from \texttt{true} as the initial postcondition at return statements, WP analysis propagates backward through the method body. This identifies necessary preconditions arising from:
+    \begin{itemize}
+        \item Null checks and guard conditions
+        \item Arithmetic constraints (division, array bounds)
+        \item Exception-throwing paths (which require preconditions to avoid)
+    \end{itemize}
+
+    \item \textbf{SP Pass}: Using the inferred precondition as the starting state, SP analysis propagates forward to compute the strongest characterization of the return value and modified state.
+
+    \item \textbf{Refinement}: If the SP-derived postcondition contains complex expressions, we apply simplification rules and, where possible, attempt to express conditions in terms of input parameters using the tracked parameter renaming (see Section~\ref{subsec:parameter-handling}).
+\end{enumerate}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+    node distance=1.2cm,
+    box/.style={rectangle, draw, rounded corners, minimum width=2.2cm, minimum height=0.7cm, align=center, font=\small},
+    arrow/.style={->, >=stealth, thick}
+]
+    % Nodes
+    \node[box, fill=lightblue] (source) {Java\\Source};
+    \node[box, fill=lightyellow, right=of source] (ast) {AST\\Parse};
+    \node[box, fill=lightgreen, right=of ast] (wp) {WP\\Analysis};
+    \node[box, fill=lightgreen, below=of wp] (sp) {SP\\Analysis};
+    \node[box, fill=lightpurple, left=of sp] (simplify) {Simplify\\Expressions};
+    \node[box, fill=lightblue, left=of simplify] (jml) {JML\\Spec};
+
+    % Arrows
+    \draw[arrow] (source) -- (ast);
+    \draw[arrow] (ast) -- (wp);
+    \draw[arrow] (wp) -- node[right, font=\scriptsize] {precondition} (sp);
+    \draw[arrow] (sp) -- node[above, font=\scriptsize] {postcondition} (simplify);
+    \draw[arrow] (simplify) -- (jml);
+
+    % Feedback loop
+    \draw[arrow, dashed] (sp.east) -- ++(0.5,0) |- node[right, font=\scriptsize, pos=0.25] {refinement} (wp.east);
+\end{tikzpicture}
+\caption{Interaction between WP and SP analyses in our specification inference pipeline. WP analysis runs backward from return statements to infer preconditions; SP analysis runs forward using the inferred precondition to derive postconditions. A refinement loop may iterate when complex expressions require simplification.}
+\label{fig:wp-sp-interaction}
+\end{figure}
+
+\subsection{Handling Method Parameters}
+\label{subsec:parameter-handling}
+
+When a method accepts parameters, we introduce fresh variables to preserve initial values during SP analysis. For a parameter \texttt{x}, we create \texttt{x\_in} representing the entry value:
+
+\begin{lstlisting}[language=Java]
+int foo(int x) {
+    // Internally represented as:
+    // int x_in = x;
+    x = x + 1;
+    return x;
+}
+\end{lstlisting}
+
+This allows postconditions to be expressed in terms of input values:
+\[
+\texttt{result} = \texttt{x\_in} + 1
+\]
+
+\subsection{Theoretical Guarantees and Limitations}
+
+\subsubsection{Soundness}
+Our WP analysis is \emph{sound} in the following sense: if the inferred precondition $P$ holds and the method terminates normally, then the inferred postcondition $Q$ is guaranteed to hold. This follows from the correctness of the WP/SP calculus~\cite{dijkstra1976discipline}.
+
+\subsubsection{Completeness}
+The analysis is \emph{incomplete} in general:
+\begin{itemize}
+    \item Loop invariant inference relies on heuristics that may fail for complex loops
+    \item Method calls are handled conservatively (see Section~\ref{subsec:method-calls})
+    \item Specifications may be weaker than optimal when simplification cannot reduce complex expressions
+\end{itemize}
+
+We quantify these limitations empirically in Section~\ref{sec:results}.

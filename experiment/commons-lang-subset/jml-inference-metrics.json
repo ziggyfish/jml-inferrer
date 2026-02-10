@@ -1,0 +1,62 @@
+{
+  "timing": {
+    "totalAnalysisTimeMs": 973,
+    "averageTimePerFile": 88.45,
+    "averageTimePerClass": 88.45
+  },
+  "codeMetrics": {
+    "totalFiles": 11,
+    "totalClasses": 11,
+    "totalMethods": 312,
+    "totalLinesOfCode": 10202
+  },
+  "coverage": {
+    "classAnnotationCoverage": 90.91,
+    "methodAnnotationCoverage": 99.04,
+    "preconditionCoverage": 34.94,
+    "postconditionCoverage": 51.92,
+    "loopInvariantCoverage": 6.41,
+    "frameConditionCoverage": 98.72
+  },
+  "annotationCounts": {
+    "Invariant": 1450,
+    "Requires": 183,
+    "LoopInvariant": 53,
+    "SuppressWarnings": 6,
+    "ThreadSafe": 244,
+    "Complexity": 308,
+    "Mutator": 27,
+    "Deprecated": 13,
+    "Observer": 135,
+    "Signals": 55,
+    "Ensures": 173,
+    "Override": 39,
+    "Pure": 146,
+    "Assignable": 308
+  },
+  "specificationStrength": {
+    "weak": 114,
+    "medium": 31,
+    "strong": 28
+  },
+  "methodPurity": {
+    "pure": 146,
+    "observer": 135,
+    "mutator": 27
+  },
+  "complexityDistribution": {
+    "O(n)": 20,
+    "O(1)": 229,
+    "O(2^n)": 59
+  },
+  "classLevelMetrics": {
+    "classesWithInvariants": 1450,
+    "classesWithImmutable": 0,
+    "classesWithThreadSafe": 5,
+    "classesWithMustCall": 0
+  },
+  "nullability": {
+    "nonNullAnnotations": 0,
+    "nullableAnnotations": 58
+  }
+}

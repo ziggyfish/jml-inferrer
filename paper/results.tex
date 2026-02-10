@@ -1,0 +1,165 @@
+
+\section{Results}
+\label{section:results}
+
+In our study, we evaluated the effectiveness of specification inference methods by comparing the number of additional unit tests generated with and without the specifications inferred by our approach across various function categories. The results demonstrate a significant improvement in the generation of unit tests when inferred specifications are applied.
+
+Specifically, across all evaluated categories, the application of inferred specifications resulted in a significant increase in the number of methods identified for unit testing. In particular, categories such as Factory \& Delegate Patterns and Accessors \& Mutators exhibited the highest improvement in test generation, achieving mutation rates of 95.77\% and 94.25\%, respectively, when specifications were inferred. Furthermore, the Control Flow Structures category, which encompasses conditional logic and looping constructs, demonstrated a mutation rate of 94.25\% with inferred specifications, underscoring the substantial impact of formal specifications on the overall quality of test generation.
+
+The Other Method category also saw a substantial improvement in test generation, achieving a mutation rate of 83.39\% when inferred specifications were applied. This further underscores the utility of specifications in less conventional methods.
+
+These findings reveal a significant increase in the number of methods identified for unit testing, resulting in a total increase of 76\%. This underscores the potential of formal specification inference in enhancing test generation and improving software quality across a wide range of function categories. For detailed results, refer to Table 1.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{|l|r|r|r|r|r|r|r|}
+\hline
+\multirow{2}{*}{\textbf{Combined Category}} & 
+\multirow{2}{*}{\textbf{Methods}} & 
+\multicolumn{2}{c|}{\textbf{Sig-only (P1)}} & 
+\multicolumn{2}{c|}{\textbf{Sig + Guide (P2)}} &
+\multicolumn{2}{c|}{\textbf{Sig + Spec (P3)}} \\
+\cline{3-8}
+ & & \textbf{Tests} & \textbf{Mut. (\%)} & \textbf{Tests} & \textbf{Mut. (\%)} & \textbf{Tests} & \textbf{Mut. (\%)} \\
+\hline
+Accessors \& Mutators        & 2,889 & 13,358 & 75.19 & 17,234 & 70.42 & 22,537 & 94.25 \\
+\hline
+Abstract Constructs          & 509   & 2,565  & 92.88 & 3,147  & 68.55 & 4,494  & 89.83 \\
+\hline
+Control Flow Structures      & 930   & 10,310 & 47.17 & 12,134 & 62.18 & 19,628 & 94.25 \\
+\hline
+Factory \& Delegate Patterns & 4,773 & 28,941 & 76.28 & 35,276 & 69.87 & 48,104 & 95.77 \\
+\hline
+Support \& Utility Methods   & 355   & 2,838  & 52.70 & 3,053  & 63.45 & 4,878  & 93.26 \\
+\hline
+Other Method                 & 751   & 4,311  & 48.96 & 5,118  & 60.12 & 7,916  & 83.39 \\
+\hline
+State Modification           & 502   & 2,664  & 56.94 & 3,612  & 63.25 & 5,124  & 93.47 \\
+\hline
+\textbf{Average}             &       &        & \textbf{57.59} &   & \textbf{68.94} &        & \textbf{91.65} \\
+\hline
+\end{tabular}
+\caption{Mutation and test metrics by method type for OpenJDK, corresponding to the three experimental phases: P1 (signature-only), P2 (signature + guidance), and P3 (signature + formal specification).}
+\label{tab:mutation-method-summary}
+\end{table*}
+
+\subsection{Inference of Function Specifications}
+
+To assess the impact of formal specification on testing outcomes, we conducted an experiment using functions from the OpenJDK core library. The experiment had three phases. 
+
+\textbf{Phase 1: Signature-only tests.} Google's Gemini 2.0 AI generated unit tests based solely on the method signature, simulating a typical developer without formal specification guidance. These tests covered common and some edge cases but were not exhaustive.
+
+
+\begin{lstlisting}[frame=none,language=TeX] 
+Prompt 1: Write unit tests for the following function signature under typical development constraints. Provide the tests as a developer would normally write them, without any formal specification guidance:
+\end{lstlisting}
+\vspace{-5ex}
+\begin{lstlisting}[caption={Example method signature for computing the midpoint between two geographic coordinates.}]
+GeographicalPoint midpoint(float lat1, float lon1, float lat2, float lon2);
+\end{lstlisting}
+\label{lst:midpoint-signature}
+
+
+\textbf{Phase 2: Signature + descriptive guidance.} The AI was instructed to generate a comprehensive set of unit tests using only the function signature, but explicitly told to cover normal behavior, edge cases, and potential failure scenarios:
+
+\begin{lstlisting}[frame=none]    
+Prompt 2: Given the following function signature, write a comprehensive set of unit tests. Ensure that the tests cover normal behavior, edge cases, and potential failure scenarios:
+\end{lstlisting}
+\vspace{-4ex}
+
+\textbf{Phase 3: Signature + formal specification.} The AI received both the function signature and a formal specification, including precise preconditions and postconditions. This enabled the generation of fully comprehensive tests covering all expected behaviors and edge cases:
+
+\begin{lstlisting}[frame=none]  
+Prompt 3: Given the following function signature and formal specification, write a comprehensive set of unit tests. Ensure that the tests cover normal behavior, edge cases, and potential failure scenarios:
+\end{lstlisting}
+\vspace{-4ex}
+
+\begin{listing}
+\begin{lstlisting}[label={lst:midpoint-spec},caption={Specification of the \texttt{midpoint} function, defining preconditions for valid latitude and longitude ranges and postconditions for the computed midpoint.}]
+/* 
+  @requires -90 <= lat1 && lat1 <= 90 &&
+    -180 <= lon1 && lon1 <= 180 &&
+    -90 <= lat2 && lat2 <= 90 &&
+    -180 <= lon2 && lon2 <= 180;
+  @ensures \result != null &&
+    \result.lat == (lat1 + lat2) / 2 &&
+    \result.lon == (lon1 + lon2) / 2;
+*/
+
+GeographicalPoint midpoint(float lat1, float lon1, float lat2, float lon2);
+\end{lstlisting}
+\end{listing}
+
+Comparing the three phases, we observed a clear progression in coverage and detail: signature-only tests provided minimal coverage, signature-plus-guidance tests increased breadth, and formal specification produced the most comprehensive and reliable test suite. This demonstrates the value of both descriptive guidance and formal specifications in improving software reliability and reducing bugs.
+
+
+\subsection{Mutation Testing with PiTest}
+
+To further validate the impact of inferred specifications on test robustness, we employed \textit{PiTest}, a widely used mutation testing framework for Java \cite{coles2016pitest}. Mutation testing introduces small faults (called \textit{mutants}) into the code and evaluates whether the test suite can detect these faults. A high mutation score reflects the effectiveness of a test suite in identifying latent defects \cite{ammann2016introduction}.
+
+\subsubsection*{Experimental Process}
+
+We applied PiTest to all function categories in two stages:
+\begin{enumerate}
+    \item \textbf{Without inferred specifications} – using unit tests created through conventional test generation (as described in Section 3.1).
+    \item \textbf{With inferred specifications} – using unit tests derived from formal specifications.
+\end{enumerate}
+
+PiTest was configured to apply standard mutation operators, which include:
+\begin{itemize}
+    \item Replacing arithmetic operations (e.g., \texttt{+} $\rightarrow$ \texttt{-})
+    \item Altering conditional logic (e.g., \texttt{>} $\rightarrow$ \texttt{>=})
+    \item Removing or mutating return statements
+\end{itemize}
+
+\subsubsection*{Example: \texttt{midpoint()} Function}
+
+Using the formal specification defined in Listing~\ref{lst:midpoint-spec}, we evaluated the effectiveness of specification-informed tests in identifying faults that were introduced through mutation.
+
+\paragraph{Mutation: Arithmetic Replacement}
+
+A representative mutation introduced by PiTest altered the arithmetic logic of the function in the following manner:
+
+\begin{verbatim}
+// Original
+(lat1 + lat2) / 2
+
+// Mutated
+(lat1 - lat2) / 2
+\end{verbatim}
+
+This mutation distorts the expected midpoint calculation, particularly in cases with asymmetric inputs, where the latitudes differ significantly in sign.
+
+\paragraph{Test Suite Effectiveness}
+
+\begin{itemize}
+    \item \textbf{Without specification-based tests}, this mutant survived. The baseline suite lacked a test that would detect incorrect behavior when inputs involved differing signs or directional extremes.
+    \item \textbf{With specification-based tests}, the following test case successfully detected and killed the mutant:
+\end{itemize}
+
+\begin{listing}
+\begin{lstlisting}[caption={Unit test verifying the \texttt{midpoint} function correctly computes results for coordinates with mixed signs.}]
+@Test
+void testMixedSigns() {
+    GeographicalPoint result = midpoint(-10, 20, 30, -40);
+    assertNotNull(result);
+    assertEquals(10.0, result.lat);
+    assertEquals(-10.0, result.lon);
+}
+\end{lstlisting}
+
+\end{listing}
+
+In this test, inputs \texttt{lat1 = -10} and \texttt{lat2 = 30} yield an expected latitude of \texttt{10.0}. The mutated version would compute \texttt{(-10 - 30)/2 = -20.0}, which clearly violates the specification.
+
+\subsubsection*{Summary of Results}
+
+Across the evaluated functions, test suites generated using inferred specifications demonstrated:
+
+\begin{itemize}
+    \item Significantly higher mutation coverage in complex function categories (e.g., control-flow heavy methods, factory methods, and delegation patterns)
+    \item Greater fault detection for edge-case and off-nominal mutants that often eluded baseline developer-style tests
+    \item Stronger alignment with functional contracts, enabling precise validation of arithmetic and state-based correctness
+\end{itemize}
+
+The integration of PiTest into our workflow confirmed that inferred specifications guided the generation of more comprehensive test cases and enhanced fault tolerance. These specification-informed tests focused on semantic correctness, effectively bridging the gap between developer intent and formal assurance.

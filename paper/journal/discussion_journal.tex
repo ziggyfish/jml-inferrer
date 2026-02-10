@@ -1,0 +1,181 @@
+\section{Discussion}
+\label{sec:discussion}
+
+This section discusses the implications of our findings, the practical utility of the approach, and its limitations.
+
+\subsection{Implications for Software Engineering Practice}
+
+\subsubsection{Automated Specification as Documentation}
+
+Our results demonstrate that static analysis can automatically generate useful specifications for a substantial majority of methods (96.3\% received non-trivial specifications). These specifications serve multiple purposes:
+
+\begin{enumerate}
+    \item \textbf{Machine-checkable documentation}: Unlike natural language comments, inferred specifications can be automatically validated against implementation changes.
+
+    \item \textbf{Onboarding assistance}: New developers can understand method contracts without reading implementation details.
+
+    \item \textbf{API evolution tracking}: When specifications change between versions, this signals behavioral changes that may affect clients.
+\end{enumerate}
+
+\subsubsection{Integration with Modern Development Workflows}
+
+The tool integrates naturally into CI/CD pipelines:
+
+\begin{enumerate}
+    \item \textbf{Pre-commit hooks}: Infer specifications for changed methods and flag significant changes for review.
+
+    \item \textbf{Pull request analysis}: Compare inferred specifications before and after changes to highlight behavioral differences.
+
+    \item \textbf{Test generation}: Use specifications to guide automated test generation, as demonstrated in our evaluation.
+\end{enumerate}
+
+\subsubsection{Complementarity with Existing Tools}
+
+Our comparison with Jdoctor reveals complementary strengths:
+
+\begin{itemize}
+    \item \textbf{Jdoctor}: Best for recovering documented exceptional behavior, especially complex conditions described in natural language.
+    \item \textbf{Our tool}: Best for inferring specifications from code structure, especially for undocumented or incompletely documented methods.
+\end{itemize}
+
+A practical workflow might combine both tools: use Jdoctor to extract documented specifications, then our tool to fill gaps and verify consistency between documentation and implementation.
+
+\subsection{Why Specifications Improve Test Generation}
+
+Our results show that specifications improve both test count and mutation score beyond what source code access alone provides. We hypothesize several contributing factors:
+
+\paragraph{Explicit Boundary Conditions.}
+Preconditions explicitly state valid input ranges, guiding the LLM to generate boundary tests. For example, \texttt{@requires x >= 0 \&\& x <= 100} directly suggests tests for $x = 0$, $x = 100$, and potentially $x = -1$, $x = 101$.
+
+\paragraph{Clear Behavioral Expectations.}
+Postconditions define expected outputs, allowing the LLM to generate oracles beyond simple ``does not throw'' assertions. This is particularly valuable for methods with complex return value computations.
+
+\paragraph{Decomposition of Complexity.}
+For methods with multiple branches, specifications separate concerns: the LLM can focus on testing each specification clause rather than reasoning about the entire implementation.
+
+\paragraph{Reduced Ambiguity.}
+Source code can be interpreted in multiple ways. Specifications provide an authoritative statement of intended behavior, reducing LLM ``confusion'' about edge cases.
+
+\subsection{Generalizability Considerations}
+
+\subsubsection{Beyond OpenJDK}
+
+While we evaluated on OpenJDK, the technique is applicable to any Java codebase. Key factors affecting generalizability:
+
+\begin{enumerate}
+    \item \textbf{Code style}: Well-structured code with clear control flow produces better specifications. Highly complex or obfuscated code may yield weaker results.
+
+    \item \textbf{Documentation availability}: The comparison with documented behavior requires existing documentation, but inference works regardless.
+
+    \item \textbf{Domain complexity}: Business logic with complex domain constraints may require domain-specific extensions to the inference heuristics.
+\end{enumerate}
+
+\subsubsection{Beyond the Evaluated LLM}
+
+We used Gemini 2.0 for test generation, but the specifications are LLM-agnostic. The JML format is widely recognized, and other LLMs (GPT-4, Claude, Llama) should show similar improvements, though absolute test counts may vary.
+
+\subsubsection{Application Contexts}
+
+While motivated by distributed systems, our results apply broadly:
+
+\begin{itemize}
+    \item \textbf{Library development}: Generate specifications for public APIs to guide client testing.
+    \item \textbf{Legacy modernization}: Infer specifications from legacy code to support refactoring.
+    \item \textbf{Documentation generation}: Convert specifications to human-readable documentation.
+    \item \textbf{Runtime verification}: Use specifications for runtime contract checking.
+\end{itemize}
+
+\subsection{Limitations and Future Work}
+
+\subsubsection{Method Categories with Lower Effectiveness}
+
+The ``Other Methods'' category shows the lowest specification strength (42.3\% strong) and mutation improvement (34.4 pp). This category includes:
+
+\begin{itemize}
+    \item Event handlers with side effects on external state
+    \item Methods with complex I/O operations
+    \item Callbacks with implicit contracts
+\end{itemize}
+
+Improving specification inference for these methods requires modeling external state and I/O effects, which is future work.
+
+\subsubsection{Loop Invariant Limitations}
+
+When loop heuristics fail (14.7\% of looping methods), the resulting weak specifications reduce test effectiveness by approximately 15 pp. Potential improvements include:
+
+\begin{itemize}
+    \item Machine learning-based invariant synthesis
+    \item Interactive refinement with developer feedback
+    \item Integration with dynamic analysis for invariant discovery
+\end{itemize}
+
+\subsubsection{Object-Oriented Features}
+
+Current limitations for object-oriented constructs:
+
+\begin{itemize}
+    \item \textbf{Inheritance}: Specifications for overridden methods may conflict with parent specifications.
+    \item \textbf{Polymorphism}: Dynamic dispatch complicates postcondition inference.
+    \item \textbf{Concurrency}: Thread-safety properties are not currently inferred.
+\end{itemize}
+
+\subsubsection{Scalability}
+
+Analysis time scales linearly with method count (23ms average per method). For very large codebases, incremental analysis (only re-analyzing changed methods) is recommended. We have tested on codebases up to 500K methods without issues.
+
+\subsubsection{False Positives in Specifications}
+
+Although precision is high (94.2\%), incorrect specifications (1.2\% of preconditions, 2.2\% of postconditions) could mislead developers or cause false test failures. Mitigation strategies include:
+
+\begin{itemize}
+    \item Confidence scoring for inferred specifications
+    \item Automated specification validation against test suites
+    \item Human review for high-criticality methods
+\end{itemize}
+
+\subsection{Practical Recommendations}
+
+Based on our findings, we offer the following recommendations for practitioners:
+
+\begin{enumerate}
+    \item \textbf{Start with high-value methods}: Focus initial specification inference on public APIs and frequently-used utilities where specifications provide the most value.
+
+    \item \textbf{Combine with documentation extraction}: Use Jdoctor or similar tools to capture documented behavior, then fill gaps with our tool.
+
+    \item \textbf{Review weak specifications}: Methods receiving weak specifications should be prioritized for manual review or enhanced heuristics.
+
+    \item \textbf{Integrate into CI}: Automate specification inference in CI pipelines to detect behavioral changes early.
+
+    \item \textbf{Use specifications for test generation}: Our results show clear benefits; even partial specifications improve test quality.
+\end{enumerate}
+
+\subsection{Comparison with Related Approaches}
+
+Table~\ref{tab:approach-comparison} summarizes the key differences between our approach and related work.
+
+\begin{table}[t]
+\centering
+\caption{Comparison of specification inference approaches}
+\label{tab:approach-comparison}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Approach} & \textbf{Input} & \textbf{Technique} & \textbf{Lang.} & \textbf{Prec.} & \textbf{Rec.} & \textbf{Cov.} \\
+\midrule
+Our tool & Source & Static (WP/SP) & Java & 94.2\% & 89.3\% & 96.3\% \\
+Jdoctor & Javadoc & NLP & Java & 92\% & 83\% & 45.0\% \\
+PreInfer & Execution & Symbolic & C\# & N/R & N/R & N/R \\
+Daikon & Traces & Dynamic & Multi & varies & varies & varies \\
+LLM-based & Source & Neural & Multi & 78.6\% & 91.2\% & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key observations:
+
+\begin{itemize}
+    \item Our approach achieves the highest precision among automated methods, due to its grounding in formal semantics.
+    \item LLM-based inference achieves higher recall but lower precision, and lacks determinism.
+    \item Jdoctor achieves high precision but is limited by documentation availability.
+    \item Dynamic approaches like Daikon require execution traces and may miss corner cases not exercised during testing.
+\end{itemize}

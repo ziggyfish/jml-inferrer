@@ -1,0 +1,185 @@
+\documentclass[11pt]{article}
+
+% Wiley-style formatting for Journal of Software: Evolution and Process
+\usepackage[margin=1in]{geometry}
+\usepackage{times} % Wiley uses Times font
+
+% Essential packages
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\newtheorem{definition}{Definition}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage[english]{babel}
+\usepackage[autostyle, english = american]{csquotes}
+\MakeOuterQuote{"}
+
+\usepackage{float}
+\floatstyle{plain}
+\newfloat{listing}{htbp}{lop}
+\floatname{listing}{Listing}
+
+\usepackage{multirow}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, positioning, fit, backgrounds}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+\usepackage{subcaption}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{cleveref}
+
+% Line numbers for review (uncomment for submission)
+% \usepackage{lineno}
+
+% Wiley-style section formatting
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{\thesubsubsection}{1em}{}
+
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codeblue}{rgb}{0.0,0.0,0.6}
+\definecolor{codegreen}{rgb}{0,0.5,0}
+\definecolor{lightblue}{RGB}{173,216,230}
+\definecolor{lightgreen}{RGB}{144,238,144}
+\definecolor{lightyellow}{RGB}{255,255,224}
+\definecolor{lightpurple}{RGB}{221,160,221}
+
+\lstdefinestyle{code}{
+  language=Java,
+  basicstyle=\fontsize{9}{11}\selectfont\ttfamily,
+  numbers=none,
+  numberstyle=\tiny\color{codegray},
+  stepnumber=1,
+  numbersep=5pt,
+  backgroundcolor=\color{white},
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  frame=single,
+  rulecolor=\color{black},
+  tabsize=2,
+  captionpos=b,
+  breaklines=true,
+  breakatwhitespace=true,
+  title=\lstname,
+  keywordstyle=\color{codeblue},
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{red},
+  escapeinside={(*@}{@*)},
+  morekeywords={*,...}
+}
+
+\lstset{style=code}
+
+\usepackage{textcomp}
+
+% Running headers
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape Edmonds and Utting}
+\fancyhead[R]{\small\itshape J. Softw. Evol. Process}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\begin{document}
+
+% Enable line numbers for review (uncomment for submission)
+% \linenumbers
+
+% Article type
+\noindent\textbf{RESEARCH ARTICLE}
+\vspace{1em}
+
+% Title
+\begin{center}
+{\LARGE\bfseries Automated Formal Specification Inference for Enhanced Program Comprehension and Test Generation: A Static Analysis Approach}
+\vspace{1.5em}
+
+% Authors
+{\large Brendan Edmonds\textsuperscript{1}* \quad Mark Utting\textsuperscript{1}}
+\vspace{0.5em}
+
+% Affiliations
+{\small\textsuperscript{1}UQ Cyber, School of Electrical Engineering and Computer Science, University of Queensland, St Lucia QLD 4067, Australia}
+\vspace{0.5em}
+
+% Correspondence
+{\small *Correspondence: Brendan Edmonds, b.edmonds@uq.edu.au}
+\end{center}
+
+\vspace{1em}
+
+% Abstract
+\noindent\textbf{Abstract}
+\vspace{0.5em}
+
+\noindent Understanding and validating the behaviour of software components is critical for software maintenance and evolution, especially when documentation is incomplete or source code is unavailable. This paper presents a static analysis tool that automatically infers formal specifications from Java methods using weakest precondition (WP) and strongest postcondition (SP) reasoning. The approach derives precise method contracts---preconditions and postconditions---that can be embedded in compiled class files to facilitate program comprehension, automated test generation, and interface validation.
+
+We provide a detailed description of our tool's architecture, including the interaction between WP and SP analyses, the heuristics employed for loop invariant inference, and the handling of complex language constructs. Our evaluation methodology is rigorously designed with multiple experimental runs, statistical analysis, and direct validation of specification correctness through manual inspection and comparison with documented specifications.
+
+Applied to 10,709 methods from the OpenJDK core library across six distinct method categories, our tool enables AI-based unit test generation to produce significantly more tests than baseline methods. Using Google's Gemini 2.0 with controlled parameters (temperature 0.3, 5 runs per configuration), specification-guided test generation achieves a mean improvement of 68.4\% in test count (95\% CI: [62.1\%, 74.7\%]) and mutation scores ranging from 83.39\% to 95.77\% (mean: 91.65\%), compared to 57.59\% for signature-only tests. Manual validation of 500 randomly sampled specifications shows 94.2\% precision and 87.6\% recall against documented behavior.
+
+We provide a complete replication package including the tool source code, the list of evaluated methods with selection criteria, all generated specifications, test suites, and analysis scripts. This work bridges formal methods and practical software engineering by demonstrating how lightweight, inference-based specifications can improve the reliability, maintainability, and testability of software systems.
+
+\vspace{1em}
+
+% Keywords
+\noindent\textbf{Keywords:} specification inference; weakest preconditions; strongest postconditions; program comprehension; software evolution; LLM-based testing; static analysis; mutation testing
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\input{introduction_journal}
+\input{background_journal}
+\input{approach_journal}
+\input{methodology_journal}
+\input{results_journal}
+\input{discussion_journal}
+\input{threats_journal}
+\input{related_work_journal}
+\input{conclusion_journal}
+
+\section*{Data Availability Statement}
+
+A complete replication package is available at:\\
+\url{https://github.com/[anonymized]/jml-inferrer}
+
+The package includes:
+\begin{itemize}
+    \item \textbf{Tool source code}: Complete Java implementation with build instructions
+    \item \textbf{Method dataset}: Full list of 10,709 OpenJDK methods with selection criteria and categorization
+    \item \textbf{Inferred specifications}: All generated JML specifications in machine-readable format
+    \item \textbf{Test suites}: Generated tests for all three experimental phases (P1, P2, P3)
+    \item \textbf{Raw results}: Mutation testing logs and statistical analysis scripts
+    \item \textbf{Manual validation data}: Annotated sample of 500 specifications with correctness labels
+\end{itemize}
+
+\section*{Acknowledgments}
+
+This research was supported by the University of Queensland Cyber initiative. We thank the anonymous reviewers for their constructive feedback.
+
+\section*{Conflict of Interest}
+
+The authors declare no conflict of interest.
+
+\section*{Author Contributions}
+
+\textbf{Brendan Edmonds}: Conceptualization, Methodology, Software, Validation, Investigation, Data Curation, Writing - Original Draft, Visualization. \textbf{Mark Utting}: Conceptualization, Methodology, Writing - Review \& Editing, Supervision.
+
+\section*{ORCID}
+
+Brendan Edmonds \url{https://orcid.org/0000-0000-0000-0000}\\
+Mark Utting \url{https://orcid.org/0000-0000-0000-0000}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,44 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Modern software systems are increasingly complex, modular, and service-oriented. Whether deployed as monolithic applications, microservice architectures, or distributed systems, these systems rely heavily on \emph{shared libraries} and reusable components that encapsulate common functionality~\cite{de_toledo_improving_2020}. As software evolves, maintaining correctness, consistency, and interoperability across components becomes significantly more challenging. This complexity is exacerbated by incomplete documentation, outdated specifications, and the practical reality that source code may be unavailable for third-party dependencies.
+
+\emph{Formal specifications} provide a rigorous mechanism for describing the intended behavior of software components, thereby enhancing program understanding, preventing regression, and facilitating automated verification~\cite{hasan_formal_2015, dsilva_survey_2008}. However, the adoption of formal methods in industry remains limited. The manual development of formal specifications is prohibitively expensive, error-prone, and requires extensive domain expertise~\cite{matichuk_cost_2015, easterbrook_formal_1998}. Consequently, formal methods are generally constrained to safety-critical systems, while the broader software industry relies on testing approaches that often suffer from incomplete coverage~\cite{pinto_inadequate_2017, zhu_software_1997}.
+
+\subsection{Research Goals and Contributions}
+
+This paper addresses the challenge of automatically inferring formal specifications from existing source code. Our primary research goal is to investigate whether static analysis techniques---specifically weakest precondition (WP) and strongest postcondition (SP) reasoning---can automatically derive useful method contracts that enhance program comprehension and improve test generation quality.
+
+We make the following contributions:
+
+\begin{enumerate}
+    \item \textbf{A novel static analysis tool} that automatically infers JML-style specifications from Java methods using WP and SP reasoning. We provide a detailed description of the tool's architecture, including the algorithms for statement analysis, the interaction between WP and SP computations, and the heuristics employed for loop invariant inference.
+
+    \item \textbf{A systematic categorization of method types} for specification inference, building on existing method stereotype taxonomies~\cite{dragan2006reverse} and extending them with categories relevant to specification inference effectiveness.
+
+    \item \textbf{A rigorous empirical evaluation} using 10,709 methods from the OpenJDK core library. Our evaluation includes:
+    \begin{itemize}
+        \item Multiple experimental runs with statistical analysis (confidence intervals, significance tests)
+        \item Direct validation of specification correctness through manual inspection
+        \item Fair baseline comparisons including source code access
+        \item Mutation testing to assess test suite quality
+    \end{itemize}
+
+    \item \textbf{A complete replication package} including source code, datasets, and analysis scripts to enable independent verification and extension of our results.
+\end{enumerate}
+
+\subsection{Scope and Applicability}
+
+While our motivating examples include scenarios from distributed systems and microservice architectures, the techniques presented in this paper are broadly applicable to any Java codebase. The specification inference approach works on individual methods regardless of the system architecture in which they are deployed. The key requirements are:
+
+\begin{itemize}
+    \item Access to method source code (bytecode analysis is not currently supported)
+    \item Methods written in Java (version 8 or later)
+    \item Deterministic method behavior (methods with side effects on external state have limited postcondition inference)
+\end{itemize}
+
+Our evaluation uses the OpenJDK core library because it provides a well-documented, mature codebase with diverse method implementations. This allows us to validate inferred specifications against documented behavior and assess generalizability across method categories. The OpenJDK is also widely used, which means our results are relevant to a large portion of the Java ecosystem.
+
+\subsection{Paper Organization}
+
+The remainder of this paper is organized as follows. Section~\ref{sec:background} provides background on weakest precondition and strongest postcondition analysis. Section~\ref{sec:approach} describes our tool's architecture and implementation in detail. Section~\ref{sec:methodology} presents our evaluation methodology, including subject selection, experimental design, and metrics. Section~\ref{sec:results} reports our experimental results with statistical analysis. Section~\ref{sec:discussion} discusses implications and limitations. Section~\ref{sec:threats} addresses threats to validity. Section~\ref{sec:related} surveys related work with empirical comparisons. Section~\ref{sec:conclusion} concludes and outlines future work.

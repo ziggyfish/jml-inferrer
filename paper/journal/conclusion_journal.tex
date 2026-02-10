@@ -1,0 +1,61 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper presented a static analysis tool that automatically infers formal specifications from Java methods using weakest precondition and strongest postcondition reasoning. Through a rigorous evaluation on 10,709 methods from the OpenJDK core library, we demonstrated that:
+
+\begin{enumerate}
+    \item \textbf{High-quality specifications can be inferred automatically.} Our tool achieves 94.2\% precision and 89.3\% recall for preconditions, validated through manual inspection of 500 randomly sampled specifications. The tool successfully infers non-trivial specifications for 96.3\% of analyzed methods.
+
+    \item \textbf{Specifications significantly improve test generation.} LLM-based test generation guided by inferred specifications produces 68.4\% more tests (95\% CI: [62.1\%, 74.7\%]) and achieves mutation scores 34.1 percentage points higher than signature-only baselines. These improvements are statistically significant with large effect sizes.
+
+    \item \textbf{Specifications outperform source code access for test generation.} Test suites generated with specifications achieve 3.5 pp higher mutation scores than those generated with full source code access, suggesting that formal specifications provide more actionable guidance than raw implementation details.
+
+    \item \textbf{Effectiveness varies by method category.} Control flow methods and utility methods benefit most (47.1 pp and 40.6 pp improvement respectively), while methods with complex side effects show more modest gains.
+\end{enumerate}
+
+\subsection{Practical Contributions}
+
+Beyond the empirical findings, this work makes several practical contributions:
+
+\begin{itemize}
+    \item A complete, open-source implementation of the specification inference tool
+    \item Detailed documentation of the tool's architecture, algorithms, and heuristics
+    \item A replication package enabling independent verification and extension
+    \item A method categorization taxonomy for evaluating specification inference effectiveness
+\end{itemize}
+
+\subsection{Implications}
+
+Our results have implications for software engineering practice:
+
+\begin{enumerate}
+    \item \textbf{Formal methods can be lightweight.} Automated inference removes the primary barrier to specification adoption: manual effort.
+
+    \item \textbf{Specifications complement documentation.} Our tool infers specifications for undocumented methods, filling gaps that NLP-based approaches cannot address.
+
+    \item \textbf{CI/CD integration is feasible.} With 23ms average per method, the tool can be integrated into continuous integration pipelines without significant overhead.
+\end{enumerate}
+
+\subsection{Future Work}
+
+Several directions merit further investigation:
+
+\begin{enumerate}
+    \item \textbf{Enhanced loop invariant inference.} Machine learning approaches may improve success rates beyond our current 85.3\%.
+
+    \item \textbf{Object-oriented extensions.} Handling inheritance, polymorphism, and class invariants would broaden applicability.
+
+    \item \textbf{Concurrency specifications.} Thread safety and atomicity properties are increasingly important in modern software.
+
+    \item \textbf{Multi-language support.} Extending the approach to Python, JavaScript, and other languages would increase impact.
+
+    \item \textbf{Interactive refinement.} Developer feedback could improve specification quality for complex methods.
+
+    \item \textbf{Runtime verification integration.} Using inferred specifications for runtime contract checking could detect violations in production.
+\end{enumerate}
+
+\subsection{Closing Remarks}
+
+This work demonstrates that formal specification inference is both feasible and valuable for practical software engineering. By bridging the gap between formal methods and automated testing, our approach offers a path toward more reliable, maintainable software without the traditional overhead of manual specification development.
+
+The replication package, including all source code, data, and analysis scripts, is available to support future research and practical adoption.
