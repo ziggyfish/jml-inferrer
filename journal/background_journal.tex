@@ -1,7 +1,7 @@
 \section{Background: Formal Specification Theory}
 \label{sec:background}
 
-This section provides the theoretical foundation for our specification inference approach. We present the formal definitions of weakest precondition (WP) and strongest postcondition (SP) analysis, which form the core of our inference engine.
+This section provides the theoretical foundation that motivates our specification inference approach. We present the formal definitions of weakest precondition (WP) and strongest postcondition (SP) analysis, which underpin the heuristic reasoning patterns used in our tool. While our implementation does not perform full WP/SP computation (which would require a theorem prover or SMT solver), the heuristic analyses it employs are designed to approximate WP/SP reasoning for common code patterns encountered in practice.
 
 \subsection{Weakest Precondition Analysis}
 \label{subsec:wp-theory}
@@ -49,7 +49,7 @@ We model \texttt{return e} as an assignment to a distinguished variable \texttt{
 \]
 
 \paragraph{Throw Statements.}
-Since we infer only \emph{normal behaviour} specifications, throw statements represent contract violations. We model:
+Since we infer only \emph{normal behavior} specifications, throw statements represent contract violations. We model:
 \[
 \text{WP}(\texttt{throw } e, Q) = \texttt{false}
 \]
@@ -91,22 +91,17 @@ For conditionals:
 \text{SP}(\texttt{return } e, P) = P \land \texttt{result} = e
 \]
 
-\subsection{Interaction Between WP and SP in Our Approach}
+\subsection{From Theory to Heuristic Practice}
 \label{subsec:wp-sp-interaction}
 
-Our tool employs both WP and SP analyses in a complementary manner, as illustrated in Figure~\ref{fig:wp-sp-interaction}. The interaction proceeds as follows:
+Our tool approximates WP and SP reasoning through heuristic pattern matching on AST nodes, as illustrated in Figure~\ref{fig:wp-sp-interaction}. Rather than performing full symbolic WP/SP computation, the tool identifies common code patterns that correspond to WP/SP-derivable conditions:
 
 \begin{enumerate}
-    \item \textbf{Initial WP Pass}: Starting from \texttt{true} as the initial postcondition at return statements, WP analysis propagates backward through the method body. This identifies necessary preconditions arising from:
-    \begin{itemize}
-        \item Null checks and guard conditions
-        \item Arithmetic constraints (division, array bounds)
-        \item Exception-throwing paths (which require preconditions to avoid)
-    \end{itemize}
+    \item \textbf{Precondition inference (WP-inspired)}: The tool identifies guard conditions---such as null checks, range validations, and exception-throwing paths---that correspond to preconditions a formal WP analysis would derive. For example, an early-exit pattern \texttt{if (x == null) throw ...} is recognized as implying the precondition \texttt{x != null}.
 
-    \item \textbf{SP Pass}: Using the inferred precondition as the starting state, SP analysis propagates forward to compute the strongest characterization of the return value and modified state.
+    \item \textbf{Postcondition inference (SP-inspired)}: The tool analyzes return statements and field modifications to derive postconditions. Return value patterns, field update expressions, and accumulator patterns are matched to generate postconditions that a formal SP analysis would produce for these common idioms.
 
-    \item \textbf{Refinement}: If the SP-derived postcondition contains complex expressions, we apply simplification rules and, where possible, attempt to express conditions in terms of input parameters using the tracked parameter renaming (see Section~\ref{subsec:parameter-handling}).
+    \item \textbf{Interprocedural propagation}: In a second pass, the tool propagates inferred specifications across method call boundaries, using cached specifications from the first pass to derive caller-level constraints.
 \end{enumerate}
 
 \begin{figure}[t]
@@ -134,7 +129,7 @@ Our tool employs both WP and SP analyses in a complementary manner, as illustrat
     % Feedback loop
     \draw[arrow, dashed] (sp.east) -- ++(0.5,0) |- node[right, font=\scriptsize, pos=0.25] {refinement} (wp.east);
 \end{tikzpicture}
-\caption{Interaction between WP and SP analyses in our specification inference pipeline. WP analysis runs backward from return statements to infer preconditions; SP analysis runs forward using the inferred precondition to derive postconditions. A refinement loop may iterate when complex expressions require simplification.}
+\caption{Specification inference pipeline. Precondition inference is motivated by WP reasoning (analyzing guard conditions backward from method body); postcondition inference is motivated by SP reasoning (analyzing return statements and state modifications forward). A second pass propagates specifications interprocedurally.}
 \label{fig:wp-sp-interaction}
 \end{figure}
 
@@ -157,17 +152,17 @@ This allows postconditions to be expressed in terms of input values:
 \texttt{result} = \texttt{x\_in} + 1
 \]
 
-\subsection{Theoretical Guarantees and Limitations}
+\subsection{Theoretical Motivation and Practical Limitations}
 
-\subsubsection{Soundness}
-Our WP analysis is \emph{sound} in the following sense: if the inferred precondition $P$ holds and the method terminates normally, then the inferred postcondition $Q$ is guaranteed to hold. This follows from the correctness of the WP/SP calculus~\cite{dijkstra1976discipline}.
+\subsubsection{Relationship to Formal WP/SP}
+Our heuristic approach targets common patterns for which formal WP/SP analysis would produce equivalent results. For guard-and-throw patterns, field-returning accessors, and simple accumulator loops, the heuristic output matches what a formal analysis would derive. However, because the tool performs pattern matching rather than full symbolic computation, it does not provide the formal soundness guarantees of a complete WP/SP implementation.
 
 \subsubsection{Completeness}
-The analysis is \emph{incomplete} in general:
+The analysis is \emph{incomplete} in general, though recent enhancements reduce three key gaps:
 \begin{itemize}
-    \item Loop invariant inference relies on heuristics that may fail for complex loops
-    \item Method calls are handled conservatively (see Section~\ref{subsec:method-calls})
-    \item Specifications may be weaker than optimal when simplification cannot reduce complex expressions
+    \item Loop invariant inference relies on heuristics that may fail for complex loops. To mitigate this, the tool now applies counter detection, accumulator analysis, and variable-relationship tracking to \texttt{while} and \texttt{for-each} loops---not only \texttt{for} loops---and recognizes common iterator idioms (see Section~\ref{subsec:loop-heuristics}).
+    \item Method calls were previously handled conservatively when no cached specification existed. The tool now consults a built-in standard library specification database covering common \texttt{String}, \texttt{Math}, \texttt{List}, \texttt{Map}, and utility methods, propagating their contracts to callers (see Section~\ref{subsec:method-calls}).
+    \item Specifications may be weaker than optimal when code patterns do not match the tool's heuristic repertoire. Branch-aware postcondition inference for \texttt{if/else} returns and ternary expressions now produces conditional and disjunctive postconditions, partially addressing this gap.
 \end{itemize}
 
-We quantify these limitations empirically in Section~\ref{sec:results}.
+We quantify remaining limitations empirically in Section~\ref{sec:results}.

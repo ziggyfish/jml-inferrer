@@ -370,6 +370,9 @@ public class MethodSpecificationInferrer {
 
             // Interprocedural analysis: propagate postconditions from called methods
             analyzeMethodCallPostconditions(methodDecl, postconditions);
+
+            // Conditional postconditions (branch-aware)
+            analyzeConditionalReturns(methodDecl, postconditions);
         }
 
         // Field and parameter modification analysis
@@ -1642,6 +1645,104 @@ public class MethodSpecificationInferrer {
     }
 
     /**
+     * Analyzes conditional returns (if/else branches and ternary expressions)
+     * to infer branch-aware postconditions.
+     */
+    private void analyzeConditionalReturns(MethodDeclaration methodDecl, Set<String> postconditions) {
+        if (!methodDecl.getBody().isPresent()) return;
+        BlockStmt body = methodDecl.getBody().get();
+
+        // Analyze if/else statements with return in both branches
+        body.findAll(IfStmt.class).forEach(ifStmt -> {
+            Optional<Statement> elseStmt = ifStmt.getElseStmt();
+            if (elseStmt.isEmpty()) return;
+
+            List<ReturnStmt> thenReturns = ifStmt.getThenStmt().findAll(ReturnStmt.class);
+            List<ReturnStmt> elseReturns = elseStmt.get().findAll(ReturnStmt.class);
+
+            if (thenReturns.isEmpty() || elseReturns.isEmpty()) return;
+
+            ReturnStmt thenReturn = thenReturns.get(0);
+            ReturnStmt elseReturn = elseReturns.get(0);
+
+            if (thenReturn.getExpression().isEmpty() || elseReturn.getExpression().isEmpty()) return;
+
+            Expression thenExpr = thenReturn.getExpression().get();
+            Expression elseExpr = elseReturn.getExpression().get();
+            Expression condition = ifStmt.getCondition();
+
+            // Case 1: Both branches return literals -> disjunctive postcondition
+            if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)) {
+                postconditions.add("\\result == " + thenExpr + " || \\result == " + elseExpr);
+            }
+
+            // Case 2: Null check condition -> conditional postcondition
+            if (condition instanceof BinaryExpr) {
+                BinaryExpr binCond = (BinaryExpr) condition;
+                boolean isNullCheck = (binCond.getOperator() == BinaryExpr.Operator.EQUALS ||
+                                       binCond.getOperator() == BinaryExpr.Operator.NOT_EQUALS) &&
+                                      (binCond.getLeft().isNullLiteralExpr() || binCond.getRight().isNullLiteralExpr());
+
+                if (isNullCheck) {
+                    Expression checkedVar = binCond.getLeft().isNullLiteralExpr()
+                            ? binCond.getRight() : binCond.getLeft();
+                    boolean isEqualsNull = binCond.getOperator() == BinaryExpr.Operator.EQUALS;
+
+                    // When the null-check param is non-null, the result comes from the else/then branch
+                    Expression nonNullBranchExpr = isEqualsNull ? elseExpr : thenExpr;
+                    if (!nonNullBranchExpr.isNullLiteralExpr()) {
+                        postconditions.add(checkedVar + " != null ==> \\result != null");
+                    }
+                }
+            }
+        });
+
+        // Analyze ternary expressions in return statements
+        body.findAll(ReturnStmt.class).forEach(returnStmt -> {
+            returnStmt.getExpression().ifPresent(expr -> {
+                if (expr instanceof ConditionalExpr) {
+                    ConditionalExpr ternary = (ConditionalExpr) expr;
+                    Expression thenExpr = ternary.getThenExpr();
+                    Expression elseExpr = ternary.getElseExpr();
+
+                    // Both values are literals -> disjunctive postcondition
+                    if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)) {
+                        postconditions.add("\\result == " + thenExpr + " || \\result == " + elseExpr);
+                    }
+
+                    // Null check in ternary condition
+                    Expression condition = ternary.getCondition();
+                    if (condition instanceof BinaryExpr) {
+                        BinaryExpr binCond = (BinaryExpr) condition;
+                        boolean isNullCheck = (binCond.getOperator() == BinaryExpr.Operator.EQUALS ||
+                                               binCond.getOperator() == BinaryExpr.Operator.NOT_EQUALS) &&
+                                              (binCond.getLeft().isNullLiteralExpr() || binCond.getRight().isNullLiteralExpr());
+
+                        if (isNullCheck) {
+                            Expression checkedVar = binCond.getLeft().isNullLiteralExpr()
+                                    ? binCond.getRight() : binCond.getLeft();
+                            boolean isEqualsNull = binCond.getOperator() == BinaryExpr.Operator.EQUALS;
+                            Expression nonNullBranchExpr = isEqualsNull ? elseExpr : thenExpr;
+                            if (!nonNullBranchExpr.isNullLiteralExpr()) {
+                                postconditions.add(checkedVar + " != null ==> \\result != null");
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    private boolean isLiteralOrNegativeLiteral(Expression expr) {
+        if (expr.isLiteralExpr()) return true;
+        if (expr instanceof UnaryExpr) {
+            UnaryExpr unary = (UnaryExpr) expr;
+            return unary.getOperator() == UnaryExpr.Operator.MINUS && unary.getExpression().isLiteralExpr();
+        }
+        return false;
+    }
+
+    /**
      * Analyzes method calls and propagates preconditions from called methods.
      * If a method calls another method with preconditions, those become requirements
      * for the calling method's parameters.
@@ -1651,10 +1752,12 @@ public class MethodSpecificationInferrer {
 
         for (MethodCallExpr call : methodCalls) {
             String methodName = call.getNameAsString();
+            int argCount = call.getArguments().size();
 
             // Build potential signatures to look up
             List<String> signatures = buildMethodSignatures(call);
 
+            boolean found = false;
             for (String signature : signatures) {
                 MethodSpecification calledSpec = cache.get(signature);
                 if (calledSpec != null && !calledSpec.getPreconditions().isEmpty()) {
@@ -1668,10 +1771,95 @@ public class MethodSpecificationInferrer {
                             preconditions.add(propagated);
                         }
                     }
+                    found = true;
                     break; // Found a match, stop looking
                 }
             }
+
+            // Fallback to standard library specifications
+            if (!found) {
+                // Build lookup keys: try with scope (e.g., "String.charAt") then just method name
+                List<String> stdLibKeys = new ArrayList<>();
+                call.getScope().ifPresent(scope -> {
+                    String scopeStr = scope.toString();
+                    String[] parts = scopeStr.split("\\.");
+                    stdLibKeys.add(parts[parts.length - 1] + "." + methodName);
+                });
+                stdLibKeys.add(methodName);
+
+                for (String key : stdLibKeys) {
+                    List<String> stdPreconditions = StandardLibrarySpecs.getPreconditions(key, argCount);
+                    if (!stdPreconditions.isEmpty()) {
+                        logger.debug("Found standard library spec for {}: {} preconditions", key,
+                                stdPreconditions.size());
+                        for (String stdPrecond : stdPreconditions) {
+                            String propagated = propagateStdLibPrecondition(call, stdPrecond, methodDecl);
+                            if (propagated != null && !propagated.isEmpty()) {
+                                preconditions.add(propagated);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
         }
+    }
+
+    /**
+     * Propagates a standard library precondition to the calling method.
+     * Maps generic parameter names (like "index", "obj") to actual arguments.
+     */
+    private String propagateStdLibPrecondition(MethodCallExpr call, String precondition,
+                                               MethodDeclaration callingMethod) {
+        List<Expression> args = call.getArguments();
+        List<Parameter> callingParams = callingMethod.getParameters();
+        Set<String> paramNames = new HashSet<>();
+        for (Parameter p : callingParams) {
+            paramNames.add(p.getNameAsString());
+        }
+
+        String result = precondition;
+
+        // Map standard parameter names to actual arguments
+        // Common patterns: index -> first arg, obj/s/str -> first arg, beginIndex -> first, endIndex -> second
+        if (args.size() >= 1) {
+            String firstArg = args.get(0).toString();
+            result = result.replace("index", firstArg)
+                           .replace("obj", firstArg)
+                           .replace("s", firstArg)
+                           .replace("beginIndex", firstArg)
+                           .replace("original", firstArg)
+                           .replace("list", firstArg)
+                           .replace("str", firstArg);
+        }
+        if (args.size() >= 2) {
+            String secondArg = args.get(1).toString();
+            result = result.replace("endIndex", secondArg)
+                           .replace("newLength", secondArg);
+        }
+
+        // Replace "this" references with the scope expression
+        call.getScope().ifPresent(scope -> {
+            // Can't modify result in lambda directly, handled below
+        });
+        if (call.getScope().isPresent()) {
+            String scopeStr = call.getScope().get().toString();
+            result = result.replace("this.", scopeStr + ".");
+        }
+
+        // Only propagate if the precondition references a method parameter
+        for (Parameter p : callingParams) {
+            if (result.contains(p.getNameAsString())) {
+                return result;
+            }
+        }
+
+        // Also propagate if it references a field or is a simple constraint
+        if (result.contains("this.") || result.contains(".size()") || result.contains(".length")) {
+            return result;
+        }
+
+        return null;
     }
 
     /**
@@ -1686,10 +1874,13 @@ public class MethodSpecificationInferrer {
             returnStmt.getExpression().ifPresent(expr -> {
                 if (expr instanceof MethodCallExpr) {
                     MethodCallExpr call = (MethodCallExpr) expr;
+                    String methodName = call.getNameAsString();
+                    int argCount = call.getArguments().size();
 
                     // Build potential signatures
                     List<String> signatures = buildMethodSignatures(call);
 
+                    boolean found = false;
                     for (String signature : signatures) {
                         MethodSpecification calledSpec = cache.get(signature);
                         if (calledSpec != null && !calledSpec.getPostconditions().isEmpty()) {
@@ -1707,7 +1898,35 @@ public class MethodSpecificationInferrer {
                                     postconditions.add("\\result != null");
                                 }
                             }
+                            found = true;
                             break;
+                        }
+                    }
+
+                    // Fallback to standard library specifications
+                    if (!found) {
+                        List<String> stdLibKeys = new ArrayList<>();
+                        call.getScope().ifPresent(scope -> {
+                            String scopeStr = scope.toString();
+                            String[] parts = scopeStr.split("\\.");
+                            stdLibKeys.add(parts[parts.length - 1] + "." + methodName);
+                        });
+                        stdLibKeys.add(methodName);
+
+                        for (String key : stdLibKeys) {
+                            List<String> stdPostconditions = StandardLibrarySpecs.getPostconditions(key, argCount);
+                            if (!stdPostconditions.isEmpty()) {
+                                logger.debug("Found standard library spec for {}: {} postconditions", key,
+                                        stdPostconditions.size());
+                                for (String stdPostcond : stdPostconditions) {
+                                    if (stdPostcond.contains("\\result")) {
+                                        postconditions.add(stdPostcond);
+                                    } else if (stdPostcond.contains("!= null") && !stdPostcond.contains("this.")) {
+                                        postconditions.add("\\result != null");
+                                    }
+                                }
+                                break;
+                            }
                         }
                     }
                 }
@@ -3080,12 +3299,75 @@ public class MethodSpecificationInferrer {
 
         private void analyzeWhileLoop(WhileStmt whileStmt) {
             Expression condition = whileStmt.getCondition();
+            Statement body = whileStmt.getBody();
+
+            // Detect counter variables from loop body (i++, i--, i+=n)
+            List<String> counterNames = detectCountersInBody(body);
+
             if (condition instanceof BinaryExpr) {
                 BinaryExpr binExpr = (BinaryExpr) condition;
+                // Add the condition itself as a loop invariant guard
                 invariants.add(binExpr.toString());
+
+                // Extract bounds from while condition (e.g., while (i < n) -> i <= n)
+                if (!counterNames.isEmpty()) {
+                    String left = binExpr.getLeft().toString();
+                    String right = binExpr.getRight().toString();
+                    if (counterNames.contains(left)) {
+                        invariants.add(left + " " + getOperatorSymbol(binExpr.getOperator()) + " " + right);
+                        invariants.add(left + " >= 0");
+                    } else if (counterNames.contains(right)) {
+                        invariants.add(right + " >= 0");
+                    }
+                }
+            } else if (condition instanceof MethodCallExpr) {
+                // Handle while (iter.hasNext()), while (scanner.hasNextLine()), etc.
+                MethodCallExpr call = (MethodCallExpr) condition;
+                String methodName = call.getNameAsString();
+                if (methodName.equals("hasNext") || methodName.equals("hasNextLine") ||
+                    methodName.equals("hasNextInt") || methodName.equals("hasMoreElements")) {
+                    call.getScope().ifPresent(scope ->
+                        invariants.add(scope + " has remaining elements to process"));
+                }
             }
 
-            analyzeLoopBodyForInvariants(whileStmt.getBody(), invariants);
+            // Reuse for-loop helpers: accumulators, variable relationships, body analysis
+            analyzeAccumulators(body, invariants, counterNames);
+            analyzeVariableRelationships(body, invariants);
+            analyzeLoopBodyForInvariants(body, invariants);
+        }
+
+        /**
+         * Detects counter variables by scanning loop body for increment/decrement patterns.
+         */
+        private List<String> detectCountersInBody(Statement body) {
+            List<String> counters = new ArrayList<>();
+
+            // Detect i++, i--, ++i, --i
+            body.findAll(UnaryExpr.class).forEach(unary -> {
+                if (unary.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT ||
+                    unary.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT ||
+                    unary.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT ||
+                    unary.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT) {
+                    String varName = unary.getExpression().toString();
+                    if (!counters.contains(varName)) {
+                        counters.add(varName);
+                    }
+                }
+            });
+
+            // Detect i += n, i -= n
+            body.findAll(AssignExpr.class).forEach(assign -> {
+                if (assign.getOperator() == AssignExpr.Operator.PLUS ||
+                    assign.getOperator() == AssignExpr.Operator.MINUS) {
+                    String varName = assign.getTarget().toString();
+                    if (!counters.contains(varName)) {
+                        counters.add(varName);
+                    }
+                }
+            });
+
+            return counters;
         }
 
         private void analyzeForEachLoop(ForEachStmt forEachStmt) {
@@ -3095,6 +3377,17 @@ public class MethodSpecificationInferrer {
             invariants.add(varName + " != null");
             invariants.add(varName + " is element of " + iterableName);
 
+            // Collection size constraint: elements are bounded by collection size
+            String iterableType = forEachStmt.getIterable().toString();
+            if (!iterableType.contains("[")) {
+                // Likely a Collection, not an array
+                invariants.add("processed elements <= " + iterableName + ".size()");
+            } else {
+                invariants.add("processed elements <= " + iterableName + ".length");
+            }
+
+            // Analyze variable relationships in the body (max/min tracking, etc.)
+            analyzeVariableRelationships(forEachStmt.getBody(), invariants);
             analyzeLoopBodyForInvariants(forEachStmt.getBody(), invariants);
         }
 
