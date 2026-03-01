@@ -50,6 +50,10 @@ journal/*.snm
 journal/*.vrb
 journal/*.log
 
+# OpenJML tools and validation reports
+tools/
+jml-validation-report.json
+
 # Experiment temporary files
 experiment/commons-lang/
 experiment/commons-test-project/

@@ -1,0 +1,253 @@
+package com.jml.inferrer.analysis;
+
+import com.jml.inferrer.model.MethodSpecification;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Tests for loop taint: variables modified in loops are removed from the symbolic env.
+ */
+@DisplayName("Symbolic Propagation - Loop Taint")
+class SymbolicLoopTaintTest extends InferrerTestBase {
+
+    @Test
+    @DisplayName("Variable assigned before loop, not modified in loop -> preserved")
+    void loopPreservesUnmodifiedVar() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int a, int[] arr) {
+                    int f = a * 2;
+                    int total = 0;
+                    for (int i = 0; i < arr.length; i++) {
+                        total += arr[i];
+                    }
+                    return f;
+                }
+            }
+            """, "compute");
+        assertTrue(spec.getPostconditions().stream()
+                .anyMatch(p -> p.contains("\\result ==") && p.contains("a * 2")),
+                "Expected \\result == a * 2, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Variable modified in loop -> tainted, not resolved")
+    void loopTaintsModifiedVar() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int a) {
+                    int x = a * 2;
+                    for (int i = 0; i < 10; i++) {
+                        x += i;
+                    }
+                    return x;
+                }
+            }
+            """, "compute");
+        assertFalse(spec.getPostconditions().stream()
+                .anyMatch(p -> p.contains("\\result == a * 2")),
+                "Should NOT resolve tainted variable, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("While loop taints variable")
+    void whileLoopTaints() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int n) {
+                    int result = n + 1;
+                    int x = 0;
+                    while (x < n) {
+                        result = result * 2;
+                        x++;
+                    }
+                    return result;
+                }
+            }
+            """, "compute");
+        assertFalse(spec.getPostconditions().stream()
+                .anyMatch(p -> p.contains("\\result == (n + 1)")),
+                "Should NOT resolve loop-tainted variable, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("For-each loop taints accumulator but not pre-loop var")
+    void forEachLoopTaints() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int base, int[] arr) {
+                    int pre = base * 3;
+                    int sum = 0;
+                    for (int val : arr) {
+                        sum += val;
+                    }
+                    return pre;
+                }
+            }
+            """, "compute");
+        assertTrue(spec.getPostconditions().stream()
+                .anyMatch(p -> p.contains("\\result ==") && p.contains("base * 3")),
+                "Expected \\result == base * 3, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Do-while loop taints variable")
+    void doWhileLoopTaints() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int n) {
+                    int safe = n + 5;
+                    int x = 1;
+                    do {
+                        x *= 2;
+                    } while (x < n);
+                    return safe;
+                }
+            }
+            """, "compute");
+        assertTrue(spec.getPostconditions().stream()
+                .anyMatch(p -> p.contains("\\result ==") && p.contains("n + 5")),
+                "Expected safe (unmodified) variable result, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("For loop with unary increment in update taints the loop variable")
+    void forLoopUpdateTaints() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int a) {
+                    int x = a * 2;
+                    int i = 0;
+                    for (i = 0; i < 10; i++) {
+                        // empty body
+                    }
+                    return x;
+                }
+            }
+            """, "compute");
+        // x is NOT modified, should still resolve
+        assertTrue(anyContainsAll(spec.getPostconditions(), "\\result ==", "a * 2"),
+                "Expected \\result == a * 2 (not tainted), got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Two loops: first modifies x, second doesn't touch y")
+    void twoLoopsIndependent() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int a, int b) {
+                    int x = a;
+                    int y = b * 3;
+                    for (int i = 0; i < 5; i++) {
+                        x += i;
+                    }
+                    for (int j = 0; j < 3; j++) {
+                        // don't touch y
+                    }
+                    return y;
+                }
+            }
+            """, "compute");
+        assertTrue(anyContainsAll(spec.getPostconditions(), "\\result ==", "b * 3"),
+                "Expected y (b * 3) preserved, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Nested loops taint variables from both levels")
+    void nestedLoopsTaint() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int a) {
+                    int x = a + 1;
+                    int count = 0;
+                    for (int i = 0; i < 10; i++) {
+                        for (int j = 0; j < 10; j++) {
+                            count++;
+                        }
+                    }
+                    return x;
+                }
+            }
+            """, "compute");
+        // x is NOT modified in any loop
+        assertTrue(anyContainsAll(spec.getPostconditions(), "\\result ==", "a + 1"),
+                "Expected x preserved through nested loops, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Variable declared in loop is scoped to loop, doesn't taint outer")
+    void loopScopedVariable() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int a) {
+                    int result = a * 5;
+                    for (int i = 0; i < 10; i++) {
+                        int temp = i * 2;
+                    }
+                    return result;
+                }
+            }
+            """, "compute");
+        assertTrue(anyContainsAll(spec.getPostconditions(), "\\result ==", "a * 5"),
+                "Expected result preserved, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Loop with decrement operator taints variable")
+    void loopDecrementTaints() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int n) {
+                    int x = n * 2;
+                    int count = n;
+                    while (count > 0) {
+                        count--;
+                    }
+                    return x;
+                }
+            }
+            """, "compute");
+        assertTrue(anyContainsAll(spec.getPostconditions(), "\\result ==", "n * 2"),
+                "Expected x preserved (count tainted), got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Loop modifies variable via assignment, not just compound")
+    void loopAssignmentTaints() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int a) {
+                    int x = a + 1;
+                    for (int i = 0; i < 5; i++) {
+                        x = x * 2;
+                    }
+                    return x;
+                }
+            }
+            """, "compute");
+        assertFalse(spec.getPostconditions().stream()
+                .anyMatch(p -> p.contains("\\result == (a + 1)")),
+                "x should be tainted by loop assignment");
+    }
+
+    @Test
+    @DisplayName("For-each loop with array parameter preserves pre-loop computation")
+    void forEachArrayParam() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int multiplier, int[] values) {
+                    int factor = multiplier * multiplier;
+                    int total = 0;
+                    for (int v : values) {
+                        total += v;
+                    }
+                    return factor;
+                }
+            }
+            """, "compute");
+        assertTrue(anyContainsAll(spec.getPostconditions(), "\\result ==", "multiplier * multiplier"),
+                "Expected factor preserved, got: " + spec.getPostconditions());
+    }
+}

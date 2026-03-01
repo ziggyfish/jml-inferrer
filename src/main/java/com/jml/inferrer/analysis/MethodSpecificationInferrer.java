@@ -373,6 +373,9 @@ public class MethodSpecificationInferrer {
 
             // Conditional postconditions (branch-aware)
             analyzeConditionalReturns(methodDecl, postconditions);
+
+            // Exact symbolic return expression
+            analyzeExactReturnExpression(methodDecl, postconditions);
         }
 
         // Field and parameter modification analysis
@@ -717,14 +720,29 @@ public class MethodSpecificationInferrer {
 
         for (ReturnStmt returnStmt : returnStmts) {
             returnStmt.getExpression().ifPresent(expr -> {
-                if (expr instanceof BinaryExpr) {
-                    BinaryExpr binExpr = (BinaryExpr) expr;
+                Expression effective = expr;
+
+                // Resolve local variable to its last assigned expression
+                if (expr instanceof NameExpr) {
+                    String name = ((NameExpr) expr).getNameAsString();
+                    boolean isParam = methodDecl.getParameters().stream()
+                        .anyMatch(p -> p.getNameAsString().equals(name));
+                    if (!isParam) {
+                        Expression resolved = resolveLocalVariable(methodDecl, name);
+                        if (resolved != null) {
+                            effective = resolved;
+                        }
+                    }
+                }
+
+                if (effective instanceof BinaryExpr) {
+                    BinaryExpr binExpr = (BinaryExpr) effective;
                     if (binExpr.getOperator() == BinaryExpr.Operator.PLUS ||
                         binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY) {
                         postconditions.add("\\result >= 0");
                     }
-                } else if (expr instanceof MethodCallExpr) {
-                    MethodCallExpr methodCall = (MethodCallExpr) expr;
+                } else if (effective instanceof MethodCallExpr) {
+                    MethodCallExpr methodCall = (MethodCallExpr) effective;
                     if (methodCall.getNameAsString().equals("abs") || methodCall.getNameAsString().equals("length")) {
                         postconditions.add("\\result >= 0");
                     }
@@ -994,8 +1012,31 @@ public class MethodSpecificationInferrer {
                 }
             } else if (expr instanceof BinaryExpr) {
                 BinaryExpr binExpr = (BinaryExpr) expr;
-                if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY) {
-                    // Multiplication doesn't guarantee non-negative unless we know operands
+                if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY && isSelfMultiplication(binExpr)) {
+                    // x * x is always non-negative; keep allReturnsNonNegative true
+                    allReturnsPositive = false;
+                    allReturnsGreaterThanOne = false;
+                } else if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY) {
+                    allReturnsNonNegative = false;
+                    allReturnsPositive = false;
+                    allReturnsGreaterThanOne = false;
+                }
+            } else if (expr instanceof NameExpr) {
+                String name = ((NameExpr) expr).getNameAsString();
+                boolean isParam = methodDecl.getParameters().stream()
+                    .anyMatch(p -> p.getNameAsString().equals(name));
+                if (!isParam) {
+                    Expression resolved = resolveLocalVariable(methodDecl, name);
+                    if (resolved != null && isSelfMultiplication(resolved)) {
+                        // resolved to x * x → non-negative
+                        allReturnsPositive = false;
+                        allReturnsGreaterThanOne = false;
+                    } else {
+                        allReturnsNonNegative = false;
+                        allReturnsPositive = false;
+                        allReturnsGreaterThanOne = false;
+                    }
+                } else {
                     allReturnsNonNegative = false;
                     allReturnsPositive = false;
                     allReturnsGreaterThanOne = false;
@@ -1030,12 +1071,30 @@ public class MethodSpecificationInferrer {
                     if (methodDecl.getParameters().stream()
                             .anyMatch(p -> p.getNameAsString().equals(exprName))) {
                         postconditions.add("\\result == " + exprName);
+                    } else {
+                        // Not a parameter — resolve local variable and analyze
+                        Expression resolved = resolveLocalVariable(methodDecl, exprName);
+                        if (resolved instanceof BinaryExpr) {
+                            analyzeResolvedBinaryExprForParams((BinaryExpr) resolved, methodDecl, postconditions);
+                        }
                     }
                 }
 
                 // Check for arithmetic operations with parameters
-                if (expr instanceof BinaryExpr) {
-                    BinaryExpr binExpr = (BinaryExpr) expr;
+                Expression effective = expr;
+                if (expr instanceof NameExpr) {
+                    String name = ((NameExpr) expr).getNameAsString();
+                    boolean isParam = methodDecl.getParameters().stream()
+                        .anyMatch(p -> p.getNameAsString().equals(name));
+                    if (!isParam) {
+                        Expression resolved = resolveLocalVariable(methodDecl, name);
+                        if (resolved != null) {
+                            effective = resolved;
+                        }
+                    }
+                }
+                if (effective instanceof BinaryExpr) {
+                    BinaryExpr binExpr = (BinaryExpr) effective;
                     String left = binExpr.getLeft().toString();
                     String right = binExpr.getRight().toString();
 
@@ -1103,6 +1162,599 @@ public class MethodSpecificationInferrer {
                 }
             });
         }
+    }
+
+    /**
+     * Analyzes a resolved BinaryExpr for parameter relationships.
+     * Extracted to avoid duplication when resolving local variables in return statements.
+     */
+    private void analyzeResolvedBinaryExprForParams(BinaryExpr binExpr, MethodDeclaration methodDecl, Set<String> postconditions) {
+        String left = binExpr.getLeft().toString();
+        String right = binExpr.getRight().toString();
+
+        boolean leftIsParam = methodDecl.getParameters().stream()
+            .anyMatch(p -> p.getNameAsString().equals(left));
+        boolean rightIsParam = methodDecl.getParameters().stream()
+            .anyMatch(p -> p.getNameAsString().equals(right));
+
+        if (leftIsParam && rightIsParam) {
+            switch (binExpr.getOperator()) {
+                case PLUS:
+                    postconditions.add("\\result == " + left + " + " + right);
+                    break;
+                case MINUS:
+                    postconditions.add("\\result == " + left + " - " + right);
+                    break;
+                case MULTIPLY:
+                    postconditions.add("\\result == " + left + " * " + right);
+                    break;
+                case DIVIDE:
+                    postconditions.add("\\result == " + left + " / " + right);
+                    break;
+            }
+        } else if (leftIsParam) {
+            switch (binExpr.getOperator()) {
+                case PLUS:
+                    if (isPositiveLiteral(binExpr.getRight())) {
+                        postconditions.add("\\result > " + left);
+                    }
+                    break;
+                case MINUS:
+                    if (isPositiveLiteral(binExpr.getRight())) {
+                        postconditions.add("\\result < " + left);
+                    }
+                    break;
+            }
+        } else if (rightIsParam) {
+            switch (binExpr.getOperator()) {
+                case PLUS:
+                    if (isPositiveLiteral(binExpr.getLeft())) {
+                        postconditions.add("\\result > " + right);
+                    }
+                    break;
+            }
+        }
+    }
+
+    /**
+     * Resolves a local variable to its last assigned expression within the method body.
+     * Walks top-level statements and tracks assignments via variable declarations and
+     * assignment expressions. Returns null if the variable cannot be resolved.
+     */
+    private Expression resolveLocalVariable(MethodDeclaration methodDecl, String varName) {
+        if (methodDecl.getBody().isEmpty()) {
+            return null;
+        }
+        Expression resolved = null;
+        for (com.github.javaparser.ast.Node stmt : methodDecl.getBody().get().getStatements()) {
+            // Variable declaration: int b = expr;
+            if (stmt instanceof ExpressionStmt) {
+                Expression inner = ((ExpressionStmt) stmt).getExpression();
+                if (inner instanceof VariableDeclarationExpr) {
+                    for (com.github.javaparser.ast.body.VariableDeclarator vd :
+                            ((VariableDeclarationExpr) inner).getVariables()) {
+                        if (vd.getNameAsString().equals(varName) && vd.getInitializer().isPresent()) {
+                            resolved = vd.getInitializer().get();
+                        }
+                    }
+                }
+                // Assignment: b = expr;
+                if (inner instanceof AssignExpr) {
+                    AssignExpr assign = (AssignExpr) inner;
+                    if (assign.getTarget() instanceof NameExpr &&
+                        ((NameExpr) assign.getTarget()).getNameAsString().equals(varName) &&
+                        assign.getOperator() == AssignExpr.Operator.ASSIGN) {
+                        resolved = assign.getValue();
+                    }
+                }
+            }
+        }
+        return resolved;
+    }
+
+    /**
+     * Returns true if the expression string is compound (contains arithmetic operators
+     * at the top level) and should be wrapped in parentheses when substituted.
+     */
+    private boolean isCompoundExpression(String expr) {
+        if (expr == null || expr.isEmpty()) return false;
+        // Simple identifier, literal, or method call — no parens needed
+        if (expr.matches("[a-zA-Z_][a-zA-Z0-9_.]*") || expr.matches("-?\\d+(\\.\\d+)?")) return false;
+        if (expr.startsWith("(") && expr.endsWith(")")) return false;
+        // Contains an arithmetic/bitwise operator outside of parentheses/method calls
+        int depth = 0;
+        for (int i = 0; i < expr.length(); i++) {
+            char ch = expr.charAt(i);
+            if (ch == '(' || ch == '[') depth++;
+            else if (ch == ')' || ch == ']') depth--;
+            else if (depth == 0 && (ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '%'
+                    || ch == '&' || ch == '|' || ch == '^')) {
+                // Ignore unary minus at start
+                if (ch == '-' && i == 0) continue;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Substitutes identifiers in an expression string using the symbolic environment.
+     * Identifiers that are in {@code env} are replaced with their symbolic value
+     * (parenthesized if compound). Parameter names not yet in env, reserved words,
+     * and identifiers preceded by '.' are left as-is.
+     */
+    private String substituteEnv(String expression, Map<String, String> env, Set<String> paramNames) {
+        if (expression == null || expression.isEmpty()) return expression;
+
+        Set<String> reserved = Set.of("this", "null", "true", "false", "new",
+                "Math", "Integer", "Long", "Double", "Float", "String", "System",
+                "Collections", "Arrays", "Objects", "Optional", "super");
+
+        StringBuilder result = new StringBuilder();
+        int i = 0;
+        while (i < expression.length()) {
+            char ch = expression.charAt(i);
+
+            // Skip string literals
+            if (ch == '"' || ch == '\'') {
+                char quote = ch;
+                result.append(ch);
+                i++;
+                while (i < expression.length() && expression.charAt(i) != quote) {
+                    if (expression.charAt(i) == '\\' && i + 1 < expression.length()) {
+                        result.append(expression.charAt(i));
+                        i++;
+                    }
+                    result.append(expression.charAt(i));
+                    i++;
+                }
+                if (i < expression.length()) {
+                    result.append(expression.charAt(i));
+                    i++;
+                }
+                continue;
+            }
+
+            // Parse Java identifier
+            if (Character.isJavaIdentifierStart(ch)) {
+                int start = i;
+                while (i < expression.length() && Character.isJavaIdentifierPart(expression.charAt(i))) {
+                    i++;
+                }
+                String token = expression.substring(start, i);
+
+                // Check if preceded by '.' (field/method access) — leave as-is
+                boolean afterDot = start > 0 && expression.charAt(start - 1) == '.';
+
+                if (afterDot || reserved.contains(token)) {
+                    result.append(token);
+                } else if (env.containsKey(token)) {
+                    String value = env.get(token);
+                    if (isCompoundExpression(value)) {
+                        result.append("(").append(value).append(")");
+                    } else {
+                        result.append(value);
+                    }
+                } else {
+                    // Parameter name not in env, or field reference — leave as-is
+                    result.append(token);
+                }
+                continue;
+            }
+
+            // Non-identifier character
+            result.append(ch);
+            i++;
+        }
+        return result.toString();
+    }
+
+    /**
+     * Unwraps a BlockStmt into its child statements, or wraps a single statement in a list.
+     */
+    private List<Statement> extractStatements(Statement stmt) {
+        if (stmt instanceof BlockStmt) {
+            return ((BlockStmt) stmt).getStatements();
+        }
+        return Collections.singletonList(stmt);
+    }
+
+    /**
+     * Returns true if the branch always exits (return or throw on every path).
+     */
+    private boolean branchAlwaysReturns(Statement stmt) {
+        if (stmt instanceof ReturnStmt || stmt instanceof ThrowStmt) return true;
+        if (stmt instanceof BlockStmt) {
+            List<Statement> stmts = ((BlockStmt) stmt).getStatements();
+            if (stmts.isEmpty()) return false;
+            return branchAlwaysReturns(stmts.get(stmts.size() - 1));
+        }
+        if (stmt instanceof IfStmt) {
+            IfStmt ifStmt = (IfStmt) stmt;
+            if (ifStmt.getElseStmt().isEmpty()) return false;
+            return branchAlwaysReturns(ifStmt.getThenStmt())
+                    && branchAlwaysReturns(ifStmt.getElseStmt().get());
+        }
+        return false;
+    }
+
+    /**
+     * Removes from env any variables that are assigned or incremented/decremented inside stmt.
+     */
+    private void taintModifiedVariables(Map<String, String> env, Statement stmt) {
+        for (AssignExpr assign : stmt.findAll(AssignExpr.class)) {
+            if (assign.getTarget() instanceof NameExpr) {
+                env.remove(((NameExpr) assign.getTarget()).getNameAsString());
+            }
+        }
+        for (UnaryExpr unary : stmt.findAll(UnaryExpr.class)) {
+            if (unary.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT
+                    || unary.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT
+                    || unary.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT
+                    || unary.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT) {
+                if (unary.getExpression() instanceof NameExpr) {
+                    env.remove(((NameExpr) unary.getExpression()).getNameAsString());
+                }
+            }
+        }
+        // Also taint variables declared inside (they shadow outer)
+        for (VariableDeclarationExpr vde : stmt.findAll(VariableDeclarationExpr.class)) {
+            for (com.github.javaparser.ast.body.VariableDeclarator vd : vde.getVariables()) {
+                env.remove(vd.getNameAsString());
+            }
+        }
+    }
+
+    /**
+     * Combines two path conditions with {@code &&}. Returns just one if the other is null.
+     */
+    private String conjoin(String existing, String additional) {
+        if (existing == null) return additional;
+        if (additional == null) return existing;
+        return "(" + existing + ") && (" + additional + ")";
+    }
+
+    /**
+     * After an if/else where neither branch returns, merge the two branch environments.
+     * Variables where both branches agree keep their value; variables that differ get
+     * recorded as conditional assignments and removed from env.
+     */
+    private void mergeEnvs(Map<String, String> envBefore, Map<String, String> thenEnv,
+                           Map<String, String> elseEnv, Map<String, String> envOut,
+                           Map<String, List<SymbolicReturn>> conditionalAssignments,
+                           String condStr, String negCondStr) {
+        // Start with envBefore as base
+        envOut.putAll(envBefore);
+
+        // Collect all variable names touched in either branch
+        Set<String> allVars = new LinkedHashSet<>();
+        allVars.addAll(thenEnv.keySet());
+        allVars.addAll(elseEnv.keySet());
+
+        for (String var : allVars) {
+            String thenVal = thenEnv.get(var);
+            String elseVal = elseEnv.get(var);
+
+            if (thenVal != null && elseVal != null && thenVal.equals(elseVal)) {
+                // Both branches agree
+                envOut.put(var, thenVal);
+            } else if (thenVal != null && elseVal != null) {
+                // Different values — record conditional assignments, remove from env
+                envOut.remove(var);
+                List<SymbolicReturn> entries = conditionalAssignments.computeIfAbsent(var, k -> new ArrayList<>());
+                entries.add(new SymbolicReturn(condStr, thenVal));
+                entries.add(new SymbolicReturn(negCondStr, elseVal));
+            } else if (thenVal != null) {
+                // Only assigned in then-branch — taint it
+                envOut.remove(var);
+            } else {
+                // Only assigned in else-branch — taint it
+                envOut.remove(var);
+            }
+        }
+    }
+
+    /**
+     * Recursively walks statements, building a symbolic environment and collecting
+     * {@link SymbolicReturn} results with their path conditions.
+     *
+     * @param statements  the statements to process
+     * @param env         current symbolic variable → expression mapping (mutated)
+     * @param conditionalAssignments  variables with branch-dependent values
+     * @param pathCondition  current path condition (null = unconditional)
+     * @param paramNames  set of method parameter names
+     * @param results     accumulates SymbolicReturn values found
+     * @param depth       recursion depth guard
+     */
+    private void walkStatements(List<Statement> statements, Map<String, String> env,
+                                Map<String, List<SymbolicReturn>> conditionalAssignments,
+                                String pathCondition, Set<String> paramNames,
+                                List<SymbolicReturn> results, int depth) {
+        if (depth > 10) return; // prevent stack overflow on deeply nested code
+
+        for (Statement stmt : statements) {
+            // --- ExpressionStmt: variable declaration or assignment ---
+            if (stmt instanceof ExpressionStmt) {
+                Expression inner = ((ExpressionStmt) stmt).getExpression();
+
+                if (inner instanceof VariableDeclarationExpr) {
+                    for (com.github.javaparser.ast.body.VariableDeclarator vd :
+                            ((VariableDeclarationExpr) inner).getVariables()) {
+                        if (vd.getInitializer().isPresent()) {
+                            String rhsRaw = vd.getInitializer().get().toString();
+                            String resolved = substituteEnv(rhsRaw, env, paramNames);
+                            env.put(vd.getNameAsString(), resolved);
+                        }
+                    }
+                } else if (inner instanceof AssignExpr) {
+                    AssignExpr assign = (AssignExpr) inner;
+                    if (assign.getTarget() instanceof NameExpr) {
+                        String varName = ((NameExpr) assign.getTarget()).getNameAsString();
+                        String rhsRaw = assign.getValue().toString();
+                        String resolvedRhs = substituteEnv(rhsRaw, env, paramNames);
+
+                        if (assign.getOperator() == AssignExpr.Operator.ASSIGN) {
+                            env.put(varName, resolvedRhs);
+                        } else {
+                            String op = getCompoundOperatorString(assign.getOperator());
+                            if (op != null) {
+                                String currentValue = env.containsKey(varName) ? env.get(varName) : varName;
+                                String lhs = isCompoundExpression(currentValue) ? "(" + currentValue + ")" : currentValue;
+                                String rhs = isCompoundExpression(resolvedRhs) ? "(" + resolvedRhs + ")" : resolvedRhs;
+                                env.put(varName, lhs + " " + op + " " + rhs);
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // --- ReturnStmt ---
+            if (stmt instanceof ReturnStmt) {
+                ReturnStmt ret = (ReturnStmt) stmt;
+                if (ret.getExpression().isPresent()) {
+                    String rawReturn = ret.getExpression().get().toString();
+                    String resolved = substituteEnv(rawReturn, env, paramNames);
+
+                    // Also resolve through conditional assignments
+                    if (conditionalAssignments != null) {
+                        for (Map.Entry<String, List<SymbolicReturn>> entry : conditionalAssignments.entrySet()) {
+                            String var = entry.getKey();
+                            if (resolved.contains(var)) {
+                                // Emit one SymbolicReturn per conditional assignment
+                                for (SymbolicReturn ca : entry.getValue()) {
+                                    // Build a temporary env with this conditional value
+                                    Map<String, String> tempEnv = new LinkedHashMap<>(env);
+                                    tempEnv.put(var, ca.resolvedExpr);
+                                    String condResolved = substituteEnv(rawReturn, tempEnv, paramNames);
+                                    String combinedCond = conjoin(pathCondition, ca.pathCondition);
+                                    results.add(new SymbolicReturn(combinedCond, condResolved));
+                                }
+                                return; // handled via conditional assignments
+                            }
+                        }
+                    }
+
+                    results.add(new SymbolicReturn(pathCondition, resolved));
+                }
+                return; // return always terminates this path
+            }
+
+            // --- IfStmt ---
+            if (stmt instanceof IfStmt) {
+                IfStmt ifStmt = (IfStmt) stmt;
+                String condRaw = ifStmt.getCondition().toString();
+                String condStr = substituteEnv(condRaw, env, paramNames);
+                String negCondStr = negateCondition(ifStmt.getCondition());
+
+                boolean thenReturns = branchAlwaysReturns(ifStmt.getThenStmt());
+                boolean hasElse = ifStmt.getElseStmt().isPresent();
+                boolean elseReturns = hasElse && branchAlwaysReturns(ifStmt.getElseStmt().get());
+
+                if (thenReturns && elseReturns) {
+                    // Both branches return — recurse into each, then stop
+                    Map<String, String> thenEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getThenStmt()), thenEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, condStr), paramNames, results, depth + 1);
+
+                    Map<String, String> elseEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getElseStmt().get()), elseEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, negCondStr), paramNames, results, depth + 1);
+                    return; // both paths returned, nothing after is reachable
+
+                } else if (thenReturns && !hasElse) {
+                    // Guard clause: then-branch always returns, no else
+                    Map<String, String> thenEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getThenStmt()), thenEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, condStr), paramNames, results, depth + 1);
+                    // Fall-through code runs under negated condition
+                    pathCondition = conjoin(pathCondition, negCondStr);
+                    continue;
+
+                } else if (thenReturns && hasElse) {
+                    // Then returns, else doesn't — recurse into then for returns,
+                    // then continue with else's env for subsequent code
+                    Map<String, String> thenEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getThenStmt()), thenEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, condStr), paramNames, results, depth + 1);
+
+                    // Process else branch effects into env (it doesn't return, so we continue)
+                    Map<String, String> elseEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getElseStmt().get()), elseEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, negCondStr), paramNames, new ArrayList<>(), depth + 1);
+                    // After: subsequent code sees else-branch env under negated condition
+                    env.clear();
+                    env.putAll(elseEnv);
+                    pathCondition = conjoin(pathCondition, negCondStr);
+                    continue;
+
+                } else if (!thenReturns && hasElse && elseReturns) {
+                    // Else returns, then doesn't
+                    Map<String, String> elseEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getElseStmt().get()), elseEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, negCondStr), paramNames, results, depth + 1);
+
+                    Map<String, String> thenEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getThenStmt()), thenEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, condStr), paramNames, new ArrayList<>(), depth + 1);
+                    env.clear();
+                    env.putAll(thenEnv);
+                    pathCondition = conjoin(pathCondition, condStr);
+                    continue;
+
+                } else if (hasElse) {
+                    // Neither branch returns — merge envs
+                    Map<String, String> thenEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getThenStmt()), thenEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, condStr), paramNames, new ArrayList<>(), depth + 1);
+
+                    Map<String, String> elseEnv = new LinkedHashMap<>(env);
+                    walkStatements(extractStatements(ifStmt.getElseStmt().get()), elseEnv,
+                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            conjoin(pathCondition, negCondStr), paramNames, new ArrayList<>(), depth + 1);
+
+                    Map<String, String> merged = new LinkedHashMap<>();
+                    if (conditionalAssignments == null) {
+                        conditionalAssignments = new LinkedHashMap<>();
+                    }
+                    mergeEnvs(env, thenEnv, elseEnv, merged, conditionalAssignments, condStr, negCondStr);
+                    env.clear();
+                    env.putAll(merged);
+                    continue;
+
+                } else {
+                    // No else, then doesn't return — taint modified variables
+                    taintModifiedVariables(env, ifStmt.getThenStmt());
+                    continue;
+                }
+            }
+
+            // --- Loop statements: taint modified variables, recurse for returns ---
+            if (stmt instanceof ForStmt || stmt instanceof WhileStmt
+                    || stmt instanceof ForEachStmt || stmt instanceof DoStmt) {
+                Statement body;
+                if (stmt instanceof ForStmt) body = ((ForStmt) stmt).getBody();
+                else if (stmt instanceof WhileStmt) body = ((WhileStmt) stmt).getBody();
+                else if (stmt instanceof ForEachStmt) body = ((ForEachStmt) stmt).getBody();
+                else body = ((DoStmt) stmt).getBody();
+
+                taintModifiedVariables(env, body);
+                // Also taint for-loop update variables
+                if (stmt instanceof ForStmt) {
+                    for (Expression update : ((ForStmt) stmt).getUpdate()) {
+                        if (update instanceof AssignExpr && ((AssignExpr) update).getTarget() instanceof NameExpr) {
+                            env.remove(((NameExpr) ((AssignExpr) update).getTarget()).getNameAsString());
+                        }
+                        if (update instanceof UnaryExpr && ((UnaryExpr) update).getExpression() instanceof NameExpr) {
+                            env.remove(((NameExpr) ((UnaryExpr) update).getExpression()).getNameAsString());
+                        }
+                    }
+                }
+                // Recurse into loop body to find returns (with tainted env)
+                walkStatements(extractStatements(body), new LinkedHashMap<>(env),
+                        conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                        pathCondition, paramNames, results, depth + 1);
+                continue;
+            }
+
+            // --- BlockStmt ---
+            if (stmt instanceof BlockStmt) {
+                walkStatements(((BlockStmt) stmt).getStatements(), env,
+                        conditionalAssignments, pathCondition, paramNames, results, depth + 1);
+                return; // block handled all remaining control flow
+            }
+
+            // --- TryStmt ---
+            if (stmt instanceof TryStmt) {
+                TryStmt tryStmt = (TryStmt) stmt;
+                walkStatements(tryStmt.getTryBlock().getStatements(), env,
+                        conditionalAssignments, pathCondition, paramNames, results, depth + 1);
+                taintModifiedVariables(env, tryStmt.getTryBlock());
+                continue;
+            }
+
+            // --- ThrowStmt ---
+            if (stmt instanceof ThrowStmt) {
+                return; // code after throw is unreachable
+            }
+
+            // --- SwitchStmt ---
+            if (stmt instanceof SwitchStmt) {
+                taintModifiedVariables(env, stmt);
+                continue;
+            }
+
+            // Other statement types: skip
+        }
+    }
+
+    /**
+     * Analyzes return expressions through symbolic environment propagation to produce
+     * exact postconditions like {@code \result == ((a * a) + c) * ((a * a) + c)}.
+     * Handles branches, guard clauses, and loop-tainted variables.
+     */
+    private void analyzeExactReturnExpression(MethodDeclaration methodDecl, Set<String> postconditions) {
+        if (methodDecl.getBody().isEmpty()) return;
+
+        Set<String> paramNames = new LinkedHashSet<>();
+        for (Parameter p : methodDecl.getParameters()) {
+            paramNames.add(p.getNameAsString());
+        }
+
+        Map<String, String> env = new LinkedHashMap<>();
+        Map<String, List<SymbolicReturn>> conditionalAssignments = new LinkedHashMap<>();
+        List<SymbolicReturn> results = new ArrayList<>();
+
+        walkStatements(methodDecl.getBody().get().getStatements(), env,
+                conditionalAssignments, null, paramNames, results, 0);
+
+        if (results.isEmpty()) return;
+
+        // Check if all results resolve to the same expression — emit single unconditional spec
+        String firstExpr = results.get(0).resolvedExpr;
+        boolean allSame = results.stream().allMatch(r -> r.resolvedExpr.equals(firstExpr));
+
+        if (allSame && results.size() > 1) {
+            // All paths return the same expression — treat as unconditional
+            if (isTrivialResult(firstExpr)) return;
+            if (firstExpr.length() > 100) return;
+            postconditions.add("\\result == " + firstExpr);
+            return;
+        }
+
+        for (SymbolicReturn sr : results) {
+            if (isTrivialResult(sr.resolvedExpr)) continue;
+
+            if (sr.pathCondition == null) {
+                // Unconditional
+                if (sr.resolvedExpr.length() > 100) continue;
+                postconditions.add("\\result == " + sr.resolvedExpr);
+            } else {
+                // Conditional
+                if (sr.resolvedExpr.length() > 100) continue;
+                if (sr.pathCondition.length() > 80) continue;
+                postconditions.add(sr.pathCondition + " ==> \\result == " + sr.resolvedExpr);
+            }
+        }
+    }
+
+    /**
+     * Returns true if the resolved expression is trivial (single identifier, literal, or this).
+     */
+    private boolean isTrivialResult(String expr) {
+        if (expr == null) return true;
+        if (expr.matches("[a-zA-Z_][a-zA-Z0-9_]*")) return true; // Single identifier
+        if (expr.matches("-?\\d+(\\.\\d+)?")) return true;        // Single literal
+        if (expr.equals("this")) return true;
+        return false;
     }
 
     /**
@@ -2885,6 +3537,22 @@ public class MethodSpecificationInferrer {
     }
 
     /**
+     * Returns true if the expression is x * x (self-multiplication), which guarantees >= 0.
+     */
+    private boolean isSelfMultiplication(Expression expr) {
+        if (expr instanceof BinaryExpr) {
+            BinaryExpr bin = (BinaryExpr) expr;
+            if (bin.getOperator() == BinaryExpr.Operator.MULTIPLY &&
+                bin.getLeft() instanceof NameExpr && bin.getRight() instanceof NameExpr &&
+                ((NameExpr) bin.getLeft()).getNameAsString()
+                    .equals(((NameExpr) bin.getRight()).getNameAsString())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Checks if an expression is known to be non-negative.
      */
     private boolean isNonNegativeExpression(Expression expr, MethodDeclaration methodDecl) {
@@ -2897,6 +3565,10 @@ public class MethodSpecificationInferrer {
             return name.equals("abs") || name.equals("length") || name.equals("size");
         }
 
+        if (isSelfMultiplication(expr)) {
+            return true;
+        }
+
         // Check if it's a parameter with a non-negative precondition
         if (expr instanceof NameExpr) {
             String name = expr.toString();
@@ -2904,6 +3576,19 @@ public class MethodSpecificationInferrer {
         }
 
         return false;
+    }
+
+    /**
+     * Represents a return expression discovered during symbolic walk, optionally
+     * guarded by a path condition (null means unconditional).
+     */
+    private static class SymbolicReturn {
+        final String pathCondition; // null = unconditional
+        final String resolvedExpr;
+        SymbolicReturn(String pathCondition, String resolvedExpr) {
+            this.pathCondition = pathCondition;
+            this.resolvedExpr = resolvedExpr;
+        }
     }
 
     /**
