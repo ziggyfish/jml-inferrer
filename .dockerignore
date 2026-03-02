@@ -1,0 +1,52 @@
+# Build artifacts
+target/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# Journal / documentation
+journal/
+
+# OpenJML tools
+tools/
+jml-validation-report.json
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Windows batch files (not needed in Linux container)
+*.bat
+
+# Full commons-lang clone (large, not needed - we use commons-lang-subset)
+experiment/commons-lang/
+
+# Previous experiment results and cloned repos
+experiment/results/
+experiment-results/
+.clone-cache/
+
+# Test project build artifacts
+experiment/commons-test-project/target/
+experiment/test_project/
+
+# Maven wrapper (container has Maven installed)
+experiment/commons-test-project/mvnw
+experiment/commons-test-project/mvnw.cmd

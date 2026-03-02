@@ -58,3 +58,7 @@ jml-validation-report.json
 experiment/commons-lang/
 experiment/commons-test-project/
 experiment/test_project/
+
+# Docker experiment output and cloned repos
+experiment-results/
+.clone-cache/
