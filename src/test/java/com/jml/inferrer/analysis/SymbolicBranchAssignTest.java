@@ -30,6 +30,16 @@ class SymbolicBranchAssignTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("a > 0 ==> \\result == a + 1")
+        //   @Ensures("a <= 0 ==> \\result == a - 1")
+        //   @Pure
+        //   int compute(int a) {
+        //       int r;
+        //       if (a > 0) r = a + 1;   // r -> a + 1 (when a > 0)
+        //       else       r = a - 1;   // r -> a - 1 (when a <= 0)
+        //       return r;
+        //   }
         List<String> posts = spec.getPostconditions();
         assertTrue(anyContainsAll(posts, "a > 0", "a + 1"),
                 "Expected a > 0 ==> \\result == a + 1, got: " + posts);
@@ -54,6 +64,17 @@ class SymbolicBranchAssignTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("a > b ==> \\result == (a + b) * 2")
+        //   @Ensures("a <= b ==> \\result == (a + b) * 3")
+        //   @Pure
+        //   int compute(int a, int b) {
+        //       int x = a + b;   // x -> a + b
+        //       int r;
+        //       if (a > b) r = x * 2;   // r -> (a + b) * 2
+        //       else       r = x * 3;   // r -> (a + b) * 3
+        //       return r;
+        //   }
         List<String> posts = spec.getPostconditions();
         assertTrue(anyContainsAll(posts, "a > b", "(a + b) * 2"),
                 "Expected a > b ==> \\result == (a + b) * 2, got: " + posts);
@@ -78,6 +99,16 @@ class SymbolicBranchAssignTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == a * 2")    (unconditional -- both branches assign same)
+        //   @Pure
+        //   int compute(int a) {
+        //       int x = a * 2;   // x -> a * 2
+        //       int r;
+        //       if (a > 0) r = x;   // r -> a * 2
+        //       else       r = x;   // r -> a * 2 (same)
+        //       return r;
+        //   }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result ==") && p.contains("a * 2")),
                 "Expected unconditional \\result == a * 2, got: " + spec.getPostconditions());
@@ -99,6 +130,16 @@ class SymbolicBranchAssignTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("a > 0 ==> \\result == a * 2")
+        //   @Ensures("a <= 0 ==> \\result == a * 3")
+        //   @Pure
+        //   int compute(int a) {
+        //       int r;
+        //       if (a > 0) r = a * 2;   // r -> a * 2 (when a > 0)
+        //       else       r = a * 3;   // r -> a * 3 (when a <= 0)
+        //       return r;
+        //   }
         List<String> posts = spec.getPostconditions();
         assertTrue(anyContainsAll(posts, "a > 0", "a * 2"),
                 "Expected conditional for a > 0, got: " + posts);
@@ -125,6 +166,16 @@ class SymbolicBranchAssignTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("a > 0 ==> \\result == a + 1")
+        //   @Ensures("a <= 0 ==> \\result == a - 1")
+        //   @Pure
+        //   int compute(int a) {
+        //       int x; int y;
+        //       if (a > 0)  { x = a + 1; y = a + 2; }
+        //       else        { x = a - 1; y = a - 2; }
+        //       return x;   // only x matters for postcondition
+        //   }
         List<String> posts = spec.getPostconditions();
         assertTrue(anyContainsAll(posts, "a > 0", "a + 1") || anyContainsAll(posts, "a <= 0", "a - 1"),
                 "Expected branch-dependent result for x, got: " + posts);
@@ -147,6 +198,17 @@ class SymbolicBranchAssignTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("a > 5 ==> \\result == (a * 10) + 1")
+        //   @Ensures("a <= 5 ==> \\result == (a * 10) - 1")
+        //   @Pure
+        //   int compute(int a) {
+        //       int base = a * 10;   // base -> a * 10
+        //       int r;
+        //       if (a > 5) r = base + 1;   // r -> (a * 10) + 1
+        //       else       r = base - 1;   // r -> (a * 10) - 1
+        //       return r;
+        //   }
         List<String> posts = spec.getPostconditions();
         assertTrue(anyContainsAll(posts, "a > 5", "a * 10"),
                 "Expected base (a*10) resolved in conditional, got: " + posts);
@@ -172,6 +234,12 @@ class SymbolicBranchAssignTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("a > 10 ==> \\result == a * 3")
+        //   @Ensures("a > 0 && a <= 10 ==> \\result == a * 2")
+        //   @Ensures("a <= 0 ==> \\result == a")
+        //   @Pure
+        //   int compute(int a) { ... }
         assertNotNull(spec);
         assertFalse(spec.getPostconditions().isEmpty(), "Expected postconditions");
     }
@@ -193,6 +261,17 @@ class SymbolicBranchAssignTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("a > 0 ==> \\result == a * a")
+        //   @Ensures("a <= 0 ==> \\result == (-a) * (-a)")
+        //   @Pure
+        //   int compute(int a) {
+        //       int base;
+        //       if (a > 0) base = a;     // base -> a
+        //       else       base = -a;    // base -> -a
+        //       int result = base * base; // result depends on branch
+        //       return result;
+        //   }
         // base is branch-dependent, result depends on base
         assertNotNull(spec);
     }

@@ -24,6 +24,11 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   int compute(String s) {
+        //       return s.length();
+        //   }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("s != null")),
                 "Expected s != null, got: " + spec.getPreconditions());
     }
@@ -38,6 +43,11 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   int compute(int[] arr) {
+        //       return arr.length;
+        //   }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr != null")),
                 "Expected arr != null, got: " + spec.getPreconditions());
     }
@@ -52,6 +62,11 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   (no @Requires for null -- primitives cannot be null)
+        //   int compute(int x) {
+        //       return x + 1;
+        //   }
         assertTrue(spec.getPreconditions().stream().noneMatch(p -> p.contains("x != null")),
                 "Primitive should not have null check");
     }
@@ -66,6 +81,12 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("a != null")
+        //   @Requires("b != null")
+        //   int compute(String a, String b) {
+        //       return a.length() + b.length();
+        //   }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("a != null")),
                 "Expected a != null");
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("b != null")),
@@ -84,6 +105,12 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "first");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Requires("arr.length > 0")
+        //   int first(int[] arr) {
+        //       return arr[0];
+        //   }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr != null")),
                 "Expected arr != null");
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr.length > 0")),
@@ -100,6 +127,12 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "third");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Requires("arr.length > 2")
+        //   int third(int[] arr) {
+        //       return arr[2];
+        //   }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr.length > 2")),
                 "Expected arr.length > 2");
     }
@@ -117,6 +150,10 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Requires("arr.length > 5")  (or arr.length > 0)
+        //   int compute(int[] arr) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr.length > 5")
                 || p.contains("arr.length > 0")),
                 "Expected array length precondition, got: " + spec.getPreconditions());
@@ -137,6 +174,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n > 0")
+        //   int compute(int n) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n > 0")),
                 "Expected n > 0");
     }
@@ -154,6 +194,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n >= 10")
+        //   int compute(int n) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n >= 10")),
                 "Expected n >= 10");
     }
@@ -171,6 +214,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n < 100")
+        //   int compute(int n) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n < 100")),
                 "Expected n < 100");
     }
@@ -190,6 +236,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n >= 0")          (inverted from: if n < 0 throw)
+        //   int compute(int n) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n >= 0")),
                 "Expected n >= 0 from early validation");
     }
@@ -207,6 +256,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n != 0")          (inverted from: if n == 0 throw)
+        //   int compute(int n) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n != 0")),
                 "Expected n != 0");
     }
@@ -224,6 +276,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n > 0")           (double-negation: !(n > 0) throw => n > 0)
+        //   int compute(int n) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n > 0")),
                 "Expected n > 0 from negated validation");
     }
@@ -241,6 +296,10 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("a >= 0")          (inverted OR: a < 0 || b < 0 => a >= 0 && b >= 0)
+        //   @Requires("b >= 0")
+        //   int compute(int a, int b) { ... }
         // Inverted OR: a >= 0 && b >= 0
         assertTrue(spec.getPreconditions().stream()
                 .anyMatch(p -> p.contains("a >= 0") || p.contains("b >= 0")),
@@ -260,6 +319,10 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "firstChar");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Requires("!s.isEmpty()")    (or "s.length() > 0")
+        //   char firstChar(String s) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("s != null")),
                 "Expected s != null");
         assertTrue(spec.getPreconditions().stream()
@@ -277,6 +340,10 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "getFirst");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Requires("s.length() > 0")
+        //   char getFirst(String s) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("s.length() > 0")),
                 "Expected s.length() > 0");
     }
@@ -294,6 +361,10 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "first");
+        // Expected annotated method after inference:
+        //   @Requires("list != null")
+        //   @Requires("list.size() > 0")
+        //   Object first(List<String> list) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("list != null")),
                 "Expected list != null");
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("list.size() > 0")),
@@ -315,6 +386,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "sum");
+        // Expected annotated method after inference:
+        //   @Requires("items != null")
+        //   int sum(List<Integer> items) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("items != null")),
                 "Expected items != null for for-each usage");
     }
@@ -334,6 +408,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "range");
+        // Expected annotated method after inference:
+        //   @Requires("low < high")
+        //   int range(int low, int high) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("low < high")),
                 "Expected low < high");
     }
@@ -351,6 +428,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("start >= end")
+        //   int compute(int start, int end) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("start >= end")),
                 "Expected start >= end");
     }
@@ -370,6 +450,10 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n > 0")
+        //   @Requires("n < 100")
+        //   int compute(int n) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n > 0")),
                 "Expected n > 0");
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n < 100")),
@@ -386,6 +470,11 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compare");
+        // Expected annotated method after inference:
+        //   @Requires("a != null")
+        //   @Requires("b != null")
+        //   @Requires("a instanceof Comparable")
+        //   int compare(Comparable a, Comparable b) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("Comparable")),
                 "Expected Comparable constraint");
     }
@@ -400,6 +489,11 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "answer");
+        // Expected annotated method after inference:
+        //   (no @Requires -- method has no parameters)
+        //   int answer() {
+        //       return 42;
+        //   }
         assertTrue(spec.getPreconditions().isEmpty() ||
                 spec.getPreconditions().stream().noneMatch(p -> p.contains("!= null")),
                 "No null checks for parameterless method");

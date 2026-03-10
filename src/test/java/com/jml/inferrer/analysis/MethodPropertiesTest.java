@@ -25,6 +25,15 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "add");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @ThreadSafe
+        //   @Complexity(time = "O(1)", space = "O(1)")
+        //   @Assignable("\\nothing")
+        //   @Ensures("\\result == a + b")
+        //   int add(int a, int b) {
+        //       return a + b;
+        //   }
         assertTrue(spec.isPure(), "Expected pure");
         assertFalse(spec.isObserver());
         assertFalse(spec.isMutator());
@@ -41,6 +50,12 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "getValue");
+        // Expected annotated method after inference:
+        //   @Observer
+        //   @Ensures("\\result == this.value")
+        //   int getValue() {
+        //       return this.value;
+        //   }
         assertTrue(spec.isObserver(), "Expected observer");
         assertFalse(spec.isPure());
     }
@@ -56,6 +71,13 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "setValue");
+        // Expected annotated method after inference:
+        //   @Mutator
+        //   @Assignable("this.value")
+        //   @Ensures("this.value == v")
+        //   void setValue(int v) {
+        //       this.value = v;
+        //   }
         assertTrue(spec.isMutator(), "Expected mutator");
         assertFalse(spec.isPure());
     }
@@ -72,6 +94,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result == ((x + 1) * 2)")
+        //   int compute(int x) { ... }
         assertTrue(spec.isPure(), "Expected pure with local vars only");
     }
 
@@ -85,6 +111,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "log");
+        // Expected annotated method after inference:
+        //   (no @Pure -- println is I/O)
+        //   @Requires("msg != null")
+        //   void log(String msg) { ... }
         assertFalse(spec.isPure(), "println should make it impure");
     }
 
@@ -98,6 +128,9 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "random");
+        // Expected annotated method after inference:
+        //   (no @Pure -- Random is non-deterministic)
+        //   int random(int bound) { ... }
         assertFalse(spec.isPure(), "random should make it impure");
     }
 
@@ -111,6 +144,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 int add(int a, int b) { return a + b; }
             }
             """, "add");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(1)", space = "O(1)")
+        //   @Pure
+        //   int add(int a, int b) { return a + b; }
         assertEquals("O(1)", spec.getTimeComplexity());
         assertEquals("O(1)", spec.getSpaceComplexity());
     }
@@ -127,6 +164,12 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "sum");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(n)")
+        //   @Requires("arr != null")
+        //   @LoopInvariant("i >= 0")
+        //   @LoopInvariant("i <= arr.length")
+        //   int sum(int[] arr) { ... }
         assertEquals("O(n)", spec.getTimeComplexity());
     }
 
@@ -143,6 +186,9 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "count");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(n)")
+        //   int count(int n) { ... }
         assertEquals("O(n)", spec.getTimeComplexity());
     }
 
@@ -158,6 +204,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "sum");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(n)")
+        //   @Requires("arr != null")
+        //   int sum(int[] arr) { ... }
         assertEquals("O(n)", spec.getTimeComplexity());
     }
 
@@ -175,6 +225,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "nested");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(n^2)")
+        //   @Requires("m != null")
+        //   int nested(int[][] m) { ... }
         assertEquals("O(n^2)", spec.getTimeComplexity());
     }
 
@@ -193,6 +247,9 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "tripleNested");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(n^3)")
+        //   int tripleNested(int n) { ... }
         assertEquals("O(n^3)", spec.getTimeComplexity());
     }
 
@@ -207,6 +264,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "fib");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(2^n)")
+        //   @Ensures("\\result >= 0")
+        //   int fib(int n) { ... }
         assertEquals("O(2^n)", spec.getTimeComplexity());
     }
 
@@ -222,6 +283,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "mergeSort");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(n log n)")
+        //   @Requires("a != null")
+        //   int mergeSort(int[] a, int lo, int hi) { ... }
         assertEquals("O(n log n)", spec.getTimeComplexity());
     }
 
@@ -236,6 +301,11 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "copy");
+        // Expected annotated method after inference:
+        //   @Complexity(space = "O(n)")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length == n")
+        //   int[] copy(int n) { ... }
         assertEquals("O(n)", spec.getSpaceComplexity());
     }
 
@@ -252,6 +322,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "make");
+        // Expected annotated method after inference:
+        //   @Complexity(space = "O(n)")
+        //   @Ensures("\\result != null")
+        //   List<Integer> make() { ... }
         assertEquals("O(n)", spec.getSpaceComplexity());
     }
 
@@ -266,6 +340,12 @@ class MethodPropertiesTest extends InferrerTestBase {
                 synchronized void increment() { count++; }
             }
             """, "increment");
+        // Expected annotated method after inference:
+        //   @ThreadSafe
+        //   @Mutator
+        //   @Assignable("this.count")
+        //   @Ensures("this.count == \\old(this.count) + 1")
+        //   synchronized void increment() { count++; }
         assertTrue(spec.isThreadSafe());
     }
 
@@ -281,6 +361,11 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "increment");
+        // Expected annotated method after inference:
+        //   @ThreadSafe
+        //   @Mutator
+        //   @Assignable("this.count")
+        //   void increment() { ... }
         assertTrue(spec.isThreadSafe());
     }
 
@@ -292,6 +377,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 int add(int a, int b) { return a + b; }
             }
             """, "add");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @ThreadSafe
+        //   int add(int a, int b) { return a + b; }
         assertTrue(spec.isThreadSafe());
     }
 
@@ -305,6 +394,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 int add(int a, int b) { return a + b; }
             }
             """, "add");
+        // Expected annotated method after inference:
+        //   @Assignable("\\nothing")
+        //   @Pure
+        //   int add(int a, int b) { return a + b; }
         assertTrue(spec.getAssignableClauses().stream().anyMatch(p -> p.contains("\\nothing")),
                 "Expected \\nothing assignable");
     }
@@ -318,6 +411,11 @@ class MethodPropertiesTest extends InferrerTestBase {
                 void setValue(int v) { this.value = v; }
             }
             """, "setValue");
+        // Expected annotated method after inference:
+        //   @Assignable("this.value")
+        //   @Mutator
+        //   @Ensures("this.value == v")
+        //   void setValue(int v) { this.value = v; }
         assertTrue(spec.getAssignableClauses().stream().anyMatch(p -> p.contains("this.value")),
                 "Expected this.value");
     }
@@ -332,6 +430,11 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "fill");
+        // Expected annotated method after inference:
+        //   @Assignable("arr[*]")
+        //   @Requires("arr != null")
+        //   @LoopInvariant("i >= 0")
+        //   void fill(int[] arr) { ... }
         assertTrue(spec.getAssignableClauses().stream().anyMatch(p -> p.contains("arr[*]")),
                 "Expected arr[*]");
     }
@@ -349,6 +452,13 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "setXY");
+        // Expected annotated method after inference:
+        //   @Assignable("this.x")
+        //   @Assignable("this.y")
+        //   @Mutator
+        //   @Ensures("this.x == a")
+        //   @Ensures("this.y == b")
+        //   void setXY(int a, int b) { ... }
         assertTrue(spec.getAssignableClauses().stream().anyMatch(p -> p.contains("this.x")),
                 "Expected this.x");
         assertTrue(spec.getAssignableClauses().stream().anyMatch(p -> p.contains("this.y")),
@@ -369,6 +479,11 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "sum");
+        // Expected annotated method after inference:
+        //   @LoopInvariant("i >= 0")
+        //   @LoopInvariant("i <= arr.length")
+        //   @Requires("arr != null")
+        //   int sum(int[] arr) { ... }
         assertTrue(spec.getLoopInvariants().stream().anyMatch(p -> p.contains("i >= 0")),
                 "Expected i >= 0, got: " + spec.getLoopInvariants());
     }
@@ -385,6 +500,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "sum");
+        // Expected annotated method after inference:
+        //   @LoopInvariant("i >= 0")
+        //   @LoopInvariant("i <= arr.length")
+        //   int sum(int[] arr) { ... }
         assertTrue(spec.getLoopInvariants().stream()
                 .anyMatch(p -> p.contains("i") && p.contains("arr.length")),
                 "Expected upper bound invariant");
@@ -403,6 +522,10 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n >= 0")
+        //   @Signals("n < 0 ==> throws IllegalArgumentException")
+        //   int compute(int n) { ... }
         assertTrue(spec.getExceptionSpecifications().stream()
                 .anyMatch(p -> p.contains("IllegalArgumentException")),
                 "Expected IllegalArgumentException");
@@ -416,6 +539,9 @@ class MethodPropertiesTest extends InferrerTestBase {
                 void process() throws java.io.IOException { }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Signals("IOException")
+        //   void process() throws java.io.IOException { }
         assertTrue(spec.getExceptionSpecifications().stream()
                 .anyMatch(p -> p.contains("IOException")),
                 "Expected IOException");
@@ -432,6 +558,9 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Signals("propagates Exception")
+        //   void process() { ... }
         assertTrue(spec.getExceptionSpecifications().stream()
                 .anyMatch(p -> p.contains("propagates Exception")),
                 "Expected propagation spec");
@@ -448,6 +577,9 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Signals("wraps Exception in RuntimeException")
+        //   void process() { ... }
         assertTrue(anyContainsAll(spec.getExceptionSpecifications(), "wraps", "RuntimeException"),
                 "Expected wrapping spec");
     }
@@ -463,6 +595,9 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Signals("on Exception returns -1")
+        //   int process() { ... }
         assertTrue(spec.getExceptionSpecifications().stream()
                 .anyMatch(p -> p.contains("on Exception returns")),
                 "Expected return default");
@@ -479,6 +614,9 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Signals("suppresses Exception")
+        //   void process() { ... }
         assertTrue(spec.getExceptionSpecifications().stream()
                 .anyMatch(p -> p.contains("suppresses Exception")),
                 "Expected suppresses");
@@ -496,6 +634,11 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Requires("resource != null")
+        //   @Signals("suppresses Exception")
+        //   @Signals("ensures resources are closed")
+        //   void process(java.io.Closeable resource) { ... }
         assertTrue(spec.getExceptionSpecifications().stream()
                 .anyMatch(p -> p.contains("ensures resources are closed")),
                 "Expected resource cleanup spec");
@@ -513,6 +656,12 @@ class MethodPropertiesTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n >= 0")
+        //   @Requires("s != null")
+        //   @Signals("n < 0 ==> throws IllegalArgumentException")
+        //   @Signals("s == null ==> throws NullPointerException")
+        //   int compute(int n, String s) { ... }
         assertTrue(spec.getExceptionSpecifications().stream()
                 .anyMatch(p -> p.contains("IllegalArgumentException")),
                 "Expected IAE");

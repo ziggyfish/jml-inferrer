@@ -24,6 +24,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "greet");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   String greet(String name) {
+        //       return "Hello " + name;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected \\result != null");
     }
@@ -39,6 +44,9 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "maybe");
+        // Expected annotated method after inference:
+        //   (no @Ensures for \\result != null -- method can return null)
+        //   String maybe(boolean flag) { ... }
         assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.equals("\\result != null")),
                 "Should not guarantee non-null when null is possible");
     }
@@ -55,6 +63,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "absVal");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result >= 0")
+        //   int absVal(int x) {
+        //       return Math.abs(x);
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
                 "Expected \\result >= 0");
     }
@@ -69,6 +82,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "square");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result >= 0")
+        //   int square(int x) {
+        //       return x * x;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
                 "Expected \\result >= 0 for x*x");
     }
@@ -83,6 +101,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "add");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == a + b")
+        //   int add(int a, int b) {
+        //       return a + b;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == a + b")),
                 "Expected \\result == a + b");
     }
@@ -97,6 +120,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "multiply");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == a * b")
+        //   int multiply(int a, int b) {
+        //       return a * b;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == a * b")),
                 "Expected \\result == a * b");
     }
@@ -111,6 +139,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "subtract");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == a - b")
+        //   int subtract(int a, int b) {
+        //       return a - b;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == a - b")),
                 "Expected \\result == a - b");
     }
@@ -125,6 +158,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "divide");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == a / b")
+        //   int divide(int a, int b) {
+        //       return a / b;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == a / b")),
                 "Expected \\result == a / b");
     }
@@ -139,6 +177,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "increment");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result > n")
+        //   int increment(int n) {
+        //       return n + 5;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result > n")),
                 "Expected \\result > n");
     }
@@ -154,6 +197,9 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "classify");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result >= 1")     (or "\\result > 0")
+        //   int classify(int x) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result >= 1") || p.contains("\\result > 0")),
                 "Expected positive return bound");
@@ -175,6 +221,9 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "sign");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == 1 || \\result == -1")
+        //   int sign(int x) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result == 1 || \\result == -1")),
                 "Expected disjunctive postcondition");
@@ -194,6 +243,9 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "safe");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   String safe(String s) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected \\result != null");
     }
@@ -208,6 +260,9 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "upper");
+        // Expected annotated method after inference:
+        //   @Ensures("s != null ==> \\result != null")
+        //   String upper(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("s != null ==> \\result != null")),
                 "Expected conditional non-null");
@@ -227,6 +282,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "setValue");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == this")
+        //   @Ensures("this.value == v")
+        //   @Assignable("this.value")
+        //   Builder setValue(int v) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == this")),
                 "Expected \\result == this");
     }
@@ -243,6 +303,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "upper");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() == s.length()")
+        //   String upper(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.length() == s.length()")),
                 "Expected length preservation");
@@ -258,6 +323,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "lower");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() == s.length()")
+        //   String lower(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.length() == s.length()")),
                 "Expected length preservation");
@@ -273,6 +343,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "cleaned");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() <= s.length()")
+        //   String cleaned(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.length() <= s.length()")),
                 "Expected trim constraint");
@@ -288,6 +363,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "sub");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() == 3")
+        //   String sub(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.length() == 3")),
                 "Expected length == 3");
@@ -303,6 +383,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "append");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() == s.length() + 3")
+        //   String append(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.length() == s.length() + 3")),
                 "Expected concat length");
@@ -318,6 +403,12 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "combine");
+        // Expected annotated method after inference:
+        //   @Requires("a != null")
+        //   @Requires("b != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() == a.length() + b.length()")
+        //   String combine(String a, String b) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("a.length() + b.length()")),
                 "Expected length sum");
@@ -333,6 +424,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "rep");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() == s.length() * 3")
+        //   String rep(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.length() == s.length() * 3")),
                 "Expected repeat length");
@@ -348,6 +444,12 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "hello");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() == 5")
+        //   String hello() {
+        //       return "hello";
+        //   }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.length() == 5")),
                 "Expected length == 5");
@@ -363,6 +465,12 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "empty");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.isEmpty()")
+        //   String empty() {
+        //       return "";
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result.isEmpty()")),
                 "Expected isEmpty()");
     }
@@ -377,6 +485,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "cleaned");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length() <= s.length()")
+        //   String cleaned(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.length() <= s.length()")),
                 "Expected strip constraint");
@@ -392,6 +505,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "interned");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.equals(s)")
+        //   String interned(String s) { ... }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result.equals(s)")),
                 "Expected equals constraint for intern");
@@ -411,6 +529,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "create");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   List<String> create() {
+        //       return new ArrayList<>();
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null");
     }
@@ -425,6 +548,12 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "create");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length == n")
+        //   int[] create(int n) {
+        //       return new int[n];
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result.length == n")),
                 "Expected length == n");
     }
@@ -442,6 +571,12 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "getName");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == this.name")
+        //   @Observer
+        //   int getName() {
+        //       return this.name;
+        //   }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result == this.name")),
                 "Expected getter postcondition");
@@ -459,6 +594,12 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "create");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result instanceof Widget")
+        //   static Widget create() {
+        //       return new Widget();
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null from factory");
         assertTrue(spec.getPostconditions().stream()
@@ -480,6 +621,9 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "equals");
+        // Expected annotated method after inference:
+        //   @Ensures("...equals...")      (reflexive property of equals)
+        //   public boolean equals(Object obj) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("equals")),
                 "Expected reflexive equals postcondition");
     }
@@ -497,6 +641,13 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "increment");
+        // Expected annotated method after inference:
+        //   @Ensures("this.count == \\old(this.count) + 1")
+        //   @Assignable("this.count")
+        //   @Mutator
+        //   void increment() {
+        //       this.count++;
+        //   }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("this.count == \\old(this.count) + 1")),
                 "Expected increment postcondition");
@@ -513,6 +664,13 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "decrement");
+        // Expected annotated method after inference:
+        //   @Ensures("this.count == \\old(this.count) - 1")
+        //   @Assignable("this.count")
+        //   @Mutator
+        //   void decrement() {
+        //       this.count--;
+        //   }
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("this.count == \\old(this.count) - 1")),
                 "Expected decrement postcondition");
@@ -529,6 +687,13 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "setValue");
+        // Expected annotated method after inference:
+        //   @Ensures("this.value == v")
+        //   @Assignable("this.value")
+        //   @Mutator
+        //   void setValue(int v) {
+        //       this.value = v;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("this.value == v")),
                 "Expected this.value == v");
     }
@@ -544,6 +709,13 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "deposit");
+        // Expected annotated method after inference:
+        //   @Ensures("this.balance == \\old(this.balance) + amount")
+        //   @Assignable("this.balance")
+        //   @Mutator
+        //   void deposit(int amount) {
+        //       this.balance += amount;
+        //   }
         assertTrue(anyContainsAll(spec.getPostconditions(), "this.balance", "\\old(this.balance)", "+ amount"),
                 "Expected compound assignment postcondition");
     }
@@ -561,6 +733,12 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "addItem");
+        // Expected annotated method after inference:
+        //   @Requires("items != null")
+        //   @Ensures("items.size() == \\old(items.size()) + 1")
+        //   void addItem(List<String> items, String item) {
+        //       items.add(item);
+        //   }
         assertTrue(anyContainsAll(spec.getPostconditions(), "items.size()", "\\old"),
                 "Expected size postcondition");
     }
@@ -576,6 +754,12 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "clearAll");
+        // Expected annotated method after inference:
+        //   @Requires("items != null")
+        //   @Ensures("items.isEmpty()")
+        //   void clearAll(List<String> items) {
+        //       items.clear();
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("items.isEmpty()")),
                 "Expected isEmpty postcondition");
     }
@@ -590,6 +774,14 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "setFirst");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Requires("arr.length > 0")
+        //   @Ensures("arr modified")
+        //   @Assignable("arr[*]")
+        //   void setFirst(int[] arr, int val) {
+        //       arr[0] = val;
+        //   }
         assertTrue(anyContainsAll(spec.getPostconditions(), "arr", "modified"),
                 "Expected array modified postcondition");
     }
@@ -605,6 +797,10 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "read");
+        // Expected annotated method after inference:
+        //   @Ensures("may throw IOException")
+        //   @Signals("IOException")
+        //   void read() throws java.io.IOException { }
         assertTrue(anyContainsAll(spec.getPostconditions(), "may throw", "IOException"),
                 "Expected throws postcondition");
     }
@@ -622,6 +818,13 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == a + b")
+        //   @Pure
+        //   int compute(int a, int b) {
+        //       int result = a + b;
+        //       return result;
+        //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == a + b")),
                 "Expected resolved return expression");
     }

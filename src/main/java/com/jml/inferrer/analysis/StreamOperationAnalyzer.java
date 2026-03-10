@@ -300,13 +300,17 @@ public class StreamOperationAnalyzer {
         // distinct reduces or preserves size
         if (chain.hasDistinct()) {
             specs.add("\\result.size() <= " + source + ".size()");
-            specs.add("\\result contains no duplicates");
+            // Uniqueness: for all pairs of indices, elements are distinct
+            specs.add("(\\forall int i, j; 0 <= i && i < j && j < \\result.size(); " +
+                    "!\\result.get(i).equals(\\result.get(j)))");
         }
 
         // sorted preserves size
         if (chain.hasSorted() && !chain.hasFilter()) {
             specs.add("\\result.size() == " + source + ".size()");
-            specs.add("\\result is sorted");
+            // Ordering: each element is <= the next (for Comparable elements)
+            specs.add("(\\forall int i; 0 <= i && i < \\result.size() - 1; " +
+                    "((Comparable) \\result.get(i)).compareTo(\\result.get(i + 1)) <= 0)");
         }
 
         // Terminal operation specific specs
@@ -357,7 +361,9 @@ public class StreamOperationAnalyzer {
                 String predicate = op.predicateOrMapper;
                 if (predicate.contains("!= null") || predicate.contains("nonNull") ||
                     predicate.contains("Objects::nonNull")) {
-                    specs.add("\\result contains no null elements");
+                    // All elements in result are non-null
+                    specs.add("(\\forall int i; 0 <= i && i < \\result.size(); " +
+                            "\\result.get(i) != null)");
                 }
             }
         }

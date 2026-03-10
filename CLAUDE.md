@@ -78,6 +78,14 @@ The application follows a visitor pattern-based pipeline:
   - Preconditions, postconditions, loop invariants
   - No logic, just accumulation and retrieval
 
+### Development Philosophy
+
+**This is a research product.** Always prefer the correct solution over the easy solution. When inference produces invalid JML:
+- **Fix the inference to produce valid JML**, don't just delete the inference code
+- If a pattern can't be expressed in JML, replace it with the closest valid JML expression (e.g., replace natural language with a valid JML property that captures part of the intent)
+- Only remove inference as a last resort when no valid JML can be generated for the pattern
+- Every inferred specification must be syntactically valid JML — no natural language, no undefined variables, no expressions that are false at loop exit
+
 ### Important Design Decisions
 
 **Non-destructive**: Only adds JML to methods without existing specifications. Methods with `@requires`, `@ensures`, or `@loop_invariant` are skipped.
@@ -96,6 +104,20 @@ To add new inference capabilities:
 2. Create new visitor classes if traversing specific AST node types (see `NullCheckVisitor`, `LoopInvariantVisitor`)
 3. Update `inferPreconditions()`, `inferPostconditions()`, or `inferLoopInvariants()` to call new analyzers
 4. Test with various Java code patterns in `experiment/sample_code/`
+
+### Testing Requirements
+
+**Every code change must include verification tests.** When fixing bugs or adding features to the inference engine, always add tests that verify the inferred specifications are correct. There are two tiers of tests:
+
+- **Analysis tests** (`src/test/java/com/jml/inferrer/analysis/`): Unit tests that call `MethodSpecificationInferrer` directly and assert on the inferred preconditions, postconditions, loop invariants, and assignable clauses. Use `InferrerTestBase` as the base class. These run without OpenJML.
+- **Verification tests** (`src/test/java/com/jml/inferrer/verification/`): End-to-end tests that run the full pipeline (infer → annotate → convert → OpenJML ESC) and verify that OpenJML accepts the inferred specifications. Use `FormalVerificationTestBase` as the base class. These require OpenJML (run via Docker: `docker compose run test`).
+
+When changing inference logic:
+1. Write an analysis test that checks the inferred spec content (e.g., assert a precondition contains `arr != null`)
+2. Write a verification test using `inferAndVerify()` that proves the inferred spec is formally valid via OpenJML
+3. If fixing an invalid inference bug, add a regression test in `InvalidInferenceRegressionTest.java` that asserts the invalid spec is no longer generated
+4. Prefer `inferAndVerify()` over `verifyMethod()` — the tool's purpose is to **infer** specifications from code, so tests should exercise the full inference pipeline, not bypass it with hand-written JML
+5. Keep each test class to **30 tests or fewer**. When a suite grows beyond 30 tests, split it into multiple classes by logical grouping (e.g., `PreconditionInferenceTest` → `PreconditionNullCheckTest`, `PreconditionBoundsTest`)
 
 ### Logging
 

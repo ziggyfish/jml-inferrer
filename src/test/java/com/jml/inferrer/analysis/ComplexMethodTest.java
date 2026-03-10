@@ -26,6 +26,10 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "binarySearch");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Complexity(time = "O(n log n)")
+        //   int binarySearch(int[] arr, int target, int low, int high) { ... }
         assertEquals("O(n log n)", spec.getTimeComplexity());
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr != null")),
                 "Expected arr != null");
@@ -43,6 +47,10 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "fib");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(2^n)")
+        //   @Ensures("\\result >= 0")
+        //   int fib(int n) { ... }
         assertEquals("O(2^n)", spec.getTimeComplexity());
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
                 "Expected non-negative result");
@@ -64,6 +72,12 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "multiply");
+        // Expected annotated method after inference:
+        //   @Requires("a != null")
+        //   @Requires("b != null")
+        //   @Complexity(time = "O(n^3)")
+        //   @Ensures("\\result != null")
+        //   int[][] multiply(int[][] a, int[][] b) { ... }
         assertEquals("O(n^3)", spec.getTimeComplexity());
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null");
@@ -90,6 +104,9 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "reverse");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(n)")
+        //   Node reverse(Node head) { ... }
         assertNotNull(spec);
         assertEquals("O(n)", spec.getTimeComplexity());
     }
@@ -108,6 +125,10 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "repeat");
+        // Expected annotated method after inference:
+        //   @Requires("n > 0")           (or similar numeric constraint)
+        //   @Complexity(time = "O(n)")
+        //   String repeat(String s, int n) { ... }
         assertTrue(spec.getPreconditions().stream()
                 .anyMatch(p -> p.contains("n") && (p.contains(">") || p.contains("<"))),
                 "Expected numeric constraint on n");
@@ -124,6 +145,9 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "gcd");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(2^n)")
+        //   int gcd(int a, int b) { ... }
         assertEquals("O(2^n)", spec.getTimeComplexity());
     }
 
@@ -139,6 +163,11 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "swap");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Assignable("arr[*]")
+        //   @Complexity(time = "O(1)")
+        //   void swap(int[] arr, int i, int j) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr != null")),
                 "Expected arr != null");
         assertTrue(spec.getAssignableClauses().stream().anyMatch(p -> p.contains("arr[*]")),
@@ -159,6 +188,10 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == ((((x + y) * z) - x) + (x + y))")
+        //   @Pure
+        //   int compute(int x, int y, int z) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result ==")),
                 "Expected symbolic result");
     }
@@ -175,6 +208,11 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "clamp");
+        // Expected annotated method after inference:
+        //   @Requires("value >= min")     (or similar value/min relationship)
+        //   @Requires("value <= max")
+        //   @Pure
+        //   int clamp(int value, int min, int max) { ... }
         assertTrue(spec.getPreconditions().stream()
                 .anyMatch(p -> p.contains("value") && p.contains("min")),
                 "Expected value/min relationship");
@@ -196,6 +234,11 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("n >= 0")           (inverted from: if n < 0 throw)
+        //   @Signals("n < 0 ==> throws IllegalArgumentException")
+        //   @Complexity(time = "O(n)")
+        //   int compute(int n, int[] arr) { ... }
         assertNotNull(spec);
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n >= 0")),
                 "Expected n >= 0 from guard");
@@ -213,6 +256,10 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "power");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(n)")
+        //   (no @Ensures for \\result == 1 -- result is loop-tainted)
+        //   int power(int base, int exp) { ... }
         assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == 1")),
                 "Should not resolve loop-tainted accumulator");
         assertEquals("O(n)", spec.getTimeComplexity());
@@ -238,6 +285,13 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "deep");
+        // Expected annotated method after inference:
+        //   @Ensures("a > 500 ==> \\result == (a * 2) + 5")
+        //   @Ensures("a > 400 && a <= 500 ==> \\result == (a * 2) + 4")
+        //   @Ensures("a > 300 && a <= 400 ==> \\result == (a * 2) + 3")
+        //   ... (conditional postconditions for each branch)
+        //   @Pure
+        //   int deep(int a) { ... }
         assertNotNull(spec);
         assertFalse(spec.getPostconditions().isEmpty(), "Expected postconditions from deep nesting");
     }
@@ -256,6 +310,10 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "dayType");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   @Pure
+        //   String dayType(int day) { ... }
         assertNotNull(spec);
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null for switch expression");
@@ -283,6 +341,12 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Requires("input != null")
+        //   @Ensures("\\result != null")
+        //   @Signals("input == null ==> throws IllegalArgumentException")
+        //   @Complexity(time = "O(n)")
+        //   List<String> process(String[] input) { ... }
         assertNotNull(spec);
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("input != null")),
                 "Expected input != null");
@@ -304,6 +368,10 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "addAndCheck");
+        // Expected annotated method after inference:
+        //   @Mutator
+        //   @Assignable("this.count")
+        //   boolean addAndCheck(int value) { ... }
         assertTrue(spec.isMutator(), "Expected mutator");
         assertTrue(spec.getAssignableClauses().stream().anyMatch(p -> p.contains("this.count")),
                 "Expected this.count assignable");
@@ -318,6 +386,9 @@ class ComplexMethodTest extends InferrerTestBase {
                 int other() { return 0; }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   (no annotations -- abstract methods have no body to analyze)
+        //   abstract int compute(int x);
         assertNotNull(spec);
     }
 
@@ -332,6 +403,11 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "populate");
+        // Expected annotated method after inference:
+        //   @Requires("list != null")
+        //   @Ensures("list.size() == \\old(list.size()) + count")
+        //   @Complexity(time = "O(n)")
+        //   void populate(List<String> list, String item, int count) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("list != null")),
                 "Expected list != null");
         assertTrue(anyContainsAll(spec.getPostconditions(), "list.size()", "\\old"),
@@ -356,6 +432,13 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "bubbleSort");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Assignable("arr[*]")
+        //   @Complexity(time = "O(n^2)")
+        //   @LoopInvariant("i >= 0")
+        //   @LoopInvariant("j >= 0")
+        //   void bubbleSort(int[] arr) { ... }
         assertEquals("O(n^2)", spec.getTimeComplexity());
         assertTrue(spec.getAssignableClauses().stream().anyMatch(p -> p.contains("arr[*]")),
                 "Expected array modification");
@@ -380,6 +463,12 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "evaluate");
+        // Expected annotated method after inference:
+        //   @Requires("op != null")
+        //   @Signals("op == null ==> throws IllegalArgumentException")
+        //   @Signals("b == 0 ==> throws ArithmeticException")
+        //   @Signals("throws IllegalArgumentException")
+        //   int evaluate(int a, int b, String op) { ... }
         assertNotNull(spec);
         assertTrue(spec.getExceptionSpecifications().stream()
                 .anyMatch(p -> p.contains("IllegalArgumentException")),
@@ -405,6 +494,12 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "filterPositive");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.size() <= arr.length")
+        //   @Complexity(time = "O(n)")
+        //   List<Integer> filterPositive(int[] arr) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null result");
         assertTrue(spec.getPostconditions().stream()
@@ -428,6 +523,12 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("a == 0")           (or similar numeric constraints)
+        //   @Ensures("a == 0 ==> \\result == 0")
+        //   @Ensures("b == 0 ==> \\result == a")
+        //   @Pure
+        //   int compute(int a, int b) { ... }
         assertNotNull(spec);
         assertFalse(spec.getPostconditions().isEmpty(),
                 "Expected postconditions for multi-return method");
@@ -445,6 +546,9 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "isPalindrome");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   boolean isPalindrome(String s) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("s != null")),
                 "Expected s != null");
     }
@@ -465,6 +569,12 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "findMax");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Requires("arr.length > 0")
+        //   @Signals("arr == null || arr.length == 0 ==> throws IllegalArgumentException")
+        //   @Complexity(time = "O(n)")
+        //   int findMax(int[] arr) { ... }
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr != null")),
                 "Expected arr != null");
     }
@@ -480,6 +590,10 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "factorial");
+        // Expected annotated method after inference:
+        //   @Complexity(time = "O(2^n)")
+        //   @Ensures("\\result >= 1")     (or "\\result > 0")
+        //   int factorial(int n) { ... }
         assertEquals("O(2^n)", spec.getTimeComplexity());
         assertTrue(spec.getPostconditions().stream()
                 .anyMatch(p -> p.contains("\\result >= 1") || p.contains("\\result > 0")),
@@ -502,6 +616,11 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "count");
+        // Expected annotated method after inference:
+        //   @Requires("words != null")
+        //   @Ensures("\\result != null")
+        //   @Complexity(time = "O(n)")
+        //   Map<String, Integer> count(String[] words) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null result");
         assertEquals("O(n)", spec.getTimeComplexity());

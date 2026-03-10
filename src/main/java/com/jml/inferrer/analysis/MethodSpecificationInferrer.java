@@ -178,13 +178,21 @@ public class MethodSpecificationInferrer {
     private void inferGenericTypeConstraints(MethodDeclaration methodDecl, MethodSpecification spec) {
         // Check method type parameters
         methodDecl.getTypeParameters().forEach(typeParam -> {
-            String paramName = typeParam.getNameAsString();
+            String typeParamName = typeParam.getNameAsString();
 
-            // Check bounds
+            // Check bounds — generate instanceof preconditions for parameters of the bounded type
             typeParam.getTypeBound().forEach(bound -> {
                 String boundName = bound.asString();
                 if (!boundName.equals("Object")) {
-                    spec.addTypeConstraint(paramName + " extends " + boundName);
+                    // Find method parameters that use this type parameter
+                    methodDecl.getParameters().forEach(param -> {
+                        String paramType = param.getType().asString();
+                        if (paramType.equals(typeParamName) || paramType.equals(typeParamName + "[]")) {
+                            // Generate instanceof check: parameter values must satisfy the bound
+                            spec.addPrecondition(param.getNameAsString() + " instanceof " + boundName,
+                                    MethodSpecification.ConfidenceLevel.MEDIUM);
+                        }
+                    });
                 }
             });
         });
@@ -193,26 +201,23 @@ public class MethodSpecificationInferrer {
         methodDecl.getParameters().forEach(param -> {
             String paramType = param.getType().asString();
 
-            // Check for Comparable bound
+            // Check for Comparable bound — generate instanceof check which is valid JML.
+            // When the parameter type is Comparable (or contains it), the instanceof
+            // check is a valid runtime-checkable precondition.
             if (paramType.contains("Comparable")) {
-                spec.addPrecondition(param.getNameAsString() + " is Comparable",
-                        MethodSpecification.ConfidenceLevel.HIGH);
-            }
-
-            // Check for Collection subtypes
-            if (paramType.matches(".*<\\? extends \\w+>.*")) {
-                // Upper bounded wildcard
-                String bound = extractWildcardBound(paramType, "extends");
-                if (bound != null) {
-                    spec.addTypeConstraint(param.getNameAsString() + " contains elements extending " + bound);
+                if (!param.getType().isPrimitiveType()) {
+                    spec.addPrecondition(param.getNameAsString() + " instanceof Comparable",
+                            MethodSpecification.ConfidenceLevel.HIGH);
                 }
             }
 
-            if (paramType.matches(".*<\\? super \\w+>.*")) {
-                // Lower bounded wildcard
-                String bound = extractWildcardBound(paramType, "super");
-                if (bound != null) {
-                    spec.addTypeConstraint(param.getNameAsString() + " accepts elements of type " + bound + " or supertypes");
+            // Check for Collection subtypes with wildcard bounds
+            // Java generics are erased at runtime, so wildcard bounds like <? extends Number>
+            // can't be expressed in JML. Instead, generate a null check for the collection parameter.
+            if (paramType.matches(".*<\\? extends \\w+>.*") || paramType.matches(".*<\\? super \\w+>.*")) {
+                if (!param.getType().isPrimitiveType()) {
+                    spec.addPrecondition(param.getNameAsString() + " != null",
+                            MethodSpecification.ConfidenceLevel.HIGH);
                 }
             }
         });
@@ -513,8 +518,21 @@ public class MethodSpecificationInferrer {
                     if (index instanceof IntegerLiteralExpr) {
                         int indexValue = ((IntegerLiteralExpr) index).asInt();
                         preconditions.add(paramName + ".length > " + indexValue);
+                    } else if (index instanceof NameExpr) {
+                        // Index is a variable — check if it's a parameter
+                        String indexName = ((NameExpr) index).getNameAsString();
+                        boolean isParam = methodDecl.getParameters().stream()
+                                .anyMatch(p -> p.getNameAsString().equals(indexName));
+                        if (isParam) {
+                            // Generate proper bounds: idx >= 0 && idx < arr.length
+                            preconditions.add(indexName + " >= 0");
+                            preconditions.add(indexName + " < " + paramName + ".length");
+                        } else {
+                            // Non-parameter variable (e.g. loop var) — just need non-empty
+                            preconditions.add(paramName + ".length > 0");
+                        }
                     } else {
-                        // Generic index access requires non-empty
+                        // Complex index expression — just need non-empty
                         preconditions.add(paramName + ".length > 0");
                     }
                 });
@@ -628,36 +646,58 @@ public class MethodSpecificationInferrer {
      * Analyzes array length constraints from conditionals.
      */
     private void analyzeArrayLengthConstraints(MethodDeclaration methodDecl, String paramName, Set<String> preconditions) {
+        Set<String> paramNames = new java.util.HashSet<>();
+        methodDecl.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+
         methodDecl.findAll(BinaryExpr.class).stream()
             .filter(binExpr -> binExpr.getLeft().toString().equals(paramName + ".length") ||
                                binExpr.getRight().toString().equals(paramName + ".length"))
             .forEach(binExpr -> {
                 if (binExpr.getLeft().toString().equals(paramName + ".length")) {
+                    String otherSide = binExpr.getRight().toString();
+                    // Only add precondition if the other side is a parameter or literal
+                    if (!isParameterOrLiteral(otherSide, paramNames)) return;
                     switch (binExpr.getOperator()) {
                         case GREATER:
-                            preconditions.add(paramName + ".length > " + binExpr.getRight());
+                            preconditions.add(paramName + ".length > " + otherSide);
                             break;
                         case GREATER_EQUALS:
-                            preconditions.add(paramName + ".length >= " + binExpr.getRight());
+                            preconditions.add(paramName + ".length >= " + otherSide);
                             break;
                         case EQUALS:
-                            preconditions.add(paramName + ".length == " + binExpr.getRight());
+                            preconditions.add(paramName + ".length == " + otherSide);
                             break;
                     }
                 } else if (binExpr.getRight().toString().equals(paramName + ".length")) {
+                    String otherSide = binExpr.getLeft().toString();
+                    // Only add precondition if the other side is a parameter or literal
+                    if (!isParameterOrLiteral(otherSide, paramNames)) return;
                     switch (binExpr.getOperator()) {
                         case LESS:
-                            preconditions.add(paramName + ".length > " + binExpr.getLeft());
+                            preconditions.add(paramName + ".length > " + otherSide);
                             break;
                         case LESS_EQUALS:
-                            preconditions.add(paramName + ".length >= " + binExpr.getLeft());
+                            preconditions.add(paramName + ".length >= " + otherSide);
                             break;
                         case EQUALS:
-                            preconditions.add(paramName + ".length == " + binExpr.getLeft());
+                            preconditions.add(paramName + ".length == " + otherSide);
                             break;
                     }
                 }
             });
+    }
+
+    /**
+     * Checks if an expression refers to a method parameter or is a literal value.
+     */
+    private boolean isParameterOrLiteral(String expr, Set<String> paramNames) {
+        if (paramNames.contains(expr)) return true;
+        if (expr.matches("-?\\d+")) return true; // integer literal
+        // Check for param.length, param.size(), etc.
+        for (String param : paramNames) {
+            if (expr.startsWith(param + ".")) return true;
+        }
+        return false;
     }
 
     /**
@@ -806,23 +846,14 @@ public class MethodSpecificationInferrer {
                         String operatorStr = getCompoundOperatorString(operator);
                         if (operatorStr != null) {
                             postconditions.add("this." + fieldName + " == \\old(this." + fieldName + ") " + operatorStr + " " + value);
-                        } else {
-                            postconditions.add("this." + fieldName + " is modified");
                         }
-                    } else if (value instanceof NameExpr || value instanceof IntegerLiteralExpr ||
-                        value instanceof DoubleLiteralExpr || value instanceof StringLiteralExpr) {
-                        postconditions.add("this." + fieldName + " == " + value);
-                    } else if (value instanceof BinaryExpr) {
-                        // For expressions like: balance = balance + amount
-                        // Generate: this.balance == \old(this.balance) + amount
-                        String oldExpr = generateOldExpression(fieldName, (BinaryExpr) value, operator);
-                        if (oldExpr != null) {
-                            postconditions.add(oldExpr);
-                        } else {
-                            postconditions.add("this." + fieldName + " is modified");
-                        }
+                        // All compound operators are covered by getCompoundOperatorString
                     } else {
-                        postconditions.add("this." + fieldName + " is modified");
+                        // Direct assignment: this.field = value
+                        String postcond = generateFieldAssignPostcondition(fieldName, value, operator, methodDecl);
+                        if (postcond != null) {
+                            postconditions.add(postcond);
+                        }
                     }
                 }
             });
@@ -847,20 +878,13 @@ public class MethodSpecificationInferrer {
                                         String operatorStr = getCompoundOperatorString(operator);
                                         if (operatorStr != null) {
                                             postconditions.add("this." + fieldName + " == \\old(this." + fieldName + ") " + operatorStr + " " + value);
-                                        } else {
-                                            postconditions.add("this." + fieldName + " is modified");
                                         }
-                                    } else if (value instanceof NameExpr &&
-                                        methodDecl.getParameters().stream()
-                                            .anyMatch(p -> p.getNameAsString().equals(value.toString()))) {
-                                        postconditions.add("this." + fieldName + " == " + value);
-                                    } else if (value instanceof BinaryExpr) {
-                                        // Handle binary expressions with \old()
-                                        String oldExpr = generateOldExpression(fieldName, (BinaryExpr) value, operator);
-                                        if (oldExpr != null) {
-                                            postconditions.add(oldExpr);
-                                        } else {
-                                            postconditions.add("this." + fieldName + " is modified");
+                                        // All compound operators are covered by getCompoundOperatorString
+                                    } else {
+                                        // Direct assignment: field = value
+                                        String postcond = generateFieldAssignPostcondition(fieldName, value, operator, methodDecl);
+                                        if (postcond != null) {
+                                            postconditions.add(postcond);
                                         }
                                     }
                                 }
@@ -868,6 +892,84 @@ public class MethodSpecificationInferrer {
                         });
                     });
             });
+    }
+
+    /**
+     * Generates a postcondition for a direct field assignment (this.field = value).
+     * Handles various value types:
+     * - Literals, parameters, field references → this.field == value
+     * - Array access → this.field == arr[idx]
+     * - Binary expressions → attempts \old() generation
+     * - Unary expressions (e.g., -x) → this.field == -x
+     * - Cast expressions → this.field == (Type) expr (if inner expr is simple)
+     * - Method calls → not expressible without purity guarantees, so generates
+     *   this.field == \old(this.field) || this.field != \old(this.field) is useless;
+     *   instead we note the field was assigned (assignable handles this) and skip.
+     *
+     * @return a valid JML postcondition string, or null if the value can't be expressed
+     */
+    private String generateFieldAssignPostcondition(String fieldName, Expression value,
+            AssignExpr.Operator operator, com.github.javaparser.ast.body.MethodDeclaration methodDecl) {
+        if (value instanceof NameExpr || value instanceof IntegerLiteralExpr ||
+            value instanceof DoubleLiteralExpr || value instanceof StringLiteralExpr ||
+            value instanceof BooleanLiteralExpr || value instanceof LongLiteralExpr ||
+            value instanceof CharLiteralExpr || value instanceof NullLiteralExpr) {
+            return "this." + fieldName + " == " + value;
+        } else if (value instanceof ArrayAccessExpr) {
+            return "this." + fieldName + " == " + value;
+        } else if (value instanceof FieldAccessExpr) {
+            return "this." + fieldName + " == " + value;
+        } else if (value instanceof UnaryExpr) {
+            UnaryExpr unary = (UnaryExpr) value;
+            // Handle simple unary like -x, +x, ~x (prefix operators only)
+            if (unary.isPrefix()) {
+                return "this." + fieldName + " == " + value;
+            }
+        } else if (value instanceof CastExpr) {
+            // For casts, use the whole expression if the inner value is simple
+            CastExpr cast = (CastExpr) value;
+            if (cast.getExpression() instanceof NameExpr ||
+                cast.getExpression() instanceof LiteralExpr) {
+                return "this." + fieldName + " == " + value;
+            }
+        } else if (value instanceof EnclosedExpr) {
+            // Parenthesized expression — recurse on inner
+            return generateFieldAssignPostcondition(fieldName,
+                    ((EnclosedExpr) value).getInner(), operator, methodDecl);
+        } else if (value instanceof BinaryExpr) {
+            String oldExpr = generateOldExpression(fieldName, (BinaryExpr) value, operator);
+            if (oldExpr != null) {
+                return oldExpr;
+            }
+            // If generateOldExpression can't handle it, try using the raw expression
+            // if both operands are simple (parameters, literals, field accesses)
+            BinaryExpr bin = (BinaryExpr) value;
+            if (isSimpleJMLExpression(bin.getLeft()) && isSimpleJMLExpression(bin.getRight())) {
+                return "this." + fieldName + " == " + value;
+            }
+        } else if (value instanceof ConditionalExpr) {
+            // Ternary: val < lo ? lo : val → split into two postcondition cases
+            // Can't do that in a single postcondition, so skip (handled by branch analysis)
+            return null;
+        }
+        // For method calls and other complex expressions we can't guarantee are pure,
+        // we can't express the postcondition in valid JML without method specs.
+        // The assignable clause already captures that this field may change.
+        return null;
+    }
+
+    /**
+     * Checks if an expression is simple enough to use directly in a JML spec.
+     * Simple means: literals, names, field accesses, array accesses, or unary of those.
+     */
+    private boolean isSimpleJMLExpression(Expression expr) {
+        return expr instanceof NameExpr || expr instanceof LiteralExpr ||
+               expr instanceof FieldAccessExpr || expr instanceof ArrayAccessExpr ||
+               expr instanceof ThisExpr ||
+               (expr instanceof UnaryExpr && ((UnaryExpr) expr).isPrefix() &&
+                isSimpleJMLExpression(((UnaryExpr) expr).getExpression())) ||
+               (expr instanceof EnclosedExpr &&
+                isSimpleJMLExpression(((EnclosedExpr) expr).getInner()));
     }
 
     /**
@@ -1754,6 +1856,10 @@ public class MethodSpecificationInferrer {
         if (expr.matches("[a-zA-Z_][a-zA-Z0-9_]*")) return true; // Single identifier
         if (expr.matches("-?\\d+(\\.\\d+)?")) return true;        // Single literal
         if (expr.equals("this")) return true;
+        // Expressions with 'new' are not valid in JML postconditions
+        if (expr.contains("new ")) return true;
+        // Ternary expressions can cause operator precedence issues in JML
+        if (expr.contains("?") && expr.contains(":")) return true;
         return false;
     }
 
@@ -3124,6 +3230,31 @@ public class MethodSpecificationInferrer {
     private void inferAssignableClauses(MethodDeclaration methodDecl, MethodSpecification spec) {
         Set<String> assignedLocations = new LinkedHashSet<>();
 
+        // Find unary increment/decrement on fields (this.count++, this.count--)
+        methodDecl.findAll(UnaryExpr.class).forEach(unary -> {
+            if (unary.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT ||
+                unary.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT ||
+                unary.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT ||
+                unary.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT) {
+                Expression expr = unary.getExpression();
+                if (expr instanceof FieldAccessExpr) {
+                    FieldAccessExpr fieldAccess = (FieldAccessExpr) expr;
+                    String scope = fieldAccess.getScope().toString();
+                    String field = fieldAccess.getNameAsString();
+                    if (scope.equals("this")) {
+                        assignedLocations.add("this." + field);
+                    } else {
+                        assignedLocations.add(scope + "." + field);
+                    }
+                } else if (expr instanceof NameExpr) {
+                    String varName = expr.toString();
+                    if (isFieldReference(methodDecl, varName)) {
+                        assignedLocations.add("this." + varName);
+                    }
+                }
+            }
+        });
+
         // Find all assignments
         methodDecl.findAll(AssignExpr.class).forEach(assign -> {
             Expression target = assign.getTarget();
@@ -3148,7 +3279,12 @@ public class MethodSpecificationInferrer {
             } else if (target instanceof ArrayAccessExpr) {
                 ArrayAccessExpr arrayAccess = (ArrayAccessExpr) target;
                 String arrayName = arrayAccess.getName().toString();
-                assignedLocations.add(arrayName + "[*]");
+                // Only include array writes for fields and parameters, not local variables
+                if (isFieldReference(methodDecl, arrayName) ||
+                    methodDecl.getParameters().stream()
+                        .anyMatch(p -> p.getNameAsString().equals(arrayName))) {
+                    assignedLocations.add(arrayName + "[*]");
+                }
             }
         });
 
@@ -3312,12 +3448,12 @@ public class MethodSpecificationInferrer {
     private void analyzeSwitchStatements(MethodDeclaration methodDecl, MethodSpecification spec) {
         // Analyze switch expressions (Java 14+)
         methodDecl.findAll(SwitchExpr.class).forEach(switchExpr -> {
-            analyzeSwitchCases(switchExpr.getSelector(), switchExpr.getEntries(), spec, true);
+            analyzeSwitchCases(switchExpr.getSelector(), switchExpr.getEntries(), spec, true, methodDecl);
         });
 
         // Analyze traditional switch statements
         methodDecl.findAll(SwitchStmt.class).forEach(switchStmt -> {
-            analyzeSwitchCases(switchStmt.getSelector(), switchStmt.getEntries(), spec, false);
+            analyzeSwitchCases(switchStmt.getSelector(), switchStmt.getEntries(), spec, false, methodDecl);
         });
     }
 
@@ -3325,7 +3461,8 @@ public class MethodSpecificationInferrer {
      * Analyzes switch cases to infer specifications.
      */
     private void analyzeSwitchCases(Expression selector, List<SwitchEntry> entries,
-                                    MethodSpecification spec, boolean isExpression) {
+                                    MethodSpecification spec, boolean isExpression,
+                                    MethodDeclaration methodDecl) {
         String selectorStr = selector.toString();
         Set<String> caseValues = new LinkedHashSet<>();
         boolean hasDefault = false;
@@ -3354,16 +3491,15 @@ public class MethodSpecificationInferrer {
             });
         }
 
-        // If switch is exhaustive (has default or covers all enum values), add postcondition
-        if (hasDefault) {
-            spec.addPostcondition("switch on " + selectorStr + " is exhaustive",
-                    MethodSpecification.ConfidenceLevel.HIGH);
-        }
-
-        // For switch expressions, the result is always defined
-        if (isExpression) {
-            spec.addPostcondition("switch expression on " + selectorStr + " always yields a value",
-                    MethodSpecification.ConfidenceLevel.HIGH);
+        // If switch is exhaustive (has default or covers all enum values), the method
+        // handles all cases. For methods returning a reference type, this guarantees
+        // \result != null (if all branches return non-null values).
+        if (hasDefault || isExpression) {
+            // For reference return types, infer \result != null
+            if (!methodDecl.getType().isVoidType() && !methodDecl.getType().isPrimitiveType()) {
+                spec.addPostcondition("\\result != null",
+                        MethodSpecification.ConfidenceLevel.HIGH);
+            }
         }
 
         // Check if selector is a parameter
@@ -3666,12 +3802,14 @@ public class MethodSpecificationInferrer {
                             }
                         });
 
-                        // Add upper bound from loop condition
+                        // Add upper bound from loop condition.
+                        // Use weakened operator: i < n becomes i <= n for the invariant,
+                        // because after the final increment i == n.
                         forStmt.getCompare().ifPresent(compare -> {
                             if (compare instanceof BinaryExpr) {
                                 BinaryExpr binExpr = (BinaryExpr) compare;
                                 if (binExpr.getLeft().toString().equals(varName)) {
-                                    invariants.add(varName + " " + getOperatorSymbol(binExpr.getOperator()) + " " + binExpr.getRight());
+                                    invariants.add(varName + " " + getWeakenedOperatorForInvariant(binExpr.getOperator()) + " " + binExpr.getRight());
                                 }
                             }
                         });
@@ -3877,9 +4015,12 @@ public class MethodSpecificationInferrer {
                             .allMatch(assign -> assign.getValue().toString().equals(firstValue.toString()));
 
                     if (allSameValue) {
-                        // Uniform initialization: (\forall int k; 0 <= k < i; arr[k] == value)
-                        invariants.add("(\\forall int k; 0 <= k < " + counter + "; " +
-                                      arrayName + "[k] == " + firstValue + ")");
+                        // Only generate \forall for simple literal values to avoid
+                        // operator precedence issues with complex expressions (ternary, etc.)
+                        if (firstValue.isLiteralExpr() || firstValue.isNameExpr()) {
+                            invariants.add("(\\forall int k; 0 <= k < " + counter + "; " +
+                                          arrayName + "[k] == " + firstValue + ")");
+                        }
                     }
                 }
 
@@ -3887,10 +4028,7 @@ public class MethodSpecificationInferrer {
                 boolean hasSwap = body.findAll(MethodCallExpr.class).stream()
                         .anyMatch(call -> call.getNameAsString().equals("swap"));
 
-                if (hasSwap) {
-                    // Likely sorting algorithm, add generic segment property
-                    invariants.add(arrayName + "[0.." + counter + "-1] processed");
-                }
+                // Swap patterns (sorting) detected but not expressible as simple JML invariant
             }
         }
 
@@ -3936,8 +4074,12 @@ public class MethodSpecificationInferrer {
                         if (!counterNames.contains(countVar)) {
                             // This is a counting variable
                             String condition = ifStmt.getCondition().toString();
+                            // Use word-boundary replacement to avoid corrupting identifiers
+                            // e.g., replacing "i" in "items[i]" should give "items[k]", not "ktems[k]"
+                            String replacedCondition = condition.replaceAll(
+                                    "\\b" + java.util.regex.Pattern.quote(counter) + "\\b", "k");
                             invariants.add("(\\num_of int k; 0 <= k < " + counter + "; " +
-                                          condition.replace(counter, "k") + ") == " + countVar);
+                                          replacedCondition + ") == " + countVar);
                         }
                     }
                 });
@@ -3957,26 +4099,16 @@ public class MethodSpecificationInferrer {
                         String leftVar = binExpr.getLeft().toString();
                         String rightVar = binExpr.getRight().toString();
 
-                        // Check if then statement assigns left to right
-                        ifStmt.getThenStmt().findAll(AssignExpr.class).forEach(assign -> {
-                            if (assign.getTarget().toString().equals(rightVar) &&
-                                assign.getValue().toString().equals(leftVar)) {
-                                // This is max tracking
-                                invariants.add(rightVar + " is maximum of elements seen so far");
-                            }
-                        });
+                        // Check if then statement assigns left to right (max tracking pattern)
+                        // Note: natural language invariants like "max is maximum of elements seen so far"
+                        // are not valid JML. Skip this pattern as it cannot be expressed simply.
+
                     } else if (binExpr.getOperator() == BinaryExpr.Operator.LESS) {
                         String leftVar = binExpr.getLeft().toString();
                         String rightVar = binExpr.getRight().toString();
 
-                        // Check for min pattern
-                        ifStmt.getThenStmt().findAll(AssignExpr.class).forEach(assign -> {
-                            if (assign.getTarget().toString().equals(rightVar) &&
-                                assign.getValue().toString().equals(leftVar)) {
-                                // This is min tracking
-                                invariants.add(rightVar + " is minimum of elements seen so far");
-                            }
-                        });
+                        // Check for min tracking pattern
+                        // Note: natural language invariants are not valid JML. Skip this pattern.
                     }
                 }
             });
@@ -3991,15 +4123,15 @@ public class MethodSpecificationInferrer {
 
             if (condition instanceof BinaryExpr) {
                 BinaryExpr binExpr = (BinaryExpr) condition;
-                // Add the condition itself as a loop invariant guard
-                invariants.add(binExpr.toString());
+                // Do NOT add the raw condition as invariant — it is false at loop exit.
+                // Instead, generate the weakened version.
 
                 // Extract bounds from while condition (e.g., while (i < n) -> i <= n)
                 if (!counterNames.isEmpty()) {
                     String left = binExpr.getLeft().toString();
                     String right = binExpr.getRight().toString();
                     if (counterNames.contains(left)) {
-                        invariants.add(left + " " + getOperatorSymbol(binExpr.getOperator()) + " " + right);
+                        invariants.add(left + " " + getWeakenedOperatorForInvariant(binExpr.getOperator()) + " " + right);
                         invariants.add(left + " >= 0");
                     } else if (counterNames.contains(right)) {
                         invariants.add(right + " >= 0");
@@ -4007,13 +4139,11 @@ public class MethodSpecificationInferrer {
                 }
             } else if (condition instanceof MethodCallExpr) {
                 // Handle while (iter.hasNext()), while (scanner.hasNextLine()), etc.
+                // We can't express "has remaining elements" in JML, but we can assert
+                // the iterator/scanner object is non-null (a valid invariant).
                 MethodCallExpr call = (MethodCallExpr) condition;
-                String methodName = call.getNameAsString();
-                if (methodName.equals("hasNext") || methodName.equals("hasNextLine") ||
-                    methodName.equals("hasNextInt") || methodName.equals("hasMoreElements")) {
-                    call.getScope().ifPresent(scope ->
-                        invariants.add(scope + " has remaining elements to process"));
-                }
+                call.getScope().ifPresent(scope ->
+                    invariants.add(scope + " != null"));
             }
 
             // Reuse for-loop helpers: accumulators, variable relationships, body analysis
@@ -4056,22 +4186,14 @@ public class MethodSpecificationInferrer {
         }
 
         private void analyzeForEachLoop(ForEachStmt forEachStmt) {
-            String varName = forEachStmt.getVariable().getVariable(0).getNameAsString();
             String iterableName = forEachStmt.getIterable().toString();
 
-            invariants.add(varName + " != null");
-            invariants.add(varName + " is element of " + iterableName);
+            // The iterable must be non-null for the for-each to execute
+            invariants.add(iterableName + " != null");
 
-            // Collection size constraint: elements are bounded by collection size
-            String iterableType = forEachStmt.getIterable().toString();
-            if (!iterableType.contains("[")) {
-                // Likely a Collection, not an array
-                invariants.add("processed elements <= " + iterableName + ".size()");
-            } else {
-                invariants.add("processed elements <= " + iterableName + ".length");
-            }
-
-            // Analyze variable relationships in the body (max/min tracking, etc.)
+            // For-each loops don't expose an index variable, so we can't generate
+            // quantified invariants like \forall. Analyze the body for accumulator
+            // and variable relationship patterns instead.
             analyzeVariableRelationships(forEachStmt.getBody(), invariants);
             analyzeLoopBodyForInvariants(forEachStmt.getBody(), invariants);
         }
@@ -4100,6 +4222,21 @@ public class MethodSpecificationInferrer {
                 case EQUALS -> "==";
                 case NOT_EQUALS -> "!=";
                 default -> operator.asString();
+            };
+        }
+
+        /**
+         * Returns a weakened operator suitable for loop invariants.
+         * A loop condition like 'i < n' means the invariant must be 'i <= n'
+         * because the loop variable reaches n after the final increment.
+         */
+        private String getWeakenedOperatorForInvariant(BinaryExpr.Operator operator) {
+            return switch (operator) {
+                case LESS -> "<=";
+                case GREATER -> ">=";
+                case LESS_EQUALS -> "<=";
+                case GREATER_EQUALS -> ">=";
+                default -> getOperatorSymbol(operator);
             };
         }
 

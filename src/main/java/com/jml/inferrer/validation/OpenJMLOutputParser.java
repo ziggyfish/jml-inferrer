@@ -20,9 +20,9 @@ public class OpenJMLOutputParser {
 
     private static final Logger logger = LoggerFactory.getLogger(OpenJMLOutputParser.class);
 
-    // Pattern: File.java:LINE: warning: ... (AssertionType) in method METHODNAME
+    // Pattern: File.java:LINE: warning/verify: ... (AssertionType) in method METHODNAME
     private static final Pattern WARNING_PATTERN = Pattern.compile(
-            "([^:]+):(\\d+):\\s*warning:\\s*(.+?)\\s*(?:\\(([^)]+)\\))?\\s*(?:in method\\s+(\\w+))?");
+            "([^:]+):(\\d+):\\s*(?:warning|verify):\\s*(.+?)\\s*(?:\\(([^)]+)\\))?\\s*(?:in method\\s+(\\w+))?");
 
     // Pattern: File.java:LINE: error: ...
     private static final Pattern ERROR_PATTERN = Pattern.compile(

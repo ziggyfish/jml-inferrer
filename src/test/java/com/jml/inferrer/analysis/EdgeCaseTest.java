@@ -18,6 +18,10 @@ class EdgeCaseTest extends InferrerTestBase {
         MethodSpecification spec = infer("""
             class T { void doNothing() { } }
             """, "doNothing");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Assignable("\\nothing")
+        //   void doNothing() { }
         assertNotNull(spec);
     }
 
@@ -27,6 +31,10 @@ class EdgeCaseTest extends InferrerTestBase {
         MethodSpecification spec = infer("""
             class T { int zero() { return 0; } }
             """, "zero");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result == 0")
+        //   int zero() { return 0; }
         assertNotNull(spec);
     }
 
@@ -36,6 +44,9 @@ class EdgeCaseTest extends InferrerTestBase {
         MethodSpecification spec = infer("""
             class T { String nothing() { return null; } }
             """, "nothing");
+        // Expected annotated method after inference:
+        //   (no @Ensures for \\result != null -- method explicitly returns null)
+        //   String nothing() { return null; }
         assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.equals("\\result != null")),
                 "Should not claim non-null when returning null");
     }
@@ -46,6 +57,10 @@ class EdgeCaseTest extends InferrerTestBase {
         MethodSpecification spec = infer("""
             class T { int answer() { return 42; } }
             """, "answer");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result == 42")
+        //   int answer() { return 42; }
         assertNotNull(spec);
     }
 
@@ -59,6 +74,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "sum");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result == a + b + c + d + e")
+        //   int sum(int a, int b, int c, int d, int e) { ... }
         assertNotNull(spec);
     }
 
@@ -76,6 +95,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   (no @Ensures for \\result == ... -- expression too long, skipped)
+        //   @Pure
+        //   int compute(int a) { ... }
         assertNotNull(spec);
     }
 
@@ -89,6 +112,9 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Signals("throws UnsupportedOperationException")
+        //   int compute(int a) { ... }
         assertNotNull(spec);
     }
 
@@ -103,6 +129,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   (no @Ensures for \\result -- void method has no return value)
+        //   void process(int x) { ... }
         assertNotNull(spec);
         assertTrue(spec.getPostconditions().stream().noneMatch(p -> p.contains("\\result")),
                 "Void method should have no \\result postconditions");
@@ -119,6 +149,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "identity");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result == x")
+        //   int identity(int x) { ... }
         assertNotNull(spec);
     }
 
@@ -139,6 +173,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   (y is tainted by switch, so no full symbolic \\result)
+        //   int compute(int a, int mode) { ... }
         assertNotNull(spec);
     }
 
@@ -157,6 +195,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == (a * 2) + 1")   (from try-block return path)
+        //   @Signals("on Exception returns -1")
+        //   int compute(int a) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("(a * 2) + 1")),
                 "Expected result from try block");
     }
@@ -171,6 +213,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "isPositive");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result == (n > 0)")
+        //   boolean isPositive(int n) { ... }
         assertNotNull(spec);
     }
 
@@ -184,6 +230,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result == a + b")
+        //   long compute(long a, long b) { ... }
         assertNotNull(spec);
     }
 
@@ -197,6 +247,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result >= 0")     (x * x is always non-negative)
+        //   double compute(double x) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
                 "Expected >= 0 for x*x");
     }
@@ -211,6 +265,11 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "add");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @ThreadSafe
+        //   @Ensures("\\result == a + b")
+        //   static int add(int a, int b) { ... }
         assertTrue(spec.isPure(), "Static method with no state should be pure");
     }
 
@@ -226,6 +285,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "sum");
+        // Expected annotated method after inference:
+        //   @Requires("values != null")
+        //   @Complexity(time = "O(n)")
+        //   int sum(int... values) { ... }
         assertNotNull(spec);
     }
 
@@ -242,6 +305,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "contains");
+        // Expected annotated method after inference:
+        //   @Requires("arr != null")
+        //   @Complexity(time = "O(n)")
+        //   <E> boolean contains(E[] arr, E target) { ... }
         assertNotNull(spec);
         assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("arr != null")),
                 "Expected arr != null");
@@ -257,6 +324,11 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "zeros");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   @Ensures("\\result.length == size")
+        //   @Pure
+        //   int[] zeros(int size) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null");
         assertTrue(spec.getPostconditions().stream()
@@ -283,6 +355,11 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result == (a * 2) + 1")   (from innermost try block)
+        //   @Signals("on ArithmeticException returns (a * 2)")
+        //   @Signals("on Exception returns -1")
+        //   int compute(int a) { ... }
         assertNotNull(spec);
     }
 
@@ -306,6 +383,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Requires("matrix != null")
+        //   @Complexity(time = "O(n^2)")
+        //   int compute(int[][] matrix) { ... }
         assertNotNull(spec);
     }
 
@@ -319,6 +400,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "normalize");
+        // Expected annotated method after inference:
+        //   @Requires("s != null")
+        //   @Ensures("\\result != null")
+        //   String normalize(String s) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null");
     }
@@ -335,6 +420,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "createList");
+        // Expected annotated method after inference:
+        //   @Ensures("\\result != null")
+        //   @Pure
+        //   List<String> createList(int capacity) { ... }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result != null")),
                 "Expected non-null");
     }
@@ -352,6 +441,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "process");
+        // Expected annotated method after inference:
+        //   @Requires("n < 0")           (or similar numeric constraints)
+        //   (no @Ensures for \\result -- void method)
+        //   void process(int n) { ... }
         assertNotNull(spec);
     }
 
@@ -365,6 +458,10 @@ class EdgeCaseTest extends InferrerTestBase {
                 }
             }
             """, "compute");
+        // Expected annotated method after inference:
+        //   @Pure
+        //   @Ensures("\\result == (a + b) * (b + c) - (a * c) + (b * b) / (a + 1)")
+        //   int compute(int a, int b, int c) { ... }
         assertNotNull(spec);
     }
 }

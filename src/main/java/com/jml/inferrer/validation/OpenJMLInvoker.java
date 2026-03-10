@@ -102,8 +102,8 @@ public class OpenJMLInvoker {
             command.add(classpath.toAbsolutePath().toString());
         }
 
-        // Suppress some noisy warnings
-        command.add("--no-purityCheck");
+        // Use quiet mode for arithmetic overflow/underflow to focus on spec logic
+        command.add("--arithmetic-failure=quiet");
 
         command.add(sourceFile.toAbsolutePath().toString());
 

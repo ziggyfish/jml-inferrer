@@ -1,0 +1,46 @@
+# =============================================================================
+# JML Inferrer - Test Runner (with OpenJML)
+# =============================================================================
+# Runs the full test suite including formal verification tests that require
+# the OpenJML theorem prover.
+#
+# Usage:
+#   docker build -f Dockerfile.test -t jml-inferrer-tests .
+#   docker run --rm jml-inferrer-tests
+# =============================================================================
+
+FROM maven:3.9.6-eclipse-temurin-21
+
+# Install unzip and curl for OpenJML download
+RUN apt-get update && apt-get install -y --no-install-recommends unzip curl libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install OpenJML
+ENV OPENJML_VERSION=21-0.23
+ENV OPENJML_HOME=/opt/openjml
+
+RUN mkdir -p "$OPENJML_HOME" \
+    && curl -L --progress-bar -o /tmp/openjml.zip \
+       "https://github.com/OpenJML/OpenJML/releases/download/${OPENJML_VERSION}/openjml-ubuntu-22.04-${OPENJML_VERSION}.zip" \
+    && unzip -q /tmp/openjml.zip -d "$OPENJML_HOME" \
+    && if [ ! -f "$OPENJML_HOME/openjml" ]; then \
+         INNER=$(find "$OPENJML_HOME" -maxdepth 1 -type d ! -path "$OPENJML_HOME" | head -1); \
+         if [ -n "$INNER" ] && [ -f "$INNER/openjml" ]; then \
+           mv "$INNER"/* "$OPENJML_HOME/" 2>/dev/null || true; \
+           rmdir "$INNER" 2>/dev/null || true; \
+         fi; \
+       fi \
+    && chmod +x "$OPENJML_HOME/openjml" \
+    && rm -f /tmp/openjml.zip
+
+WORKDIR /app
+
+# Cache dependencies first (changes rarely)
+COPY pom.xml ./
+RUN mvn dependency:go-offline -B
+
+# Copy source and test code
+COPY src/ ./src/
+
+# Run all tests (unit + verification) by default
+CMD ["mvn", "test", "-B"]

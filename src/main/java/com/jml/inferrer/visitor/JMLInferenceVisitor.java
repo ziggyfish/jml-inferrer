@@ -426,8 +426,10 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
      * @return The annotation expression
      */
     private AnnotationExpr createAnnotation(String annotationName, String value) {
-        // Escape quotes in the value
-        String escapedValue = value.replace("\"", "\\\"");
+        // Escape backslashes first (for JML keywords like \result, \old, \nothing),
+        // then escape quotes. StringLiteralExpr stores the source-level representation,
+        // so \result must become \\result to avoid \r being treated as carriage return.
+        String escapedValue = value.replace("\\", "\\\\").replace("\"", "\\\"");
 
         // Create a SingleMemberAnnotationExpr with the value
         return new SingleMemberAnnotationExpr(
