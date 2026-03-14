@@ -765,7 +765,7 @@ class PostconditionInferenceTest extends InferrerTestBase {
     }
 
     @Test
-    @DisplayName("Array element write -> array is modified")
+    @DisplayName("Array element write -> assignable clause captures modification")
     void arrayModification() {
         MethodSpecification spec = infer("""
             class T {
@@ -774,22 +774,16 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "setFirst");
-        // Expected annotated method after inference:
-        //   @Requires("arr != null")
-        //   @Requires("arr.length > 0")
-        //   @Ensures("arr modified")
-        //   @Assignable("arr[*]")
-        //   void setFirst(int[] arr, int val) {
-        //       arr[0] = val;
-        //   }
-        assertTrue(anyContainsAll(spec.getPostconditions(), "arr", "modified"),
-                "Expected array modified postcondition");
+        // Array writes are captured by assignable clauses, not postconditions
+        // (natural language "arr modified" is not valid JML)
+        assertTrue(spec.getAssignableClauses().stream().anyMatch(a -> a.contains("arr")),
+                "Expected assignable clause for arr, got: " + spec.getAssignableClauses());
     }
 
     // ---- Exception guarantees ----
 
     @Test
-    @DisplayName("throws IOException -> may throw postcondition")
+    @DisplayName("throws IOException -> signals specification")
     void throwsDeclaration() {
         MethodSpecification spec = infer("""
             class T {
@@ -797,12 +791,11 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "read");
-        // Expected annotated method after inference:
-        //   @Ensures("may throw IOException")
-        //   @Signals("IOException")
-        //   void read() throws java.io.IOException { }
-        assertTrue(anyContainsAll(spec.getPostconditions(), "may throw", "IOException"),
-                "Expected throws postcondition");
+        // Throws declarations are captured by @Signals, not postconditions
+        // (natural language "may throw IOException" is not valid JML)
+        assertTrue(spec.getExceptionSpecifications().stream()
+                        .anyMatch(e -> e.contains("IOException")),
+                "Expected IOException in exception specifications, got: " + spec.getExceptionSpecifications());
     }
 
     // ---- Resolved local variable in return ----

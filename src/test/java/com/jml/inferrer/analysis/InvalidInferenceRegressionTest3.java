@@ -268,4 +268,135 @@ class InvalidInferenceRegressionTest3 extends InferrerTestBase {
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
                 "Expected \\result >= 0 for stream count, got: " + spec.getPostconditions());
     }
+
+    // =========================================================================
+    // String postconditions must use .equals(), not == (Regression 4)
+    // =========================================================================
+
+    @Test
+    @DisplayName("String return from if/else should use .equals(), not ==")
+    void stringReturnUsesEquals() {
+        MethodSpecification spec = infer("""
+            class T {
+                public String getValue(String a, String b) {
+                    if (a.isEmpty()) {
+                        return "b";
+                    } else {
+                        return "a";
+                    }
+                }
+            }
+            """, "getValue");
+        for (String post : spec.getPostconditions()) {
+            assertFalse(post.contains("\\result == \""),
+                    "Postcondition must use .equals() for strings, not ==: " + post);
+        }
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.contains("\\result.equals(")),
+                "Expected .equals() in postcondition, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Guard isEmpty() in if-condition should not generate precondition")
+    void guardIsEmptyNoPrecondition() {
+        MethodSpecification spec = infer("""
+            class T {
+                public String getValue(String a, String b) {
+                    if (a.isEmpty()) {
+                        return "b";
+                    } else {
+                        return "a";
+                    }
+                }
+            }
+            """, "getValue");
+        assertFalse(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.contains("!a.isEmpty()")),
+                "Should not generate !a.isEmpty() precondition for guard condition, got: " + spec.getPreconditions());
+    }
+
+    // =========================================================================
+    // Compound assignment accumulation (Regression 4)
+    // =========================================================================
+
+    @Test
+    @DisplayName("Multiple compound assignments to same field should accumulate")
+    void compoundAssignmentAccumulates() {
+        MethodSpecification spec = infer("""
+            class T {
+                int c;
+                public int getValue(int a) {
+                    a = a * a;
+                    c += 3;
+                    c += 3;
+                    int b = a + c;
+                    b = b * b;
+                    return b;
+                }
+            }
+            """, "getValue");
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.contains("\\old(this.c) + 6")),
+                "Expected \\old(this.c) + 6 for accumulated compound assignment, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Field in symbolic expression should use \\old when modified")
+    void fieldUsesOldInSymbolicExpr() {
+        MethodSpecification spec = infer("""
+            class T {
+                int c;
+                public int getValue(int a) {
+                    a = a * a;
+                    c += 3;
+                    c += 3;
+                    int b = a + c;
+                    b = b * b;
+                    return b;
+                }
+            }
+            """, "getValue");
+        for (String post : spec.getPostconditions()) {
+            if (post.contains("\\result ==") && post.contains("a * a")) {
+                assertTrue(post.contains("\\old(this.c)"),
+                        "Symbolic expression should use \\old(this.c) for modified field: " + post);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Self-multiplication should correctly parenthesize")
+    void selfMultiplicationParenthesized() {
+        MethodSpecification spec = infer("""
+            class T {
+                int compute(int x) {
+                    int a = x + 1;
+                    a = a * a;
+                    return a;
+                }
+            }
+            """, "compute");
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.contains("((x + 1) * (x + 1))")),
+                "Expected ((x + 1) * (x + 1)) for self-multiplication, got: " + spec.getPostconditions());
+    }
+
+    // =========================================================================
+    // Division results must not have spurious positive bounds (Regression 5)
+    // =========================================================================
+
+    @Test
+    @DisplayName("Integer division should not infer \\result >= 1")
+    void divisionNoSpuriousPositiveBound() {
+        MethodSpecification spec = infer("""
+            class T {
+                int average(int a, int b) {
+                    return (a + b) / 2;
+                }
+            }
+            """, "average");
+        assertFalse(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.equals("\\result >= 1") || p.equals("\\result > 0")),
+                "Division result should not have spurious positive bound, got: " + spec.getPostconditions());
+    }
 }

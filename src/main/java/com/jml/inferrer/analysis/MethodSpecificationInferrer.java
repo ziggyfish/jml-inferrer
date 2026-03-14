@@ -440,7 +440,11 @@ public class MethodSpecificationInferrer {
         boolean hasFieldAccess = methodDecl.findAll(FieldAccessExpr.class).stream()
             .anyMatch(field -> field.getScope().toString().equals(paramName));
 
-        return hasNullCheck || hasMethodCall || hasFieldAccess;
+        // Check for for-each loop over the parameter (implies non-null)
+        boolean hasForEachUsage = methodDecl.findAll(ForEachStmt.class).stream()
+            .anyMatch(forEach -> forEach.getIterable().toString().equals(paramName));
+
+        return hasNullCheck || hasMethodCall || hasFieldAccess || hasForEachUsage;
     }
 
     /**
@@ -476,9 +480,19 @@ public class MethodSpecificationInferrer {
                     });
             });
 
-        // If hasEmptyCheck, likely needs to be non-empty
+        // If isEmpty() is called, check whether it's used in a guard condition (if/else).
+        // If the method handles both empty and non-empty cases, don't add as precondition.
         if (hasEmptyCheck) {
-            preconditions.add("!" + paramName + ".isEmpty()");
+            boolean isGuardCondition = methodDecl.findAll(IfStmt.class).stream()
+                    .anyMatch(ifStmt -> {
+                        String condStr = ifStmt.getCondition().toString();
+                        return condStr.contains(paramName + ".isEmpty()");
+                    });
+            if (!isGuardCondition) {
+                // isEmpty() is called but not as a guard — likely needs non-empty
+                preconditions.add("!" + paramName + ".isEmpty()");
+            }
+            // If it IS a guard, the method handles both cases, so no precondition needed
         }
 
         // Check for charAt() calls - implies non-empty
@@ -614,32 +628,45 @@ public class MethodSpecificationInferrer {
     private void analyzeParameterRelationships(MethodDeclaration methodDecl, Set<String> preconditions) {
         List<Parameter> params = methodDecl.getParameters();
 
-        // Look for comparisons between parameters
-        methodDecl.findAll(BinaryExpr.class).forEach(binExpr -> {
-            String left = binExpr.getLeft().toString();
-            String right = binExpr.getRight().toString();
+        // Only generate parameter relationship preconditions from early validation patterns
+        // (if-throw blocks), not from general branching logic. A method that checks
+        // "if (a >= b) { ... } else { ... }" handles both cases and should NOT
+        // require a >= b as a precondition.
+        methodDecl.findAll(IfStmt.class).forEach(ifStmt -> {
+            boolean throwsException = !ifStmt.getThenStmt().findAll(ThrowStmt.class).isEmpty();
+            if (!throwsException) return;
 
-            boolean leftIsParam = params.stream().anyMatch(p -> p.getNameAsString().equals(left));
-            boolean rightIsParam = params.stream().anyMatch(p -> p.getNameAsString().equals(right));
+            ifStmt.getCondition().findAll(BinaryExpr.class).forEach(binExpr -> {
+                String left = binExpr.getLeft().toString();
+                String right = binExpr.getRight().toString();
 
-            if (leftIsParam && rightIsParam) {
-                // Both operands are parameters
-                switch (binExpr.getOperator()) {
-                    case LESS:
-                        preconditions.add(left + " < " + right);
-                        break;
-                    case LESS_EQUALS:
-                        preconditions.add(left + " <= " + right);
-                        break;
-                    case GREATER:
-                        preconditions.add(left + " > " + right);
-                        break;
-                    case GREATER_EQUALS:
-                        preconditions.add(left + " >= " + right);
-                        break;
+                boolean leftIsParam = params.stream().anyMatch(p -> p.getNameAsString().equals(left));
+                boolean rightIsParam = params.stream().anyMatch(p -> p.getNameAsString().equals(right));
+
+                if (leftIsParam && rightIsParam) {
+                    // Invert the condition: if (a < b) throw → requires a >= b
+                    String inverted = invertBinaryOperator(binExpr.getOperator());
+                    if (inverted != null) {
+                        preconditions.add(left + " " + inverted + " " + right);
+                    }
                 }
-            }
+            });
         });
+    }
+
+    /**
+     * Returns the inverted comparison operator string, or null if not a comparison.
+     */
+    private String invertBinaryOperator(BinaryExpr.Operator op) {
+        switch (op) {
+            case LESS: return ">=";
+            case LESS_EQUALS: return ">";
+            case GREATER: return "<=";
+            case GREATER_EQUALS: return "<";
+            case EQUALS: return "!=";
+            case NOT_EQUALS: return "==";
+            default: return null;
+        }
     }
 
     /**
@@ -730,6 +757,8 @@ public class MethodSpecificationInferrer {
     private void analyzeNumericConstraints(MethodDeclaration methodDecl, String paramName, Set<String> preconditions) {
         methodDecl.findAll(BinaryExpr.class).stream()
             .filter(expr -> expr.getLeft().toString().equals(paramName) || expr.getRight().toString().equals(paramName))
+            .filter(expr -> !isBranchingIfCondition(expr)) // Skip comparisons in if/else branching logic
+            .filter(expr -> !isGuardThrowCondition(expr)) // Skip if-throw guards (handled by analyzeEarlyValidation)
             .forEach(expr -> {
                 if (expr.getOperator() == BinaryExpr.Operator.GREATER && expr.getLeft().toString().equals(paramName)) {
                     preconditions.add(paramName + " > " + expr.getRight());
@@ -741,6 +770,135 @@ public class MethodSpecificationInferrer {
                     preconditions.add(paramName + " <= " + expr.getRight());
                 }
             });
+    }
+
+    /**
+     * Returns true if the expression is the condition of an IfStmt that handles
+     * both branches (has an else). Such comparisons represent branching logic,
+     * not preconditions. Guard clauses (then-returns, no else) are NOT filtered,
+     * since they indicate a precondition pattern.
+     */
+    private boolean isBranchingIfCondition(Expression expr) {
+        com.github.javaparser.ast.Node current = expr;
+        while (current.getParentNode().isPresent()) {
+            com.github.javaparser.ast.Node parent = current.getParentNode().get();
+            if (parent instanceof IfStmt) {
+                IfStmt ifStmt = (IfStmt) parent;
+                if (current == ifStmt.getCondition()) {
+                    // Only filter if both branches are handled (has else)
+                    return ifStmt.getElseStmt().isPresent();
+                }
+            }
+            // Also check if embedded inside a larger condition (e.g., x > 0 && y > 0)
+            if (parent instanceof BinaryExpr) {
+                BinaryExpr parentBin = (BinaryExpr) parent;
+                if (parentBin.getOperator() == BinaryExpr.Operator.AND ||
+                    parentBin.getOperator() == BinaryExpr.Operator.OR) {
+                    current = parent;
+                    continue;
+                }
+            }
+            break;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if the expression is the condition of an IfStmt whose then-branch
+     * throws or returns. These patterns should not generate preconditions from
+     * analyzeNumericConstraints:
+     * - if-throw: already handled by analyzeEarlyValidation
+     * - if-return without else: guard clause where the method handles both paths
+     */
+    private boolean isGuardThrowCondition(Expression expr) {
+        com.github.javaparser.ast.Node current = expr;
+        while (current.getParentNode().isPresent()) {
+            com.github.javaparser.ast.Node parent = current.getParentNode().get();
+            if (parent instanceof IfStmt) {
+                IfStmt ifStmt = (IfStmt) parent;
+                if (current == ifStmt.getCondition()) {
+                    // if-throw: handled by analyzeEarlyValidation
+                    if (!ifStmt.getThenStmt().findAll(ThrowStmt.class).isEmpty()) {
+                        return true;
+                    }
+                    // if-return without else: guard clause, method handles both paths
+                    if (!ifStmt.getElseStmt().isPresent() &&
+                        !ifStmt.getThenStmt().findAll(ReturnStmt.class).isEmpty()) {
+                        return true;
+                    }
+                    return false;
+                }
+            }
+            if (parent instanceof BinaryExpr) {
+                BinaryExpr parentBin = (BinaryExpr) parent;
+                if (parentBin.getOperator() == BinaryExpr.Operator.AND ||
+                    parentBin.getOperator() == BinaryExpr.Operator.OR) {
+                    current = parent;
+                    continue;
+                }
+            }
+            break;
+        }
+        return false;
+    }
+
+    /**
+     * Returns the branch condition guarding a node, or null if the node is unconditional
+     * (directly in the method body, not inside any IfStmt).
+     * For then-branches, returns the if-condition; for else-branches, returns its negation.
+     */
+    private String getEnclosingBranchCondition(com.github.javaparser.ast.Node node, MethodDeclaration methodDecl) {
+        com.github.javaparser.ast.Node current = node;
+        while (current.getParentNode().isPresent()) {
+            com.github.javaparser.ast.Node parent = current.getParentNode().get();
+            // Stop at method body
+            if (parent == methodDecl.getBody().orElse(null) || parent == methodDecl) {
+                return null;
+            }
+            if (parent instanceof IfStmt) {
+                IfStmt ifStmt = (IfStmt) parent;
+                String rawCond;
+                if (current == ifStmt.getThenStmt()) {
+                    rawCond = ifStmt.getCondition().toString();
+                } else if (ifStmt.getElseStmt().isPresent() && current == ifStmt.getElseStmt().get()) {
+                    rawCond = negateCondition(ifStmt.getCondition());
+                } else {
+                    current = parent;
+                    continue;
+                }
+                // Wrap field references in the condition with \old(), since the condition
+                // refers to the pre-state value (before the assignment we're generating a postcondition for)
+                return wrapFieldRefsWithOld(rawCond, methodDecl);
+            }
+            current = parent;
+        }
+        return null;
+    }
+
+    /**
+     * Replaces this.fieldName references in a condition string with \old(this.fieldName)
+     * for fields that are assignable in the method.
+     */
+    private String wrapFieldRefsWithOld(String condition, MethodDeclaration methodDecl) {
+        // Find all field names in the enclosing class
+        Set<String> fieldNames = methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> {
+                    Set<String> names = new LinkedHashSet<>();
+                    cls.getFields().stream()
+                            .flatMap(f -> f.getVariables().stream())
+                            .forEach(v -> names.add(v.getNameAsString()));
+                    return names;
+                })
+                .orElse(Collections.emptySet());
+
+        String result = condition;
+        for (String field : fieldNames) {
+            String thisField = "this." + field;
+            if (result.contains(thisField) && !result.contains("\\old(" + thisField + ")")) {
+                result = result.replace(thisField, "\\old(" + thisField + ")");
+            }
+        }
+        return result;
     }
 
     private boolean alwaysReturnsNonNull(MethodDeclaration methodDecl) {
@@ -777,8 +935,9 @@ public class MethodSpecificationInferrer {
 
                 if (effective instanceof BinaryExpr) {
                     BinaryExpr binExpr = (BinaryExpr) effective;
-                    if (binExpr.getOperator() == BinaryExpr.Operator.PLUS ||
-                        binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY) {
+                    // Only self-multiplication (x * x) guarantees non-negative
+                    if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY &&
+                        isSelfMultiplication(binExpr)) {
                         postconditions.add("\\result >= 0");
                     }
                 } else if (effective instanceof MethodCallExpr) {
@@ -792,106 +951,143 @@ public class MethodSpecificationInferrer {
     }
 
     private void analyzeFieldModifications(MethodDeclaration methodDecl, Set<String> postconditions) {
-        // Handle unary expressions (++, --)
+        // Collect all field names from the class
+        Set<String> fieldNames = new LinkedHashSet<>();
+        methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+            .ifPresent(classDecl -> classDecl.getFields().forEach(field ->
+                field.getVariables().forEach(var -> fieldNames.add(var.getNameAsString()))));
+
+        // Track accumulated additive delta per field (for += and ++ patterns)
+        // Maps field name -> accumulated numeric delta (null if non-additive modification)
+        Map<String, Long> fieldDeltas = new LinkedHashMap<>();
+        // Track fields with non-additive modifications (direct assign, *=, etc.)
+        Set<String> nonAdditiveFields = new LinkedHashSet<>();
+
+        // Helper to check if a target expression refers to a field
+        java.util.function.Function<Expression, String> getFieldName = target -> {
+            if (target instanceof FieldAccessExpr) {
+                FieldAccessExpr fa = (FieldAccessExpr) target;
+                if (fa.getScope().toString().equals("this") && fieldNames.contains(fa.getNameAsString())) {
+                    return fa.getNameAsString();
+                }
+            } else if (target instanceof NameExpr) {
+                String name = ((NameExpr) target).getNameAsString();
+                if (fieldNames.contains(name)) {
+                    return name;
+                }
+            }
+            return null;
+        };
+
+        // Track fields with conditional-only modifications (to skip unconditional delta accumulation)
+        Set<String> conditionalFields = new LinkedHashSet<>();
+
+        // Pass 1: Process unary expressions (++, --)
         methodDecl.findAll(UnaryExpr.class).forEach(unaryExpr -> {
             Expression expr = unaryExpr.getExpression();
-            if (expr instanceof FieldAccessExpr) {
-                FieldAccessExpr field = (FieldAccessExpr) expr;
-                if (field.getScope().toString().equals("this")) {
-                    String fieldName = field.getNameAsString();
-                    if (unaryExpr.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT ||
-                        unaryExpr.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT) {
-                        postconditions.add("this." + fieldName + " == \\old(this." + fieldName + ") + 1");
-                    } else if (unaryExpr.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT ||
-                               unaryExpr.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT) {
-                        postconditions.add("this." + fieldName + " == \\old(this." + fieldName + ") - 1");
+            String name = getFieldName.apply(expr);
+            if (name != null) {
+                String branchCond = getEnclosingBranchCondition(unaryExpr, methodDecl);
+                long delta = 0;
+                if (unaryExpr.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT ||
+                    unaryExpr.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT) {
+                    delta = 1;
+                } else if (unaryExpr.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT ||
+                           unaryExpr.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT) {
+                    delta = -1;
+                }
+                if (delta != 0) {
+                    if (branchCond != null) {
+                        // Conditional increment — generate guarded postcondition directly
+                        conditionalFields.add(name);
+                        String op = delta > 0 ? "+" : "-";
+                        postconditions.add(branchCond + " ==> this." + name + " == \\old(this." + name + ") " + op + " " + Math.abs(delta));
+                    } else {
+                        // Unconditional increment — accumulate delta
+                        fieldDeltas.merge(name, delta, Long::sum);
                     }
                 }
-            } else if (expr instanceof NameExpr) {
-                // Handle direct field access (not through this.)
-                String varName = expr.toString();
-                methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                    .ifPresent(classDecl -> {
-                        classDecl.getFields().forEach(field -> {
-                            field.getVariables().forEach(var -> {
-                                if (var.getNameAsString().equals(varName)) {
-                                    if (unaryExpr.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT ||
-                                        unaryExpr.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT) {
-                                        postconditions.add("this." + varName + " == \\old(this." + varName + ") + 1");
-                                    } else if (unaryExpr.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT ||
-                                               unaryExpr.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT) {
-                                        postconditions.add("this." + varName + " == \\old(this." + varName + ") - 1");
-                                    }
-                                }
-                            });
-                        });
-                    });
             }
         });
 
-        // Handle assignment expressions
-        methodDecl.findAll(AssignExpr.class).stream()
-            .filter(assign -> assign.getTarget() instanceof FieldAccessExpr)
-            .forEach(assign -> {
-                FieldAccessExpr field = (FieldAccessExpr) assign.getTarget();
-                if (field.getScope().toString().equals("this")) {
-                    String fieldName = field.getNameAsString();
+        // Pass 2: Process assignment expressions
+        methodDecl.findAll(AssignExpr.class).forEach(assign -> {
+            String name = getFieldName.apply(assign.getTarget());
+            if (name == null) return;
 
-                    // Try to infer the specific value assigned
-                    Expression value = assign.getValue();
-                    AssignExpr.Operator operator = assign.getOperator();
+            Expression value = assign.getValue();
+            AssignExpr.Operator operator = assign.getOperator();
+            String branchCond = getEnclosingBranchCondition(assign, methodDecl);
 
-                    // Handle compound assignments (+=, -=, etc.) even when value is simple
-                    if (operator != AssignExpr.Operator.ASSIGN) {
-                        String operatorStr = getCompoundOperatorString(operator);
-                        if (operatorStr != null) {
-                            postconditions.add("this." + fieldName + " == \\old(this." + fieldName + ") " + operatorStr + " " + value);
-                        }
-                        // All compound operators are covered by getCompoundOperatorString
+            if (operator == AssignExpr.Operator.PLUS && value instanceof IntegerLiteralExpr) {
+                // += with integer literal
+                if (branchCond != null) {
+                    conditionalFields.add(name);
+                    long delta = (long) ((IntegerLiteralExpr) value).asInt();
+                    String op = delta >= 0 ? "+" : "-";
+                    postconditions.add(branchCond + " ==> this." + name + " == \\old(this." + name + ") " + op + " " + Math.abs(delta));
+                } else {
+                    fieldDeltas.merge(name, (long) ((IntegerLiteralExpr) value).asInt(), Long::sum);
+                }
+            } else if (operator == AssignExpr.Operator.MINUS && value instanceof IntegerLiteralExpr) {
+                // -= with integer literal
+                if (branchCond != null) {
+                    conditionalFields.add(name);
+                    long delta = (long) ((IntegerLiteralExpr) value).asInt();
+                    postconditions.add(branchCond + " ==> this." + name + " == \\old(this." + name + ") - " + delta);
+                } else {
+                    fieldDeltas.merge(name, -(long) ((IntegerLiteralExpr) value).asInt(), Long::sum);
+                }
+            } else if (operator == AssignExpr.Operator.PLUS || operator == AssignExpr.Operator.MINUS) {
+                // += or -= with non-literal
+                String operatorStr = getCompoundOperatorString(operator);
+                if (operatorStr != null) {
+                    String postcond = "this." + name + " == \\old(this." + name + ") " + operatorStr + " " + value;
+                    if (branchCond != null) {
+                        postconditions.add(branchCond + " ==> " + postcond);
                     } else {
-                        // Direct assignment: this.field = value
-                        String postcond = generateFieldAssignPostcondition(fieldName, value, operator, methodDecl);
-                        if (postcond != null) {
-                            postconditions.add(postcond);
-                        }
+                        postconditions.add(postcond);
                     }
                 }
-            });
+                nonAdditiveFields.add(name);
+            } else if (operator != AssignExpr.Operator.ASSIGN) {
+                // Other compound operators (*=, /=, etc.)
+                String operatorStr = getCompoundOperatorString(operator);
+                if (operatorStr != null) {
+                    String postcond = "this." + name + " == \\old(this." + name + ") " + operatorStr + " " + value;
+                    if (branchCond != null) {
+                        postconditions.add(branchCond + " ==> " + postcond);
+                    } else {
+                        postconditions.add(postcond);
+                    }
+                }
+                nonAdditiveFields.add(name);
+            } else {
+                // Direct assignment: this.field = value
+                String postcond = generateFieldAssignPostcondition(name, value, operator, methodDecl);
+                if (postcond != null) {
+                    if (branchCond != null) {
+                        postconditions.add(branchCond + " ==> " + postcond);
+                    } else {
+                        postconditions.add(postcond);
+                    }
+                }
+                nonAdditiveFields.add(name);
+            }
+        });
 
-        // Also check for direct field assignments (not through 'this.')
-        methodDecl.findAll(AssignExpr.class).stream()
-            .filter(assign -> assign.getTarget() instanceof NameExpr)
-            .forEach(assign -> {
-                NameExpr nameExpr = (NameExpr) assign.getTarget();
-                // Check if this is a field by seeing if it's used elsewhere
-                methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                    .ifPresent(classDecl -> {
-                        classDecl.getFields().forEach(field -> {
-                            field.getVariables().forEach(var -> {
-                                if (var.getNameAsString().equals(nameExpr.getNameAsString())) {
-                                    Expression value = assign.getValue();
-                                    String fieldName = nameExpr.getNameAsString();
-                                    AssignExpr.Operator operator = assign.getOperator();
+        // Pass 3: Generate accumulated delta postconditions (unconditional only)
+        for (Map.Entry<String, Long> entry : fieldDeltas.entrySet()) {
+            String name = entry.getKey();
+            long delta = entry.getValue();
+            if (nonAdditiveFields.contains(name)) continue;
+            if (conditionalFields.contains(name)) continue; // Skip if has conditional mods
+            if (delta == 0) continue;
 
-                                    // Handle compound assignments
-                                    if (operator != AssignExpr.Operator.ASSIGN) {
-                                        String operatorStr = getCompoundOperatorString(operator);
-                                        if (operatorStr != null) {
-                                            postconditions.add("this." + fieldName + " == \\old(this." + fieldName + ") " + operatorStr + " " + value);
-                                        }
-                                        // All compound operators are covered by getCompoundOperatorString
-                                    } else {
-                                        // Direct assignment: field = value
-                                        String postcond = generateFieldAssignPostcondition(fieldName, value, operator, methodDecl);
-                                        if (postcond != null) {
-                                            postconditions.add(postcond);
-                                        }
-                                    }
-                                }
-                            });
-                        });
-                    });
-            });
+            String op = delta > 0 ? "+" : "-";
+            long absDelta = Math.abs(delta);
+            postconditions.add("this." + name + " == \\old(this." + name + ") " + op + " " + absDelta);
+        }
     }
 
     /**
@@ -910,19 +1106,64 @@ public class MethodSpecificationInferrer {
      */
     private String generateFieldAssignPostcondition(String fieldName, Expression value,
             AssignExpr.Operator operator, com.github.javaparser.ast.body.MethodDeclaration methodDecl) {
-        if (value instanceof NameExpr || value instanceof IntegerLiteralExpr ||
+        if (value instanceof IntegerLiteralExpr ||
             value instanceof DoubleLiteralExpr || value instanceof StringLiteralExpr ||
             value instanceof BooleanLiteralExpr || value instanceof LongLiteralExpr ||
             value instanceof CharLiteralExpr || value instanceof NullLiteralExpr) {
             return "this." + fieldName + " == " + value;
+        } else if (value instanceof NameExpr) {
+            String name = ((NameExpr) value).getNameAsString();
+            // Only allow parameters and fields — local variables are not visible in JML postconditions
+            boolean isParam = methodDecl.getParameters().stream()
+                    .anyMatch(p -> p.getNameAsString().equals(name));
+            if (isParam) {
+                return "this." + fieldName + " == " + name;
+            }
+            // Check if it's a field (could be assigned elsewhere in this method)
+            boolean isField = methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .map(cls -> cls.getFields().stream()
+                            .flatMap(f -> f.getVariables().stream())
+                            .anyMatch(v -> v.getNameAsString().equals(name)))
+                    .orElse(false);
+            if (isField) {
+                // Use \old() since the field may have been modified earlier in the method
+                return "this." + fieldName + " == \\old(this." + name + ")";
+            }
+            // Local variable — can't reference in postcondition
+            return null;
         } else if (value instanceof ArrayAccessExpr) {
             return "this." + fieldName + " == " + value;
         } else if (value instanceof FieldAccessExpr) {
+            FieldAccessExpr fa = (FieldAccessExpr) value;
+            // If it's this.otherField, wrap in \old() since the other field may have been modified
+            if (fa.getScope().toString().equals("this")) {
+                return "this." + fieldName + " == \\old(this." + fa.getNameAsString() + ")";
+            }
             return "this." + fieldName + " == " + value;
         } else if (value instanceof UnaryExpr) {
             UnaryExpr unary = (UnaryExpr) value;
-            // Handle simple unary like -x, +x, ~x (prefix operators only)
+            // Handle simple unary like -x, +x, ~x, !x (prefix operators only)
             if (unary.isPrefix()) {
+                Expression inner = unary.getExpression();
+                // If the inner expression references a field, wrap in \old()
+                if (inner instanceof FieldAccessExpr) {
+                    FieldAccessExpr fa = (FieldAccessExpr) inner;
+                    if (fa.getScope().toString().equals("this")) {
+                        String op = unary.getOperator().asString();
+                        return "this." + fieldName + " == " + op + "\\old(this." + fa.getNameAsString() + ")";
+                    }
+                } else if (inner instanceof NameExpr) {
+                    String name = ((NameExpr) inner).getNameAsString();
+                    boolean isField = methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                            .map(cls -> cls.getFields().stream()
+                                    .flatMap(f -> f.getVariables().stream())
+                                    .anyMatch(v -> v.getNameAsString().equals(name)))
+                            .orElse(false);
+                    if (isField) {
+                        String op = unary.getOperator().asString();
+                        return "this." + fieldName + " == " + op + "\\old(this." + name + ")";
+                    }
+                }
                 return "this." + fieldName + " == " + value;
             }
         } else if (value instanceof CastExpr) {
@@ -1106,8 +1347,12 @@ public class MethodSpecificationInferrer {
                 // Check for operations that guarantee non-negative results
                 MethodCallExpr call = (MethodCallExpr) expr;
                 String methodName = call.getNameAsString();
-                if (!methodName.equals("abs") && !methodName.equals("length") &&
-                    !methodName.equals("size") && !methodName.equals("count")) {
+                if (methodName.equals("abs") || methodName.equals("length") ||
+                    methodName.equals("size") || methodName.equals("count")) {
+                    // These guarantee >= 0 but NOT > 0 (abs(0)==0, "".length()==0)
+                    allReturnsPositive = false;
+                    allReturnsGreaterThanOne = false;
+                } else {
                     allReturnsNonNegative = false;
                     allReturnsPositive = false;
                     allReturnsGreaterThanOne = false;
@@ -1118,7 +1363,22 @@ public class MethodSpecificationInferrer {
                     // x * x is always non-negative; keep allReturnsNonNegative true
                     allReturnsPositive = false;
                     allReturnsGreaterThanOne = false;
+                } else if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY &&
+                           involvesRecursiveCall(binExpr, methodDecl)) {
+                    // Recursive multiplication (e.g., n * factorial(n-1)):
+                    // assume the recursive call preserves bounds properties
                 } else if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY) {
+                    allReturnsNonNegative = false;
+                    allReturnsPositive = false;
+                    allReturnsGreaterThanOne = false;
+                } else if (binExpr.getOperator() == BinaryExpr.Operator.PLUS &&
+                           involvesRecursiveCall(binExpr, methodDecl)) {
+                    // Recursive addition (e.g., fib(n-1) + fib(n-2)):
+                    // if the recursive call preserves non-negativity, sum is also non-negative
+                    allReturnsPositive = false;
+                    allReturnsGreaterThanOne = false;
+                } else {
+                    // Other operators (DIVIDE, PLUS, MINUS, etc.) — can't guarantee bounds
                     allReturnsNonNegative = false;
                     allReturnsPositive = false;
                     allReturnsGreaterThanOne = false;
@@ -1152,10 +1412,11 @@ public class MethodSpecificationInferrer {
 
         if (allReturnsGreaterThanOne && !postconditions.contains("\\result >= 0")) {
             postconditions.add("\\result >= 1");
-        } else if (allReturnsNonNegative && !postconditions.contains("\\result >= 1")) {
-            postconditions.add("\\result >= 0");
         } else if (allReturnsPositive) {
             postconditions.add("\\result > 0");
+        } else if (allReturnsNonNegative && !postconditions.contains("\\result >= 1")
+                && !postconditions.contains("\\result > 0")) {
+            postconditions.add("\\result >= 0");
         }
     }
 
@@ -1165,14 +1426,31 @@ public class MethodSpecificationInferrer {
     private void analyzeReturnRelationToParameters(MethodDeclaration methodDecl, Set<String> postconditions) {
         List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
 
+        // Count distinct return expressions that are parameters
+        Set<String> returnedParams = new LinkedHashSet<>();
+        for (ReturnStmt rs : returnStmts) {
+            rs.getExpression().ifPresent(e -> {
+                if (e instanceof NameExpr && methodDecl.getParameters().stream()
+                        .anyMatch(p -> p.getNameAsString().equals(e.toString()))) {
+                    returnedParams.add(e.toString());
+                }
+            });
+        }
+
         for (ReturnStmt returnStmt : returnStmts) {
             returnStmt.getExpression().ifPresent(expr -> {
-                // Check for direct parameter return
+                // Check for direct parameter return — only add unconditional postcondition
+                // if this is the ONLY parameter returned (avoids contradictory postconditions
+                // like \result == lo AND \result == hi for multi-branch methods)
                 if (expr instanceof NameExpr) {
                     String exprName = expr.toString();
                     if (methodDecl.getParameters().stream()
                             .anyMatch(p -> p.getNameAsString().equals(exprName))) {
-                        postconditions.add("\\result == " + exprName);
+                        if (returnedParams.size() <= 1 && returnStmts.size() == 1) {
+                            postconditions.add("\\result == " + exprName);
+                        }
+                        // Multi-branch returns are handled by analyzeExactReturnExpression
+                        // with proper path conditions
                     } else {
                         // Not a parameter — resolve local variable and analyze
                         Expression resolved = resolveLocalVariable(methodDecl, exprName);
@@ -1206,22 +1484,24 @@ public class MethodSpecificationInferrer {
                         .anyMatch(p -> p.getNameAsString().equals(right));
 
                     if (leftIsParam && rightIsParam) {
-                        // Both are parameters
-                        switch (binExpr.getOperator()) {
-                            case PLUS:
-                                postconditions.add("\\result == " + left + " + " + right);
-                                postconditions.add("\\result >= " + left);
-                                postconditions.add("\\result >= " + right);
-                                break;
-                            case MINUS:
-                                postconditions.add("\\result == " + left + " - " + right);
-                                break;
-                            case MULTIPLY:
-                                postconditions.add("\\result == " + left + " * " + right);
-                                break;
-                            case DIVIDE:
-                                postconditions.add("\\result == " + left + " / " + right);
-                                break;
+                        // Both are parameters — only add unconditional postcondition
+                        // if this is the only return statement (avoids contradictory
+                        // postconditions like \result == a - b AND \result == b - a)
+                        if (returnStmts.size() == 1) {
+                            switch (binExpr.getOperator()) {
+                                case PLUS:
+                                    postconditions.add("\\result == " + left + " + " + right);
+                                    break;
+                                case MINUS:
+                                    postconditions.add("\\result == " + left + " - " + right);
+                                    break;
+                                case MULTIPLY:
+                                    postconditions.add("\\result == " + left + " * " + right);
+                                    break;
+                                case DIVIDE:
+                                    postconditions.add("\\result == " + left + " / " + right);
+                                    break;
+                            }
                         }
                     } else if (leftIsParam) {
                         // Left is parameter
@@ -1362,7 +1642,17 @@ public class MethodSpecificationInferrer {
         if (expr == null || expr.isEmpty()) return false;
         // Simple identifier, literal, or method call — no parens needed
         if (expr.matches("[a-zA-Z_][a-zA-Z0-9_.]*") || expr.matches("-?\\d+(\\.\\d+)?")) return false;
-        if (expr.startsWith("(") && expr.endsWith(")")) return false;
+        // Only treat as already-parenthesized if the opening '(' matches the closing ')'
+        if (expr.startsWith("(") && expr.endsWith(")")) {
+            int depth = 0;
+            boolean outerMatch = true;
+            for (int i = 0; i < expr.length() - 1; i++) {
+                if (expr.charAt(i) == '(') depth++;
+                else if (expr.charAt(i) == ')') depth--;
+                if (depth == 0) { outerMatch = false; break; }
+            }
+            if (outerMatch) return false;
+        }
         // Contains an arithmetic/bitwise operator outside of parentheses/method calls
         int depth = 0;
         for (int i = 0; i < expr.length(); i++) {
@@ -1547,11 +1837,17 @@ public class MethodSpecificationInferrer {
                 entries.add(new SymbolicReturn(condStr, thenVal));
                 entries.add(new SymbolicReturn(negCondStr, elseVal));
             } else if (thenVal != null) {
-                // Only assigned in then-branch — taint it
+                // Only assigned in then-branch (else tainted or unmodified)
                 envOut.remove(var);
+                // Record the then-value as conditional; the else case may be
+                // filled in later from propagated inner conditionals
+                List<SymbolicReturn> entries = conditionalAssignments.computeIfAbsent(var, k -> new ArrayList<>());
+                entries.add(new SymbolicReturn(condStr, thenVal));
             } else {
-                // Only assigned in else-branch — taint it
+                // Only assigned in else-branch (then tainted or unmodified)
                 envOut.remove(var);
+                List<SymbolicReturn> entries = conditionalAssignments.computeIfAbsent(var, k -> new ArrayList<>());
+                entries.add(new SymbolicReturn(negCondStr, elseVal));
             }
         }
     }
@@ -1600,7 +1896,15 @@ public class MethodSpecificationInferrer {
                         } else {
                             String op = getCompoundOperatorString(assign.getOperator());
                             if (op != null) {
-                                String currentValue = env.containsKey(varName) ? env.get(varName) : varName;
+                                String currentValue;
+                                if (env.containsKey(varName)) {
+                                    currentValue = env.get(varName);
+                                } else if (!paramNames.contains(varName)) {
+                                    // Not a local/param — likely a field; use \old for JML correctness
+                                    currentValue = "\\old(this." + varName + ")";
+                                } else {
+                                    currentValue = varName;
+                                }
                                 String lhs = isCompoundExpression(currentValue) ? "(" + currentValue + ")" : currentValue;
                                 String rhs = isCompoundExpression(resolvedRhs) ? "(" + resolvedRhs + ")" : resolvedRhs;
                                 env.put(varName, lhs + " " + op + " " + rhs);
@@ -1714,13 +2018,15 @@ public class MethodSpecificationInferrer {
                 } else if (hasElse) {
                     // Neither branch returns — merge envs
                     Map<String, String> thenEnv = new LinkedHashMap<>(env);
+                    Map<String, List<SymbolicReturn>> thenInnerConds = new LinkedHashMap<>();
                     walkStatements(extractStatements(ifStmt.getThenStmt()), thenEnv,
-                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            thenInnerConds,
                             conjoin(pathCondition, condStr), paramNames, new ArrayList<>(), depth + 1);
 
                     Map<String, String> elseEnv = new LinkedHashMap<>(env);
+                    Map<String, List<SymbolicReturn>> elseInnerConds = new LinkedHashMap<>();
                     walkStatements(extractStatements(ifStmt.getElseStmt().get()), elseEnv,
-                            conditionalAssignments != null ? new LinkedHashMap<>(conditionalAssignments) : null,
+                            elseInnerConds,
                             conjoin(pathCondition, negCondStr), paramNames, new ArrayList<>(), depth + 1);
 
                     Map<String, String> merged = new LinkedHashMap<>();
@@ -1728,6 +2034,30 @@ public class MethodSpecificationInferrer {
                         conditionalAssignments = new LinkedHashMap<>();
                     }
                     mergeEnvs(env, thenEnv, elseEnv, merged, conditionalAssignments, condStr, negCondStr);
+
+                    // Propagate inner conditional assignments from nested branches.
+                    // For variables where mergeEnvs tainted (removed from merged),
+                    // check if inner branches produced conditional assignments and
+                    // promote them with the additional outer branch condition.
+                    for (Map.Entry<String, List<SymbolicReturn>> innerEntry : thenInnerConds.entrySet()) {
+                        String var = innerEntry.getKey();
+                        if (!merged.containsKey(var)) {
+                            List<SymbolicReturn> outerEntries = conditionalAssignments.computeIfAbsent(var, k -> new ArrayList<>());
+                            for (SymbolicReturn sr : innerEntry.getValue()) {
+                                outerEntries.add(new SymbolicReturn(conjoin(condStr, sr.pathCondition), sr.resolvedExpr));
+                            }
+                        }
+                    }
+                    for (Map.Entry<String, List<SymbolicReturn>> innerEntry : elseInnerConds.entrySet()) {
+                        String var = innerEntry.getKey();
+                        if (!merged.containsKey(var)) {
+                            List<SymbolicReturn> outerEntries = conditionalAssignments.computeIfAbsent(var, k -> new ArrayList<>());
+                            for (SymbolicReturn sr : innerEntry.getValue()) {
+                                outerEntries.add(new SymbolicReturn(conjoin(negCondStr, sr.pathCondition), sr.resolvedExpr));
+                            }
+                        }
+                    }
+
                     env.clear();
                     env.putAll(merged);
                     continue;
@@ -1828,7 +2158,7 @@ public class MethodSpecificationInferrer {
             // All paths return the same expression — treat as unconditional
             if (isTrivialResult(firstExpr)) return;
             if (firstExpr.length() > 100) return;
-            postconditions.add("\\result == " + firstExpr);
+            postconditions.add(buildResultEquality(firstExpr));
             return;
         }
 
@@ -1838,12 +2168,12 @@ public class MethodSpecificationInferrer {
             if (sr.pathCondition == null) {
                 // Unconditional
                 if (sr.resolvedExpr.length() > 100) continue;
-                postconditions.add("\\result == " + sr.resolvedExpr);
+                postconditions.add(buildResultEquality(sr.resolvedExpr));
             } else {
                 // Conditional
                 if (sr.resolvedExpr.length() > 100) continue;
                 if (sr.pathCondition.length() > 80) continue;
-                postconditions.add(sr.pathCondition + " ==> \\result == " + sr.resolvedExpr);
+                postconditions.add(sr.pathCondition + " ==> " + buildResultEquality(sr.resolvedExpr));
             }
         }
     }
@@ -1861,6 +2191,33 @@ public class MethodSpecificationInferrer {
         // Ternary expressions can cause operator precedence issues in JML
         if (expr.contains("?") && expr.contains(":")) return true;
         return false;
+    }
+
+    /**
+     * Builds a result equality postcondition. Uses {@code .equals()} for string literals
+     * (since JML {@code ==} is reference equality), and {@code ==} for everything else.
+     */
+    private String buildResultEquality(String resolvedExpr) {
+        if (isStringLiteral(resolvedExpr)) {
+            return "\\result.equals(" + resolvedExpr + ")";
+        }
+        // Parenthesize expressions containing comparison/equality/logical operators to avoid
+        // ambiguous precedence like \result == a == b
+        if (resolvedExpr.matches(".*[=!<>]=.*") ||
+            resolvedExpr.matches(".*(?<!=)>(?!=).*") ||
+            resolvedExpr.matches(".*(?<!=)<(?!=).*") ||
+            resolvedExpr.contains("&&") || resolvedExpr.contains("||")) {
+            return "\\result == (" + resolvedExpr + ")";
+        }
+        return "\\result == " + resolvedExpr;
+    }
+
+    /**
+     * Returns true if the expression is a string literal (starts and ends with double quotes).
+     */
+    private boolean isStringLiteral(String expr) {
+        if (expr == null) return false;
+        return expr.startsWith("\"") && expr.endsWith("\"");
     }
 
     /**
@@ -1883,6 +2240,27 @@ public class MethodSpecificationInferrer {
         boolean allReturnsNonNull = alwaysReturnsNonNull(methodDecl);
         if (allReturnsNonNull) {
             postconditions.add("\\result != null");
+
+            // Check if all return statements return string literals of the same length
+            List<Integer> stringLengths = new ArrayList<>();
+            boolean allStringLiterals = true;
+            for (ReturnStmt ret : returnStmts) {
+                if (ret.getExpression().isPresent() && ret.getExpression().get() instanceof StringLiteralExpr) {
+                    stringLengths.add(((StringLiteralExpr) ret.getExpression().get()).asString().length());
+                } else {
+                    allStringLiterals = false;
+                    break;
+                }
+            }
+            if (allStringLiterals && !stringLengths.isEmpty()) {
+                int firstLen = stringLengths.get(0);
+                if (stringLengths.stream().allMatch(len -> len == firstLen)) {
+                    postconditions.add("\\result.length() == " + firstLen);
+                    if (firstLen == 0) {
+                        postconditions.add("\\result.isEmpty()");
+                    }
+                }
+            }
         }
 
         for (ReturnStmt returnStmt : returnStmts) {
@@ -1967,11 +2345,10 @@ public class MethodSpecificationInferrer {
             }
         }
 
-        // Check for empty string returns
+        // Check for string literal returns (length inference only; non-null
+        // is already handled at the method level by analyzeStringReturnProperties)
         if (expr instanceof StringLiteralExpr) {
             String value = ((StringLiteralExpr) expr).asString();
-            postconditions.add("\\result != null");
-            postconditions.add("\\result.length() == " + value.length());
             if (value.isEmpty()) {
                 postconditions.add("\\result.isEmpty()");
             }
@@ -2350,7 +2727,7 @@ public class MethodSpecificationInferrer {
                     postconditions.add(paramName + ".size() >= \\old(" + paramName + ".size())");
                 }
                 if (hasRemove) {
-                    postconditions.add(paramName + " is modified");
+                    postconditions.add(paramName + ".size() <= \\old(" + paramName + ".size())");
                 }
                 if (hasClear) {
                     postconditions.add(paramName + ".isEmpty()");
@@ -2364,7 +2741,9 @@ public class MethodSpecificationInferrer {
                         ((ArrayAccessExpr) assign.getTarget()).getName().toString().equals(paramName));
 
                 if (hasArrayWrite) {
-                    postconditions.add(paramName + " is modified");
+                    // Array modification is captured by the assignable clause;
+                    // no valid unconditional JML postcondition can express
+                    // "some elements changed" without knowing which ones.
                 }
             }
         }
@@ -2374,10 +2753,8 @@ public class MethodSpecificationInferrer {
      * Analyzes exception guarantees.
      */
     private void analyzeExceptionGuarantees(MethodDeclaration methodDecl, Set<String> postconditions) {
-        // Check for explicit throws in method signature
-        methodDecl.getThrownExceptions().forEach(throwsType -> {
-            postconditions.add("may throw " + throwsType.asString());
-        });
+        // Explicit throws in method signature are handled by exception specifications,
+        // not postconditions. The @Signals annotation captures these.
 
         // Check for throw statements in method body
         Set<String> thrownExceptions = new LinkedHashSet<>();
@@ -2431,7 +2808,9 @@ public class MethodSpecificationInferrer {
 
             // Case 1: Both branches return literals -> disjunctive postcondition
             if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)) {
-                postconditions.add("\\result == " + thenExpr + " || \\result == " + elseExpr);
+                String thenStr = thenExpr.toString();
+                String elseStr = elseExpr.toString();
+                postconditions.add(buildResultEquality(thenStr) + " || " + buildResultEquality(elseStr));
             }
 
             // Case 2: Null check condition -> conditional postcondition
@@ -2465,7 +2844,9 @@ public class MethodSpecificationInferrer {
 
                     // Both values are literals -> disjunctive postcondition
                     if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)) {
-                        postconditions.add("\\result == " + thenExpr + " || \\result == " + elseExpr);
+                        String thenStr = thenExpr.toString();
+                        String elseStr = elseExpr.toString();
+                        postconditions.add(buildResultEquality(thenStr) + " || " + buildResultEquality(elseStr));
                     }
 
                     // Null check in ternary condition
@@ -2578,22 +2959,24 @@ public class MethodSpecificationInferrer {
 
         String result = precondition;
 
-        // Map standard parameter names to actual arguments
-        // Common patterns: index -> first arg, obj/s/str -> first arg, beginIndex -> first, endIndex -> second
-        if (args.size() >= 1) {
-            String firstArg = args.get(0).toString();
-            result = result.replace("index", firstArg)
-                           .replace("obj", firstArg)
-                           .replace("s", firstArg)
-                           .replace("beginIndex", firstArg)
-                           .replace("original", firstArg)
-                           .replace("list", firstArg)
-                           .replace("str", firstArg);
-        }
+        // Map standard parameter names to actual arguments using word-boundary matching
+        // to avoid corrupting substrings (e.g., "s" in "this", "index" in "beginIndex").
+        // Order matters: replace longer names first to avoid partial matches.
         if (args.size() >= 2) {
             String secondArg = args.get(1).toString();
-            result = result.replace("endIndex", secondArg)
-                           .replace("newLength", secondArg);
+            result = result.replaceAll("\\bendIndex\\b", java.util.regex.Matcher.quoteReplacement(secondArg))
+                           .replaceAll("\\bnewLength\\b", java.util.regex.Matcher.quoteReplacement(secondArg));
+        }
+        if (args.size() >= 1) {
+            String firstArg = args.get(0).toString();
+            String quoted = java.util.regex.Matcher.quoteReplacement(firstArg);
+            result = result.replaceAll("\\bbeginIndex\\b", quoted)
+                           .replaceAll("\\boriginal\\b", quoted)
+                           .replaceAll("\\bindex\\b", quoted)
+                           .replaceAll("\\blist\\b", quoted)
+                           .replaceAll("\\bstr\\b", quoted)
+                           .replaceAll("\\bobj\\b", quoted)
+                           .replaceAll("(?<=\\W|^)s(?=\\W|$)", quoted);
         }
 
         // Replace "this" references with the scope expression
@@ -3686,6 +4069,24 @@ public class MethodSpecificationInferrer {
             }
         }
         return false;
+    }
+
+    /**
+     * Checks if a binary expression involves a recursive call to the containing method.
+     * Used to detect patterns like {@code n * factorial(n - 1)}.
+     */
+    private boolean involvesRecursiveCall(BinaryExpr binExpr, MethodDeclaration methodDecl) {
+        String methodName = methodDecl.getNameAsString();
+        return containsRecursiveCall(binExpr.getLeft(), methodName) ||
+               containsRecursiveCall(binExpr.getRight(), methodName);
+    }
+
+    private boolean containsRecursiveCall(Expression expr, String methodName) {
+        if (expr instanceof MethodCallExpr) {
+            return ((MethodCallExpr) expr).getNameAsString().equals(methodName);
+        }
+        return expr.findAll(MethodCallExpr.class).stream()
+            .anyMatch(call -> call.getNameAsString().equals(methodName));
     }
 
     /**

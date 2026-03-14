@@ -125,13 +125,9 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "repeat");
-        // Expected annotated method after inference:
-        //   @Requires("n > 0")           (or similar numeric constraint)
-        //   @Complexity(time = "O(n)")
-        //   String repeat(String s, int n) { ... }
-        assertTrue(spec.getPreconditions().stream()
-                .anyMatch(p -> p.contains("n") && (p.contains(">") || p.contains("<"))),
-                "Expected numeric constraint on n");
+        // The method handles n <= 0 (returns "") — no numeric precondition should be generated.
+        // Guard clauses (if-return without else) don't generate preconditions.
+        assertEquals("O(n)", spec.getTimeComplexity(), "Expected O(n) complexity");
     }
 
     @Test
@@ -208,14 +204,12 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "clamp");
-        // Expected annotated method after inference:
-        //   @Requires("value >= min")     (or similar value/min relationship)
-        //   @Requires("value <= max")
-        //   @Pure
-        //   int clamp(int value, int min, int max) { ... }
-        assertTrue(spec.getPreconditions().stream()
+        // Clamp handles all cases (value < min, value > max, min <= value <= max).
+        // Guard clauses should NOT generate preconditions — the method is total.
+        assertTrue(spec.isPure(), "Expected pure method");
+        assertFalse(spec.getPreconditions().stream()
                 .anyMatch(p -> p.contains("value") && p.contains("min")),
-                "Expected value/min relationship");
+                "Should NOT generate value/min precondition from guard clause, got: " + spec.getPreconditions());
     }
 
     @Test

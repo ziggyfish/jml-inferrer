@@ -58,7 +58,7 @@ class SymbolicStraightLineTest extends InferrerTestBase {
         //       return b;
         //   }
         assertTrue(spec.getPostconditions().stream()
-                .anyMatch(p -> p.contains("\\result == ((a * a) + c) * ((a * a) + c)")),
+                .anyMatch(p -> p.contains("\\result == (((a * a) + c) * ((a * a) + c))")),
                 "Expected chained substitution, got: " + spec.getPostconditions());
     }
 

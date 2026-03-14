@@ -1,4 +1,4 @@
-# JML Specification Inferrer
+ # JML Specification Inferrer
 
 A Java application that automatically analyzes Java codebases and generates JML (Java Modeling Language) specifications. The tool uses AST-based pattern matching to infer behavioral contracts including preconditions, postconditions, and loop invariants.
 

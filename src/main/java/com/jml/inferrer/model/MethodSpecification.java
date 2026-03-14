@@ -59,50 +59,70 @@ public class MethodSpecification {
     }
 
     public void addPrecondition(String precondition) {
-        this.preconditions.add(precondition);
+        if (!this.preconditions.contains(precondition)) {
+            this.preconditions.add(precondition);
+        }
     }
 
     public void addPrecondition(String precondition, ConfidenceLevel confidence) {
-        this.preconditions.add(precondition);
+        if (!this.preconditions.contains(precondition)) {
+            this.preconditions.add(precondition);
+        }
         this.specificationConfidence.put(precondition, confidence);
     }
 
     public void addPostcondition(String postcondition) {
-        this.postconditions.add(postcondition);
+        if (!this.postconditions.contains(postcondition)) {
+            this.postconditions.add(postcondition);
+        }
     }
 
     public void addPostcondition(String postcondition, ConfidenceLevel confidence) {
-        this.postconditions.add(postcondition);
+        if (!this.postconditions.contains(postcondition)) {
+            this.postconditions.add(postcondition);
+        }
         this.specificationConfidence.put(postcondition, confidence);
     }
 
     public void addLoopInvariant(String loopInvariant) {
-        this.loopInvariants.add(loopInvariant);
+        if (!this.loopInvariants.contains(loopInvariant)) {
+            this.loopInvariants.add(loopInvariant);
+        }
     }
 
     public void addLoopInvariant(String loopInvariant, ConfidenceLevel confidence) {
-        this.loopInvariants.add(loopInvariant);
+        if (!this.loopInvariants.contains(loopInvariant)) {
+            this.loopInvariants.add(loopInvariant);
+        }
         this.specificationConfidence.put(loopInvariant, confidence);
     }
 
     public void addExceptionSpecification(String exceptionSpec) {
-        this.exceptionSpecifications.add(exceptionSpec);
+        if (!this.exceptionSpecifications.contains(exceptionSpec)) {
+            this.exceptionSpecifications.add(exceptionSpec);
+        }
     }
 
     public void addExceptionSpecification(String exceptionSpec, ConfidenceLevel confidence) {
-        this.exceptionSpecifications.add(exceptionSpec);
+        if (!this.exceptionSpecifications.contains(exceptionSpec)) {
+            this.exceptionSpecifications.add(exceptionSpec);
+        }
         this.specificationConfidence.put(exceptionSpec, confidence);
     }
 
     public void addAssignableClause(String assignable) {
-        this.assignableClauses.add(assignable);
+        if (!this.assignableClauses.contains(assignable)) {
+            this.assignableClauses.add(assignable);
+        }
     }
 
     /**
      * Adds an inherited precondition from a parent class or interface.
      */
     public void addInheritedPrecondition(String precondition, String source) {
-        this.preconditions.add(precondition);
+        if (!this.preconditions.contains(precondition)) {
+            this.preconditions.add(precondition);
+        }
         this.inheritedPreconditions.put(precondition, source);
         this.specificationConfidence.put(precondition, ConfidenceLevel.HIGH);
     }
@@ -111,7 +131,9 @@ public class MethodSpecification {
      * Adds an inherited postcondition from a parent class or interface.
      */
     public void addInheritedPostcondition(String postcondition, String source) {
-        this.postconditions.add(postcondition);
+        if (!this.postconditions.contains(postcondition)) {
+            this.postconditions.add(postcondition);
+        }
         this.inheritedPostconditions.put(postcondition, source);
         this.specificationConfidence.put(postcondition, ConfidenceLevel.HIGH);
     }

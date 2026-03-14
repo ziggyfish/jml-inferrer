@@ -162,7 +162,7 @@ class PreconditionInferenceTest extends InferrerTestBase {
     // ---- Numeric constraints ----
 
     @Test
-    @DisplayName("Numeric comparison -> precondition")
+    @DisplayName("Guard clause (if-return, no else) should NOT generate precondition")
     void numericComparison() {
         MethodSpecification spec = infer("""
             class T {
@@ -174,15 +174,14 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
-        // Expected annotated method after inference:
-        //   @Requires("n > 0")
-        //   int compute(int n) { ... }
-        assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n > 0")),
-                "Expected n > 0");
+        // The method handles both n > 0 and n <= 0 — no precondition should be generated.
+        // Guard clauses (if-return without else) are branching logic, not validation.
+        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("n > 0")),
+                "Should NOT generate n > 0 precondition from guard clause, got: " + spec.getPreconditions());
     }
 
     @Test
-    @DisplayName("Numeric >= comparison")
+    @DisplayName("Guard clause with >= should NOT generate precondition")
     void numericGreaterEqual() {
         MethodSpecification spec = infer("""
             class T {
@@ -194,15 +193,13 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
-        // Expected annotated method after inference:
-        //   @Requires("n >= 10")
-        //   int compute(int n) { ... }
-        assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n >= 10")),
-                "Expected n >= 10");
+        // Method handles both cases
+        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("n >= 10")),
+                "Should NOT generate n >= 10 precondition from guard clause, got: " + spec.getPreconditions());
     }
 
     @Test
-    @DisplayName("Numeric < comparison")
+    @DisplayName("Guard clause with < should NOT generate precondition")
     void numericLessThan() {
         MethodSpecification spec = infer("""
             class T {
@@ -214,11 +211,9 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
-        // Expected annotated method after inference:
-        //   @Requires("n < 100")
-        //   int compute(int n) { ... }
-        assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n < 100")),
-                "Expected n < 100");
+        // Method handles both cases
+        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("n < 100")),
+                "Should NOT generate n < 100 precondition from guard clause, got: " + spec.getPreconditions());
     }
 
     // ---- Early validation ----
@@ -396,7 +391,7 @@ class PreconditionInferenceTest extends InferrerTestBase {
     // ---- Parameter relationships ----
 
     @Test
-    @DisplayName("Parameter relationship: a < b")
+    @DisplayName("Parameter relationship in guard clause should NOT generate precondition")
     void parameterRelationship() {
         MethodSpecification spec = infer("""
             class T {
@@ -408,15 +403,13 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "range");
-        // Expected annotated method after inference:
-        //   @Requires("low < high")
-        //   int range(int low, int high) { ... }
-        assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("low < high")),
-                "Expected low < high");
+        // Method handles both low < high and low >= high — no precondition
+        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("low < high")),
+                "Should NOT generate low < high precondition from guard clause, got: " + spec.getPreconditions());
     }
 
     @Test
-    @DisplayName("Parameter relationship: a >= b")
+    @DisplayName("Parameter relationship with >= in guard clause should NOT generate precondition")
     void parameterRelationshipGe() {
         MethodSpecification spec = infer("""
             class T {
@@ -428,15 +421,13 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
-        // Expected annotated method after inference:
-        //   @Requires("start >= end")
-        //   int compute(int start, int end) { ... }
-        assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("start >= end")),
-                "Expected start >= end");
+        // Method handles both cases
+        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("start >= end")),
+                "Should NOT generate start >= end precondition from guard clause, got: " + spec.getPreconditions());
     }
 
     @Test
-    @DisplayName("Multiple numeric checks on same param")
+    @DisplayName("Multiple nested guard clauses should NOT generate preconditions")
     void multipleNumericChecks() {
         MethodSpecification spec = infer("""
             class T {
@@ -450,14 +441,11 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
-        // Expected annotated method after inference:
-        //   @Requires("n > 0")
-        //   @Requires("n < 100")
-        //   int compute(int n) { ... }
-        assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n > 0")),
-                "Expected n > 0");
-        assertTrue(spec.getPreconditions().stream().anyMatch(p -> p.contains("n < 100")),
-                "Expected n < 100");
+        // Method handles all cases (n <= 0, n >= 100, and 0 < n < 100)
+        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("n > 0")),
+                "Should NOT generate n > 0 precondition from guard clause, got: " + spec.getPreconditions());
+        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("n < 100")),
+                "Should NOT generate n < 100 precondition from guard clause, got: " + spec.getPreconditions());
     }
 
     @Test

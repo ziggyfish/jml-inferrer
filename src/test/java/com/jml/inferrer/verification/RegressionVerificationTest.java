@@ -300,4 +300,48 @@ class RegressionVerificationTest extends FormalVerificationTestBase {
             """, "SumToN", "sumTo");
         assertVerified(result);
     }
+
+    // =========================================================================
+    // String .equals() postconditions (Regression 4)
+    // =========================================================================
+
+    @Test
+    @DisplayName("String return from if/else: .equals() postconditions verify")
+    void stringReturnEqualsVerified() throws IOException {
+        MethodVerificationResult result = inferAndVerify("""
+            class StringReturn {
+                public String getValue(String a, String b) {
+                    if (a.isEmpty()) {
+                        return "b";
+                    } else {
+                        return "a";
+                    }
+                }
+            }
+            """, "StringReturn", "getValue");
+        assertVerified(result);
+    }
+
+    // =========================================================================
+    // Compound assignment accumulation with \old (Regression 4)
+    // =========================================================================
+
+    @Test
+    @DisplayName("Compound assignment accumulation with field modification")
+    void compoundAssignmentFieldAccumulation() throws IOException {
+        MethodVerificationResult result = inferAndVerify("""
+            class FieldAccum {
+                int c;
+                public int getValue(int a) {
+                    a = a * a;
+                    c += 3;
+                    c += 3;
+                    int b = a + c;
+                    b = b * b;
+                    return b;
+                }
+            }
+            """, "FieldAccum", "getValue");
+        assertVerified(result);
+    }
 }

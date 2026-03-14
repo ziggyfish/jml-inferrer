@@ -140,12 +140,17 @@ abstract class FormalVerificationTestBase {
      * @return verification result
      */
     protected MethodVerificationResult inferAndVerify(String rawSource, String className, String methodName) throws IOException {
+        // Step 0: Strip any existing JML comments (//@ ... and /*@ ... @*/) so the
+        // inference engine works with truly raw source and doesn't produce duplicate specs.
+        String cleanSource = rawSource.replaceAll("(?m)^\\s*//@ [^\n]*\n?", "")
+                                      .replaceAll("(?m)^\\s*/\\*@.*?@\\*/\\s*\n?", "");
+
         // Step 1: Parse and infer specifications
         ParserConfiguration config = new ParserConfiguration();
         config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21);
         JavaParser javaParser = new JavaParser(config);
 
-        var parseResult = javaParser.parse(rawSource);
+        var parseResult = javaParser.parse(cleanSource);
         assertTrue(parseResult.isSuccessful(), "Failed to parse source: " + parseResult.getProblems());
         CompilationUnit cu = parseResult.getResult().orElseThrow();
 
@@ -167,6 +172,11 @@ abstract class FormalVerificationTestBase {
             fail("No JML annotations were inferred for " + className + "." + methodName +
                     "\nAnnotated source:\n" + annotatedSource);
         }
+
+        // Log the inferred JML source for review
+        System.out.println("=== Inferred JML: " + className + "." + methodName + " ===");
+        System.out.println(jmlSource);
+        System.out.println("=== End JML ===");
 
         // Step 5: Write JML-commented source and verify
         Path jmlFile = tempDir.resolve(className + "_jml.java");
