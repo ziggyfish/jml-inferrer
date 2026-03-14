@@ -86,6 +86,13 @@ The application follows a visitor pattern-based pipeline:
 - Only remove inference as a last resort when no valid JML can be generated for the pattern
 - Every inferred specification must be syntactically valid JML — no natural language, no undefined variables, no expressions that are false at loop exit
 
+### File Size Limits
+
+**No source file should exceed 500 lines.** When a file grows beyond this limit, split it into multiple files by logical grouping. For the inference engine specifically:
+- Split large classes into focused sub-classes (e.g., `PreconditionAnalyzer`, `PostconditionAnalyzer`, `LoopInvariantAnalyzer`)
+- Use composition or delegation rather than monolithic classes
+- When refactoring a large file, break it into smaller files first before making structural changes
+
 ### Important Design Decisions
 
 **Non-destructive**: Only adds JML to methods without existing specifications. Methods with `@requires`, `@ensures`, or `@loop_invariant` are skipped.
