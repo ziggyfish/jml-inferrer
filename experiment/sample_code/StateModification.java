@@ -6,6 +6,9 @@ package experiment.sample_code;
 @com.jml.inferrer.annotations.Invariant("counter >= 0")
 @com.jml.inferrer.annotations.Invariant("status != null")
 @com.jml.inferrer.annotations.Invariant("data != null")
+@com.jml.inferrer.annotations.Invariant("counter >= 0")
+@com.jml.inferrer.annotations.Invariant("status != null")
+@com.jml.inferrer.annotations.Invariant("data != null")
 public class StateModification {
 
     private int counter;
@@ -13,8 +16,10 @@ public class StateModification {
     private double balance;
 
     @com.jml.inferrer.annotations.Nullable
+    @com.jml.inferrer.annotations.Nullable
     private String status;
 
+    @com.jml.inferrer.annotations.Nullable
     @com.jml.inferrer.annotations.Nullable
     private int[] data;
 
@@ -29,8 +34,8 @@ public class StateModification {
     }
 
     // Increment with logic
-    @com.jml.inferrer.annotations.Ensures("this.counter == \old(this.counter) + 1")
-    @com.jml.inferrer.annotations.Assignable("\nothing")
+    @com.jml.inferrer.annotations.Ensures("this.counter == \\old(this.counter) + 1")
+    @com.jml.inferrer.annotations.Assignable("\\nothing")
     @com.jml.inferrer.annotations.Observer
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
     public void increment() {
@@ -40,8 +45,8 @@ public class StateModification {
     }
 
     // Decrement with constraint
-    @com.jml.inferrer.annotations.Ensures("this.counter == \old(this.counter) - 1")
-    @com.jml.inferrer.annotations.Assignable("\nothing")
+    @com.jml.inferrer.annotations.Ensures("this.counter == \\old(this.counter) - 1")
+    @com.jml.inferrer.annotations.Assignable("\\nothing")
     @com.jml.inferrer.annotations.Observer
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
     public void decrement() {
@@ -52,7 +57,7 @@ public class StateModification {
 
     // State modification with validation
     @com.jml.inferrer.annotations.Requires("amount > 0")
-    @com.jml.inferrer.annotations.Ensures("this.balance == \old(this.balance) + amount")
+    @com.jml.inferrer.annotations.Ensures("this.balance == \\old(this.balance) + amount")
     @com.jml.inferrer.annotations.Assignable("this.balance")
     @com.jml.inferrer.annotations.Mutator
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
@@ -67,7 +72,7 @@ public class StateModification {
     // State modification with constraint
     @com.jml.inferrer.annotations.Requires("amount > 0")
     @com.jml.inferrer.annotations.Requires("amount <= balance")
-    @com.jml.inferrer.annotations.Ensures("this.balance == \old(this.balance) - amount")
+    @com.jml.inferrer.annotations.Ensures("this.balance == \\old(this.balance) - amount")
     @com.jml.inferrer.annotations.Assignable("this.balance")
     @com.jml.inferrer.annotations.Mutator
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
@@ -82,7 +87,7 @@ public class StateModification {
     // Apply discount with percentage
     @com.jml.inferrer.annotations.Requires("percentage > 0")
     @com.jml.inferrer.annotations.Requires("percentage <= 100")
-    @com.jml.inferrer.annotations.Ensures("this.balance == \old(this.balance) * (1 - percentage / 100)")
+    @com.jml.inferrer.annotations.Ensures("this.balance == \\old(this.balance) * (1 - percentage / 100)")
     @com.jml.inferrer.annotations.Assignable("this.balance")
     @com.jml.inferrer.annotations.Mutator
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
@@ -137,7 +142,7 @@ public class StateModification {
     // Reset state
     @com.jml.inferrer.annotations.LoopInvariant("i >= 0")
     @com.jml.inferrer.annotations.LoopInvariant("i < data.length")
-    @com.jml.inferrer.annotations.LoopInvariant("(\forall int k; 0 <= k < i; data[k] == 0)")
+    @com.jml.inferrer.annotations.LoopInvariant("(\\forall int k; 0 <= k < i; data[k] == 0)")
     @com.jml.inferrer.annotations.Assignable("this.counter")
     @com.jml.inferrer.annotations.Assignable("this.balance")
     @com.jml.inferrer.annotations.Assignable("this.status")
@@ -171,32 +176,32 @@ public class StateModification {
     }
 
     // Getters for verification
-    @com.jml.inferrer.annotations.Ensures("\result == this.counter")
-    @com.jml.inferrer.annotations.Assignable("\nothing")
+    @com.jml.inferrer.annotations.Ensures("\\result == this.counter")
+    @com.jml.inferrer.annotations.Assignable("\\nothing")
     @com.jml.inferrer.annotations.Observer
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
     public int getCounter() {
         return counter;
     }
 
-    @com.jml.inferrer.annotations.Ensures("\result == this.balance")
-    @com.jml.inferrer.annotations.Assignable("\nothing")
+    @com.jml.inferrer.annotations.Ensures("\\result == this.balance")
+    @com.jml.inferrer.annotations.Assignable("\\nothing")
     @com.jml.inferrer.annotations.Observer
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
     public double getBalance() {
         return balance;
     }
 
-    @com.jml.inferrer.annotations.Ensures("\result != null")
-    @com.jml.inferrer.annotations.Ensures("\result == this.status")
-    @com.jml.inferrer.annotations.Assignable("\nothing")
+    @com.jml.inferrer.annotations.Ensures("\\result != null")
+    @com.jml.inferrer.annotations.Ensures("\\result == this.status")
+    @com.jml.inferrer.annotations.Assignable("\\nothing")
     @com.jml.inferrer.annotations.Observer
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
     public String getStatus() {
         return status;
     }
 
-    @com.jml.inferrer.annotations.Assignable("\nothing")
+    @com.jml.inferrer.annotations.Assignable("\\nothing")
     @com.jml.inferrer.annotations.Observer
     @com.jml.inferrer.annotations.Complexity(time = "O(1)", space = "O(1)")
     public boolean isLocked() {
