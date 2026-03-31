@@ -11,11 +11,11 @@ import java.util.*;
  */
 class AssignableAnalyzer {
 
-    void inferAssignableClauses(MethodDeclaration methodDecl, MethodSpecification spec) {
+    void inferAssignableClauses(MethodDeclaration methodDecl, MethodSpecification spec, ASTCollector collector) {
         Set<String> assignedLocations = new LinkedHashSet<>();
 
         // Find unary increment/decrement on fields
-        methodDecl.findAll(UnaryExpr.class).forEach(unary -> {
+        collector.unaryExprs.forEach(unary -> {
             if (unary.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT ||
                 unary.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT ||
                 unary.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT ||
@@ -40,7 +40,7 @@ class AssignableAnalyzer {
         });
 
         // Find all assignments
-        methodDecl.findAll(AssignExpr.class).forEach(assign -> {
+        collector.assignExprs.forEach(assign -> {
             Expression target = assign.getTarget();
 
             if (target instanceof FieldAccessExpr) {

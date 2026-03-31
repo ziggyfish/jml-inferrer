@@ -9,11 +9,11 @@ import com.jml.inferrer.model.MethodSpecification;
  */
 class PurityAnalyzer {
 
-    void inferMethodPurity(MethodDeclaration methodDecl, MethodSpecification spec) {
-        boolean hasFieldWrites = hasFieldWrites(methodDecl);
-        boolean hasFieldReads = hasFieldReads(methodDecl);
-        boolean performsIO = performsIO(methodDecl);
-        boolean callsNonPureMethods = callsNonPureMethods(methodDecl);
+    void inferMethodPurity(MethodDeclaration methodDecl, MethodSpecification spec, ASTCollector collector) {
+        boolean hasFieldWrites = hasFieldWrites(methodDecl, collector);
+        boolean hasFieldReads = hasFieldReads(methodDecl, collector);
+        boolean performsIO = performsIO(collector);
+        boolean callsNonPureMethods = callsNonPureMethods(collector);
 
         if (!hasFieldWrites && !hasFieldReads && !performsIO && !callsNonPureMethods) {
             spec.setPure(true);
@@ -24,22 +24,22 @@ class PurityAnalyzer {
         }
     }
 
-    boolean hasFieldWrites(MethodDeclaration methodDecl) {
-        return !methodDecl.findAll(AssignExpr.class).stream()
+    boolean hasFieldWrites(MethodDeclaration methodDecl, ASTCollector collector) {
+        return !collector.assignExprs.stream()
                 .filter(assign -> assign.getTarget() instanceof FieldAccessExpr ||
                                (assign.getTarget() instanceof NameExpr &&
                                 AnalysisUtils.isFieldReference(methodDecl, assign.getTarget().toString())))
                 .toList().isEmpty();
     }
 
-    boolean hasFieldReads(MethodDeclaration methodDecl) {
-        return !methodDecl.findAll(FieldAccessExpr.class).isEmpty() ||
-               methodDecl.findAll(NameExpr.class).stream()
+    boolean hasFieldReads(MethodDeclaration methodDecl, ASTCollector collector) {
+        return !collector.fieldAccessExprs.isEmpty() ||
+               collector.nameExprs.stream()
                        .anyMatch(ne -> AnalysisUtils.isFieldReference(methodDecl, ne.getNameAsString()));
     }
 
-    boolean performsIO(MethodDeclaration methodDecl) {
-        return methodDecl.findAll(MethodCallExpr.class).stream()
+    boolean performsIO(ASTCollector collector) {
+        return collector.methodCallExprs.stream()
                 .anyMatch(call -> {
                     String methodName = call.getNameAsString();
                     String scope = call.getScope().map(Object::toString).orElse("");
@@ -54,8 +54,8 @@ class PurityAnalyzer {
                 });
     }
 
-    boolean callsNonPureMethods(MethodDeclaration methodDecl) {
-        return methodDecl.findAll(MethodCallExpr.class).stream()
+    boolean callsNonPureMethods(ASTCollector collector) {
+        return collector.methodCallExprs.stream()
                 .anyMatch(call -> {
                     String methodName = call.getNameAsString();
                     return methodName.equals("random") || methodName.equals("currentTimeMillis") ||

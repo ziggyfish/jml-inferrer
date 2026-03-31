@@ -16,14 +16,15 @@ class SwitchBitwiseAnalyzer {
 
     private static final Logger logger = LoggerFactory.getLogger(SwitchBitwiseAnalyzer.class);
 
-    void analyzeSwitchStatements(MethodDeclaration methodDecl, MethodSpecification spec) {
+    void analyzeSwitchStatements(MethodDeclaration methodDecl, MethodSpecification spec,
+                                  ASTCollector collector) {
         // Analyze switch expressions (Java 14+)
-        methodDecl.findAll(SwitchExpr.class).forEach(switchExpr -> {
+        collector.switchExprs.forEach(switchExpr -> {
             analyzeSwitchCases(switchExpr.getSelector(), switchExpr.getEntries(), spec, true, methodDecl);
         });
 
         // Analyze traditional switch statements
-        methodDecl.findAll(SwitchStmt.class).forEach(switchStmt -> {
+        collector.switchStmts.forEach(switchStmt -> {
             analyzeSwitchCases(switchStmt.getSelector(), switchStmt.getEntries(), spec, false, methodDecl);
         });
     }
@@ -85,8 +86,9 @@ class SwitchBitwiseAnalyzer {
         }
     }
 
-    void analyzeBitwiseOperations(MethodDeclaration methodDecl, MethodSpecification spec) {
-        methodDecl.findAll(BinaryExpr.class).forEach(binExpr -> {
+    void analyzeBitwiseOperations(MethodDeclaration methodDecl, MethodSpecification spec,
+                                   ASTCollector collector) {
+        collector.binaryExprs.forEach(binExpr -> {
             BinaryExpr.Operator op = binExpr.getOperator();
 
             switch (op) {

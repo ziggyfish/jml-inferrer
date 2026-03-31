@@ -30,7 +30,8 @@ class PostconditionAnalyzer {
         this.fieldModificationAnalyzer = new FieldModificationAnalyzer();
     }
 
-    void inferPostconditions(MethodDeclaration methodDecl, com.jml.inferrer.model.MethodSpecification spec) {
+    void inferPostconditions(MethodDeclaration methodDecl, com.jml.inferrer.model.MethodSpecification spec,
+                              ASTCollector collector) {
         Set<String> postconditions = new LinkedHashSet<>();
 
         if (!methodDecl.getType().isVoidType()) {
@@ -38,79 +39,79 @@ class PostconditionAnalyzer {
 
             // Reference type checks
             if (AnalysisUtils.isReferenceType(returnType)) {
-                if (alwaysReturnsNonNull(methodDecl)) {
+                if (alwaysReturnsNonNull(collector)) {
                     postconditions.add("\\result != null");
                 }
             }
 
             // Numeric type analysis
             if (AnalysisUtils.isNumericType(methodDecl.getType())) {
-                analyzeReturnValueConstraints(methodDecl, postconditions);
-                returnValueAnalyzer.analyzeNumericReturnBounds(methodDecl, postconditions);
-                returnValueAnalyzer.analyzeReturnRelationToParameters(methodDecl, postconditions);
+                analyzeReturnValueConstraints(methodDecl, postconditions, collector);
+                returnValueAnalyzer.analyzeNumericReturnBounds(methodDecl, postconditions, collector);
+                returnValueAnalyzer.analyzeReturnRelationToParameters(methodDecl, postconditions, collector);
             }
 
             // String return analysis
             if (returnType.equals("String")) {
-                stringAnalyzer.analyzeStringReturnProperties(methodDecl, postconditions);
+                stringAnalyzer.analyzeStringReturnProperties(methodDecl, postconditions, collector);
             }
 
             // Collection/Array return analysis
             if (AnalysisUtils.isCollectionType(returnType) || returnType.contains("[]")) {
-                collectionAnalyzer.analyzeCollectionReturnProperties(methodDecl, postconditions);
+                collectionAnalyzer.analyzeCollectionReturnProperties(methodDecl, postconditions, collector);
             }
 
             // Builder pattern detection (returns 'this')
-            if (returnsThis(methodDecl)) {
+            if (returnsThis(collector)) {
                 postconditions.add("\\result == this");
             }
 
             // Factory/Constructor pattern
             if (returnType.equals(methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
                     .map(c -> c.getNameAsString()).orElse(""))) {
-                analyzeFactoryMethodPattern(methodDecl, postconditions);
+                analyzeFactoryMethodPattern(methodDecl, postconditions, collector);
             }
 
             // Comparison method patterns
             analyzeComparisonMethodPattern(methodDecl, postconditions);
 
             // Analyze return value identity/equality
-            analyzeReturnValueIdentity(methodDecl, postconditions);
+            analyzeReturnValueIdentity(methodDecl, postconditions, collector);
 
             // Interprocedural analysis: propagate postconditions from called methods
-            interproceduralAnalyzer.analyzeMethodCallPostconditions(methodDecl, postconditions);
+            interproceduralAnalyzer.analyzeMethodCallPostconditions(methodDecl, postconditions, collector);
 
             // Conditional postconditions (branch-aware)
-            returnValueAnalyzer.analyzeConditionalReturns(methodDecl, postconditions);
+            returnValueAnalyzer.analyzeConditionalReturns(methodDecl, postconditions, collector);
 
             // Exact symbolic return expression
             returnValueAnalyzer.analyzeExactReturnExpression(methodDecl, postconditions, symbolicExecutor);
         }
 
         // Field and parameter modification analysis
-        fieldModificationAnalyzer.analyzeFieldModifications(methodDecl, postconditions);
-        analyzeParameterModifications(methodDecl, postconditions);
+        fieldModificationAnalyzer.analyzeFieldModifications(methodDecl, postconditions, collector);
+        analyzeParameterModifications(methodDecl, postconditions, collector);
 
         // Exception guarantees
-        analyzeExceptionGuarantees(methodDecl, postconditions);
+        analyzeExceptionGuarantees(methodDecl, postconditions, collector);
 
         postconditions.forEach(spec::addPostcondition);
     }
 
-    static boolean alwaysReturnsNonNull(MethodDeclaration methodDecl) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
-        if (returnStmts.isEmpty()) {
+    static boolean alwaysReturnsNonNull(ASTCollector collector) {
+        if (collector.returnStmts.isEmpty()) {
             return false;
         }
 
-        return returnStmts.stream()
+        return collector.returnStmts.stream()
             .allMatch(ret -> ret.getExpression()
                 .map(expr -> !expr.isNullLiteralExpr())
                 .orElse(false));
     }
 
-    private void analyzeReturnValueConstraints(MethodDeclaration methodDecl, Set<String> postconditions) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    private void analyzeReturnValueConstraints(MethodDeclaration methodDecl, Set<String> postconditions,
+                                                ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
 
         for (ReturnStmt returnStmt : returnStmts) {
             returnStmt.getExpression().ifPresent(expr -> {
@@ -145,8 +146,8 @@ class PostconditionAnalyzer {
         }
     }
 
-    private boolean returnsThis(MethodDeclaration methodDecl) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    private boolean returnsThis(ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
         if (returnStmts.isEmpty()) {
             return false;
         }
@@ -157,8 +158,9 @@ class PostconditionAnalyzer {
                 .orElse(false));
     }
 
-    private void analyzeFactoryMethodPattern(MethodDeclaration methodDecl, Set<String> postconditions) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    private void analyzeFactoryMethodPattern(MethodDeclaration methodDecl, Set<String> postconditions,
+                                              ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
 
         for (ReturnStmt returnStmt : returnStmts) {
             returnStmt.getExpression().ifPresent(expr -> {
@@ -192,8 +194,9 @@ class PostconditionAnalyzer {
         }
     }
 
-    private void analyzeReturnValueIdentity(MethodDeclaration methodDecl, Set<String> postconditions) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    private void analyzeReturnValueIdentity(MethodDeclaration methodDecl, Set<String> postconditions,
+                                             ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
         String methodName = methodDecl.getNameAsString();
 
         if (methodName.startsWith("get") && returnStmts.size() == 1) {
@@ -220,23 +223,24 @@ class PostconditionAnalyzer {
         }
     }
 
-    private void analyzeParameterModifications(MethodDeclaration methodDecl, Set<String> postconditions) {
+    private void analyzeParameterModifications(MethodDeclaration methodDecl, Set<String> postconditions,
+                                                ASTCollector collector) {
         for (Parameter param : methodDecl.getParameters()) {
             String paramName = param.getNameAsString();
             String paramType = param.getType().asString();
 
             if (AnalysisUtils.isCollectionType(paramType)) {
-                boolean hasAdd = methodDecl.findAll(MethodCallExpr.class).stream()
+                boolean hasAdd = collector.methodCallExprs.stream()
                     .anyMatch(call -> call.getScope()
                         .map(s -> s.toString().equals(paramName))
                         .orElse(false) && call.getNameAsString().equals("add"));
 
-                boolean hasRemove = methodDecl.findAll(MethodCallExpr.class).stream()
+                boolean hasRemove = collector.methodCallExprs.stream()
                     .anyMatch(call -> call.getScope()
                         .map(s -> s.toString().equals(paramName))
                         .orElse(false) && call.getNameAsString().equals("remove"));
 
-                boolean hasClear = methodDecl.findAll(MethodCallExpr.class).stream()
+                boolean hasClear = collector.methodCallExprs.stream()
                     .anyMatch(call -> call.getScope()
                         .map(s -> s.toString().equals(paramName))
                         .orElse(false) && call.getNameAsString().equals("clear"));
@@ -253,16 +257,17 @@ class PostconditionAnalyzer {
             }
 
             if (paramType.contains("[]")) {
-                boolean hasArrayWrite = methodDecl.findAll(AssignExpr.class).stream()
+                boolean hasArrayWrite = collector.assignExprs.stream()
                     .anyMatch(assign -> assign.getTarget() instanceof ArrayAccessExpr &&
                         ((ArrayAccessExpr) assign.getTarget()).getName().toString().equals(paramName));
             }
         }
     }
 
-    private void analyzeExceptionGuarantees(MethodDeclaration methodDecl, Set<String> postconditions) {
+    private void analyzeExceptionGuarantees(MethodDeclaration methodDecl, Set<String> postconditions,
+                                             ASTCollector collector) {
         Set<String> thrownExceptions = new LinkedHashSet<>();
-        methodDecl.findAll(ThrowStmt.class).forEach(throwStmt -> {
+        collector.throwStmts.forEach(throwStmt -> {
             throwStmt.getExpression().ifObjectCreationExpr(creation -> {
                 thrownExceptions.add(creation.getType().asString());
             });

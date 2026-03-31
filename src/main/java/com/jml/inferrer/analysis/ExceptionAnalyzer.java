@@ -25,9 +25,10 @@ class ExceptionAnalyzer {
         FALLBACK
     }
 
-    void inferExceptionSpecifications(MethodDeclaration methodDecl, MethodSpecification spec) {
+    void inferExceptionSpecifications(MethodDeclaration methodDecl, MethodSpecification spec,
+                                        ASTCollector collector) {
         // Find all throw statements
-        methodDecl.findAll(ThrowStmt.class).forEach(throwStmt -> {
+        collector.throwStmts.forEach(throwStmt -> {
             Expression thrownExpr = throwStmt.getExpression();
             String exceptionType = getExceptionType(thrownExpr);
 
@@ -53,11 +54,12 @@ class ExceptionAnalyzer {
         });
 
         // Analyze try-catch blocks
-        analyzeExceptionHandling(methodDecl, spec);
+        analyzeExceptionHandling(methodDecl, spec, collector);
     }
 
-    void analyzeExceptionHandling(MethodDeclaration methodDecl, MethodSpecification spec) {
-        methodDecl.findAll(TryStmt.class).forEach(tryStmt -> {
+    void analyzeExceptionHandling(MethodDeclaration methodDecl, MethodSpecification spec,
+                                   ASTCollector collector) {
+        collector.tryStmts.forEach(tryStmt -> {
             tryStmt.getCatchClauses().forEach(catchClause -> {
                 RecoveryPattern pattern = identifyRecoveryPattern(catchClause);
                 String exceptionType = catchClause.getParameter().getType().asString();

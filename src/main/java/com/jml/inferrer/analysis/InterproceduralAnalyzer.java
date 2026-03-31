@@ -22,8 +22,9 @@ class InterproceduralAnalyzer {
         this.cache = cache;
     }
 
-    void analyzeMethodCallPreconditions(MethodDeclaration methodDecl, Set<String> preconditions) {
-        List<MethodCallExpr> methodCalls = methodDecl.findAll(MethodCallExpr.class);
+    void analyzeMethodCallPreconditions(MethodDeclaration methodDecl, Set<String> preconditions,
+                                         ASTCollector collector) {
+        List<MethodCallExpr> methodCalls = collector.methodCallExprs;
 
         for (MethodCallExpr call : methodCalls) {
             String methodName = call.getNameAsString();
@@ -125,8 +126,9 @@ class InterproceduralAnalyzer {
         return null;
     }
 
-    void analyzeMethodCallPostconditions(MethodDeclaration methodDecl, Set<String> postconditions) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    void analyzeMethodCallPostconditions(MethodDeclaration methodDecl, Set<String> postconditions,
+                                          ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
 
         for (ReturnStmt returnStmt : returnStmts) {
             returnStmt.getExpression().ifPresent(expr -> {

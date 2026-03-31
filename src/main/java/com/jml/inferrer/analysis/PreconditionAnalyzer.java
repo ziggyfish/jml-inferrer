@@ -14,7 +14,7 @@ import java.util.*;
 class PreconditionAnalyzer {
 
     void inferPreconditions(MethodDeclaration methodDecl, com.jml.inferrer.model.MethodSpecification spec,
-                            InterproceduralAnalyzer interproceduralAnalyzer) {
+                            InterproceduralAnalyzer interproceduralAnalyzer, ASTCollector collector) {
         Set<String> preconditions = new LinkedHashSet<>();
 
         for (Parameter param : methodDecl.getParameters()) {
@@ -23,31 +23,31 @@ class PreconditionAnalyzer {
 
             // Reference type null checks
             if (paramType.isReferenceType() && !paramType.isPrimitiveType()) {
-                if (hasNullCheckOrAccess(methodDecl, paramName)) {
+                if (hasNullCheckOrAccess(methodDecl, paramName, collector)) {
                     preconditions.add(paramName + " != null");
                 }
             }
 
             // String-specific preconditions
             if (paramType.asString().equals("String")) {
-                analyzeStringParameterConstraints(methodDecl, paramName, preconditions);
+                analyzeStringParameterConstraints(methodDecl, paramName, preconditions, collector);
             }
 
             // Numeric type constraints
             if (AnalysisUtils.isNumericType(paramType)) {
-                analyzeNumericConstraints(methodDecl, paramName, preconditions);
+                analyzeNumericConstraints(methodDecl, paramName, preconditions, collector);
             }
 
             // Array and collection constraints
             if (paramType.asString().contains("[]")) {
-                analyzeArrayParameterConstraints(methodDecl, paramName, preconditions);
+                analyzeArrayParameterConstraints(methodDecl, paramName, preconditions, collector);
             } else if (AnalysisUtils.isCollectionType(paramType.asString())) {
-                analyzeCollectionParameterConstraints(methodDecl, paramName, preconditions);
+                analyzeCollectionParameterConstraints(methodDecl, paramName, preconditions, collector);
             }
         }
 
         // Analyze early validation patterns
-        analyzeEarlyValidation(methodDecl, preconditions);
+        analyzeEarlyValidation(methodDecl, preconditions, collector);
 
         // Analyze null checks in method body
         NullCheckVisitor nullCheckVisitor = new NullCheckVisitor();
@@ -55,17 +55,17 @@ class PreconditionAnalyzer {
         preconditions.addAll(nullCheckVisitor.getNullChecks());
 
         // Analyze parameter relationships
-        analyzeParameterRelationships(methodDecl, preconditions);
+        analyzeParameterRelationships(methodDecl, preconditions, collector);
 
         // Interprocedural analysis: propagate preconditions from called methods
-        interproceduralAnalyzer.analyzeMethodCallPreconditions(methodDecl, preconditions);
+        interproceduralAnalyzer.analyzeMethodCallPreconditions(methodDecl, preconditions, collector);
 
         preconditions.forEach(spec::addPrecondition);
     }
 
-    boolean hasNullCheckOrAccess(MethodDeclaration methodDecl, String paramName) {
+    boolean hasNullCheckOrAccess(MethodDeclaration methodDecl, String paramName, ASTCollector collector) {
         // Check for explicit null checks
-        boolean hasNullCheck = methodDecl.findAll(BinaryExpr.class).stream()
+        boolean hasNullCheck = collector.binaryExprs.stream()
             .anyMatch(binExpr -> {
                 if (binExpr.getOperator() == BinaryExpr.Operator.EQUALS ||
                     binExpr.getOperator() == BinaryExpr.Operator.NOT_EQUALS) {
@@ -76,42 +76,43 @@ class PreconditionAnalyzer {
             });
 
         // Check for method calls on the parameter
-        boolean hasMethodCall = methodDecl.findAll(MethodCallExpr.class).stream()
+        boolean hasMethodCall = collector.methodCallExprs.stream()
             .anyMatch(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false));
 
         // Check for field access on the parameter
-        boolean hasFieldAccess = methodDecl.findAll(FieldAccessExpr.class).stream()
+        boolean hasFieldAccess = collector.fieldAccessExprs.stream()
             .anyMatch(field -> field.getScope().toString().equals(paramName));
 
         // Check for for-each loop over the parameter (implies non-null)
-        boolean hasForEachUsage = methodDecl.findAll(ForEachStmt.class).stream()
+        boolean hasForEachUsage = collector.forEachStmts.stream()
             .anyMatch(forEach -> forEach.getIterable().toString().equals(paramName));
 
         return hasNullCheck || hasMethodCall || hasFieldAccess || hasForEachUsage;
     }
 
-    private void analyzeStringParameterConstraints(MethodDeclaration methodDecl, String paramName, Set<String> preconditions) {
+    private void analyzeStringParameterConstraints(MethodDeclaration methodDecl, String paramName,
+                                                    Set<String> preconditions, ASTCollector collector) {
         // Check for null requirement
-        if (hasNullCheckOrAccess(methodDecl, paramName)) {
+        if (hasNullCheckOrAccess(methodDecl, paramName, collector)) {
             preconditions.add(paramName + " != null");
         }
 
         // Check for isEmpty() calls
-        boolean hasEmptyCheck = methodDecl.findAll(MethodCallExpr.class).stream()
+        boolean hasEmptyCheck = collector.methodCallExprs.stream()
             .anyMatch(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false) && call.getNameAsString().equals("isEmpty"));
 
         // Check for length() calls with comparisons
-        methodDecl.findAll(MethodCallExpr.class).stream()
+        collector.methodCallExprs.stream()
             .filter(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false) && call.getNameAsString().equals("length"))
             .forEach(lengthCall -> {
                 // Look for comparisons with this length call
-                methodDecl.findAll(BinaryExpr.class).stream()
+                collector.binaryExprs.stream()
                     .filter(binExpr -> binExpr.getLeft().toString().contains(paramName + ".length()") ||
                                        binExpr.getRight().toString().contains(paramName + ".length()"))
                     .forEach(binExpr -> {
@@ -125,7 +126,7 @@ class PreconditionAnalyzer {
         // If isEmpty() is called, check whether it's used in a guard condition (if/else).
         // If the method handles both empty and non-empty cases, don't add as precondition.
         if (hasEmptyCheck) {
-            boolean isGuardCondition = methodDecl.findAll(IfStmt.class).stream()
+            boolean isGuardCondition = collector.ifStmts.stream()
                     .anyMatch(ifStmt -> {
                         String condStr = ifStmt.getCondition().toString();
                         return condStr.contains(paramName + ".isEmpty()");
@@ -138,7 +139,7 @@ class PreconditionAnalyzer {
         }
 
         // Check for charAt() calls - implies non-empty
-        boolean hasCharAt = methodDecl.findAll(MethodCallExpr.class).stream()
+        boolean hasCharAt = collector.methodCallExprs.stream()
             .anyMatch(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false) && call.getNameAsString().equals("charAt"));
@@ -148,12 +149,13 @@ class PreconditionAnalyzer {
         }
     }
 
-    private void analyzeArrayParameterConstraints(MethodDeclaration methodDecl, String paramName, Set<String> preconditions) {
+    private void analyzeArrayParameterConstraints(MethodDeclaration methodDecl, String paramName,
+                                                    Set<String> preconditions, ASTCollector collector) {
         // Check for null requirement
-        boolean hasArrayAccess = methodDecl.findAll(ArrayAccessExpr.class).stream()
+        boolean hasArrayAccess = collector.arrayAccessExprs.stream()
             .anyMatch(access -> access.getName().toString().equals(paramName));
 
-        boolean hasLengthAccess = methodDecl.findAll(FieldAccessExpr.class).stream()
+        boolean hasLengthAccess = collector.fieldAccessExprs.stream()
             .anyMatch(field -> field.getScope().toString().equals(paramName) &&
                               field.getNameAsString().equals("length"));
 
@@ -164,7 +166,7 @@ class PreconditionAnalyzer {
         // Check for array index access to infer non-empty requirement
         if (hasArrayAccess) {
             // Check if accessing specific indices
-            methodDecl.findAll(ArrayAccessExpr.class).stream()
+            collector.arrayAccessExprs.stream()
                 .filter(access -> access.getName().toString().equals(paramName))
                 .forEach(access -> {
                     Expression index = access.getIndex();
@@ -192,12 +194,13 @@ class PreconditionAnalyzer {
         }
 
         // Check for length comparisons in conditionals
-        analyzeArrayLengthConstraints(methodDecl, paramName, preconditions);
+        analyzeArrayLengthConstraints(methodDecl, paramName, preconditions, collector);
     }
 
-    private void analyzeCollectionParameterConstraints(MethodDeclaration methodDecl, String paramName, Set<String> preconditions) {
+    private void analyzeCollectionParameterConstraints(MethodDeclaration methodDecl, String paramName,
+                                                        Set<String> preconditions, ASTCollector collector) {
         // Check for null requirement
-        boolean hasMethodCall = methodDecl.findAll(MethodCallExpr.class).stream()
+        boolean hasMethodCall = collector.methodCallExprs.stream()
             .anyMatch(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false));
@@ -207,19 +210,19 @@ class PreconditionAnalyzer {
         }
 
         // Check for size() calls
-        boolean hasSizeCheck = methodDecl.findAll(MethodCallExpr.class).stream()
+        boolean hasSizeCheck = collector.methodCallExprs.stream()
             .anyMatch(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false) && call.getNameAsString().equals("size"));
 
         // Check for isEmpty() calls
-        boolean hasEmptyCheck = methodDecl.findAll(MethodCallExpr.class).stream()
+        boolean hasEmptyCheck = collector.methodCallExprs.stream()
             .anyMatch(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false) && call.getNameAsString().equals("isEmpty"));
 
         // Check for iterator or get operations - implies non-empty
-        boolean hasGet = methodDecl.findAll(MethodCallExpr.class).stream()
+        boolean hasGet = collector.methodCallExprs.stream()
             .anyMatch(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false) && call.getNameAsString().equals("get"));
@@ -229,8 +232,9 @@ class PreconditionAnalyzer {
         }
     }
 
-    private void analyzeEarlyValidation(MethodDeclaration methodDecl, Set<String> preconditions) {
-        methodDecl.findAll(IfStmt.class).forEach(ifStmt -> {
+    private void analyzeEarlyValidation(MethodDeclaration methodDecl, Set<String> preconditions,
+                                         ASTCollector collector) {
+        collector.ifStmts.forEach(ifStmt -> {
             // Check if this if statement throws an exception
             boolean throwsException = ifStmt.getThenStmt().findAll(ThrowStmt.class).size() > 0;
 
@@ -255,12 +259,13 @@ class PreconditionAnalyzer {
         });
     }
 
-    private void analyzeParameterRelationships(MethodDeclaration methodDecl, Set<String> preconditions) {
+    private void analyzeParameterRelationships(MethodDeclaration methodDecl, Set<String> preconditions,
+                                                ASTCollector collector) {
         List<Parameter> params = methodDecl.getParameters();
 
         // Only generate parameter relationship preconditions from early validation patterns
         // (if-throw blocks), not from general branching logic.
-        methodDecl.findAll(IfStmt.class).forEach(ifStmt -> {
+        collector.ifStmts.forEach(ifStmt -> {
             boolean throwsException = !ifStmt.getThenStmt().findAll(ThrowStmt.class).isEmpty();
             if (!throwsException) return;
 
@@ -294,11 +299,12 @@ class PreconditionAnalyzer {
         }
     }
 
-    private void analyzeArrayLengthConstraints(MethodDeclaration methodDecl, String paramName, Set<String> preconditions) {
+    private void analyzeArrayLengthConstraints(MethodDeclaration methodDecl, String paramName,
+                                                Set<String> preconditions, ASTCollector collector) {
         Set<String> paramNames = new java.util.HashSet<>();
         methodDecl.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
 
-        methodDecl.findAll(BinaryExpr.class).stream()
+        collector.binaryExprs.stream()
             .filter(binExpr -> binExpr.getLeft().toString().equals(paramName + ".length") ||
                                binExpr.getRight().toString().equals(paramName + ".length"))
             .forEach(binExpr -> {
@@ -370,8 +376,9 @@ class PreconditionAnalyzer {
         };
     }
 
-    void analyzeNumericConstraints(MethodDeclaration methodDecl, String paramName, Set<String> preconditions) {
-        methodDecl.findAll(BinaryExpr.class).stream()
+    void analyzeNumericConstraints(MethodDeclaration methodDecl, String paramName,
+                                    Set<String> preconditions, ASTCollector collector) {
+        collector.binaryExprs.stream()
             .filter(expr -> expr.getLeft().toString().equals(paramName) || expr.getRight().toString().equals(paramName))
             .filter(expr -> !isBranchingIfCondition(expr)) // Skip comparisons in if/else branching logic
             .filter(expr -> !isGuardThrowCondition(expr)) // Skip if-throw guards (handled by analyzeEarlyValidation)

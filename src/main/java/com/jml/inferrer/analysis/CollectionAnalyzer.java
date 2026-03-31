@@ -12,8 +12,9 @@ import java.util.*;
  */
 class CollectionAnalyzer {
 
-    void analyzeCollectionReturnProperties(MethodDeclaration methodDecl, Set<String> postconditions) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    void analyzeCollectionReturnProperties(MethodDeclaration methodDecl, Set<String> postconditions,
+                                             ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
 
         for (ReturnStmt returnStmt : returnStmts) {
             returnStmt.getExpression().ifPresent(expr -> {
@@ -46,26 +47,27 @@ class CollectionAnalyzer {
                 }
 
                 // Analyze collection operations in method body
-                analyzeCollectionOperations(methodDecl, expr, postconditions);
+                analyzeCollectionOperations(methodDecl, expr, postconditions, collector);
             });
         }
     }
 
-    void analyzeCollectionOperations(MethodDeclaration methodDecl, Expression returnExpr, Set<String> postconditions) {
+    void analyzeCollectionOperations(MethodDeclaration methodDecl, Expression returnExpr,
+                                       Set<String> postconditions, ASTCollector collector) {
         // Find all local variable declarations that might be the returned collection
-        methodDecl.findAll(VariableDeclarationExpr.class).forEach(varDecl -> {
+        collector.varDeclExprs.forEach(varDecl -> {
             varDecl.getVariables().forEach(var -> {
                 if (returnExpr.toString().equals(var.getNameAsString())) {
                     // This variable is returned, analyze operations on it
                     String varName = var.getNameAsString();
 
                     // Check for add/remove operations
-                    boolean hasAdd = methodDecl.findAll(MethodCallExpr.class).stream()
+                    boolean hasAdd = collector.methodCallExprs.stream()
                         .anyMatch(call -> call.getScope()
                             .map(s -> s.toString().equals(varName))
                             .orElse(false) && call.getNameAsString().equals("add"));
 
-                    boolean hasRemove = methodDecl.findAll(MethodCallExpr.class).stream()
+                    boolean hasRemove = collector.methodCallExprs.stream()
                         .anyMatch(call -> call.getScope()
                             .map(s -> s.toString().equals(varName))
                             .orElse(false) && call.getNameAsString().equals("remove"));
@@ -75,7 +77,7 @@ class CollectionAnalyzer {
                         String paramName = param.getNameAsString();
                         if (AnalysisUtils.isCollectionType(param.getType().asString()) || param.getType().asString().contains("[]")) {
                             // Check if we're iterating over the parameter
-                            boolean iteratesOverParam = methodDecl.findAll(ForEachStmt.class).stream()
+                            boolean iteratesOverParam = collector.forEachStmts.stream()
                                 .anyMatch(forEach -> forEach.getIterable().toString().equals(paramName));
 
                             if (iteratesOverParam && hasAdd && !hasRemove) {

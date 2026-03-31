@@ -11,7 +11,8 @@ import java.util.*;
  */
 class FieldModificationAnalyzer {
 
-    void analyzeFieldModifications(MethodDeclaration methodDecl, Set<String> postconditions) {
+    void analyzeFieldModifications(MethodDeclaration methodDecl, Set<String> postconditions,
+                                     ASTCollector collector) {
         // Collect all field names from the class
         Set<String> fieldNames = new LinkedHashSet<>();
         methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
@@ -39,7 +40,7 @@ class FieldModificationAnalyzer {
         Set<String> conditionalFields = new LinkedHashSet<>();
 
         // Pass 1: Process unary expressions (++, --)
-        methodDecl.findAll(UnaryExpr.class).forEach(unaryExpr -> {
+        collector.unaryExprs.forEach(unaryExpr -> {
             Expression expr = unaryExpr.getExpression();
             String name = getFieldName.apply(expr);
             if (name != null) {
@@ -65,7 +66,7 @@ class FieldModificationAnalyzer {
         });
 
         // Pass 2: Process assignment expressions
-        methodDecl.findAll(AssignExpr.class).forEach(assign -> {
+        collector.assignExprs.forEach(assign -> {
             String name = getFieldName.apply(assign.getTarget());
             if (name == null) return;
 

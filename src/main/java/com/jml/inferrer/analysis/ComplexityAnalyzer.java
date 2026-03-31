@@ -12,9 +12,9 @@ import java.util.*;
  */
 class ComplexityAnalyzer {
 
-    void inferComplexity(MethodDeclaration methodDecl, MethodSpecification spec) {
+    void inferComplexity(MethodDeclaration methodDecl, MethodSpecification spec, ASTCollector collector) {
         int loopNesting = calculateMaxLoopNesting(methodDecl);
-        boolean hasRecursion = hasRecursion(methodDecl);
+        boolean hasRecursion = hasRecursion(methodDecl, collector);
 
         String complexity;
         if (loopNesting == 0 && !hasRecursion) {
@@ -27,7 +27,7 @@ class ComplexityAnalyzer {
             complexity = "O(n^3)";
         } else if (loopNesting > 3) {
             complexity = "O(n^" + loopNesting + ")";
-        } else if (hasRecursion && hasDivideAndConquer(methodDecl)) {
+        } else if (hasRecursion && hasDivideAndConquer(collector)) {
             complexity = "O(n log n)";
         } else if (hasRecursion) {
             complexity = "O(2^n)";
@@ -38,9 +38,9 @@ class ComplexityAnalyzer {
         spec.setTimeComplexity(complexity);
 
         // Space complexity (simplified)
-        boolean allocatesArray = methodDecl.findAll(ArrayCreationExpr.class).stream()
+        boolean allocatesArray = collector.arrayCreationExprs.stream()
                 .anyMatch(ace -> !ace.getLevels().isEmpty());
-        boolean allocatesCollection = methodDecl.findAll(ObjectCreationExpr.class).stream()
+        boolean allocatesCollection = collector.objectCreationExprs.stream()
                 .anyMatch(oce -> oce.getType().asString().contains("List") ||
                                  oce.getType().asString().contains("Set") ||
                                  oce.getType().asString().contains("Map"));
@@ -79,14 +79,14 @@ class ComplexityAnalyzer {
         }
     }
 
-    boolean hasRecursion(MethodDeclaration methodDecl) {
+    boolean hasRecursion(MethodDeclaration methodDecl, ASTCollector collector) {
         String methodName = methodDecl.getNameAsString();
-        return methodDecl.findAll(MethodCallExpr.class).stream()
+        return collector.methodCallExprs.stream()
                 .anyMatch(call -> call.getNameAsString().equals(methodName));
     }
 
-    boolean hasDivideAndConquer(MethodDeclaration methodDecl) {
-        return methodDecl.findAll(BinaryExpr.class).stream()
+    boolean hasDivideAndConquer(ASTCollector collector) {
+        return collector.binaryExprs.stream()
                 .anyMatch(binExpr -> {
                     if (binExpr.getOperator() == BinaryExpr.Operator.DIVIDE) {
                         String right = binExpr.getRight().toString();
@@ -96,35 +96,35 @@ class ComplexityAnalyzer {
                 });
     }
 
-    void inferThreadSafety(MethodDeclaration methodDecl, MethodSpecification spec) {
+    void inferThreadSafety(MethodDeclaration methodDecl, MethodSpecification spec, ASTCollector collector) {
         boolean isSynchronized = methodDecl.isSynchronized();
-        boolean usesSynchronizedBlock = !methodDecl.findAll(SynchronizedStmt.class).isEmpty();
-        boolean usesLocks = methodDecl.findAll(MethodCallExpr.class).stream()
+        boolean usesSynchronizedBlock = !collector.synchronizedStmts.isEmpty();
+        boolean usesLocks = collector.methodCallExprs.stream()
                 .anyMatch(call -> call.getNameAsString().equals("lock") ||
                                  call.getNameAsString().equals("unlock"));
-        boolean usesConcurrentCollections = methodDecl.findAll(ObjectCreationExpr.class).stream()
+        boolean usesConcurrentCollections = collector.objectCreationExprs.stream()
                 .anyMatch(oce -> oce.getType().asString().contains("Concurrent") ||
                                  oce.getType().asString().contains("Atomic"));
 
-        boolean onlyFinalFields = checkOnlyFinalFields(methodDecl);
+        boolean onlyFinalFields = checkOnlyFinalFields(methodDecl, collector);
 
         if (isSynchronized || usesSynchronizedBlock || usesLocks || usesConcurrentCollections || onlyFinalFields) {
             spec.setThreadSafe(true);
         }
     }
 
-    boolean checkOnlyFinalFields(MethodDeclaration methodDecl) {
+    boolean checkOnlyFinalFields(MethodDeclaration methodDecl, ASTCollector collector) {
         return methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
                 .map(classDecl -> {
                     List<String> accessedFields = new ArrayList<>();
 
-                    methodDecl.findAll(FieldAccessExpr.class).forEach(fae -> {
+                    collector.fieldAccessExprs.forEach(fae -> {
                         if (fae.getScope().toString().equals("this")) {
                             accessedFields.add(fae.getNameAsString());
                         }
                     });
 
-                    methodDecl.findAll(NameExpr.class).forEach(ne -> {
+                    collector.nameExprs.forEach(ne -> {
                         if (AnalysisUtils.isFieldReference(methodDecl, ne.getNameAsString())) {
                             accessedFields.add(ne.getNameAsString());
                         }

@@ -11,10 +11,11 @@ import java.util.*;
  */
 class StringAnalyzer {
 
-    void analyzeStringReturnProperties(MethodDeclaration methodDecl, Set<String> postconditions) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    void analyzeStringReturnProperties(MethodDeclaration methodDecl, Set<String> postconditions,
+                                        ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
 
-        boolean allReturnsNonNull = PostconditionAnalyzer.alwaysReturnsNonNull(methodDecl);
+        boolean allReturnsNonNull = PostconditionAnalyzer.alwaysReturnsNonNull(collector);
         if (allReturnsNonNull) {
             postconditions.add("\\result != null");
 
@@ -42,12 +43,13 @@ class StringAnalyzer {
 
         for (ReturnStmt returnStmt : returnStmts) {
             returnStmt.getExpression().ifPresent(expr -> {
-                analyzeStringExpression(expr, methodDecl, postconditions);
+                analyzeStringExpression(expr, methodDecl, postconditions, collector);
             });
         }
     }
 
-    void analyzeStringExpression(Expression expr, MethodDeclaration methodDecl, Set<String> postconditions) {
+    void analyzeStringExpression(Expression expr, MethodDeclaration methodDecl, Set<String> postconditions,
+                                  ASTCollector collector) {
         // Check for StringBuilder/StringBuffer usage
         if (expr instanceof MethodCallExpr) {
             MethodCallExpr call = (MethodCallExpr) expr;
@@ -77,7 +79,7 @@ class StringAnalyzer {
 
                 // Also check for string fields or local variables
                 boolean mightBeString = isStringParam ||
-                        methodDecl.findAll(VariableDeclarationExpr.class).stream()
+                        collector.varDeclExprs.stream()
                             .flatMap(v -> v.getVariables().stream())
                             .anyMatch(v -> v.getNameAsString().equals(scopeStr) &&
                                           v.getType().asString().equals("String"));

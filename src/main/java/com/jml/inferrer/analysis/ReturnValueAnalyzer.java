@@ -12,8 +12,9 @@ import java.util.*;
  */
 class ReturnValueAnalyzer {
 
-    void analyzeNumericReturnBounds(MethodDeclaration methodDecl, Set<String> postconditions) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    void analyzeNumericReturnBounds(MethodDeclaration methodDecl, Set<String> postconditions,
+                                     ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
 
         if (returnStmts.isEmpty()) {
             return;
@@ -122,8 +123,9 @@ class ReturnValueAnalyzer {
         }
     }
 
-    void analyzeReturnRelationToParameters(MethodDeclaration methodDecl, Set<String> postconditions) {
-        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+    void analyzeReturnRelationToParameters(MethodDeclaration methodDecl, Set<String> postconditions,
+                                             ASTCollector collector) {
+        List<ReturnStmt> returnStmts = collector.returnStmts;
 
         // Count distinct return expressions that are parameters
         Set<String> returnedParams = new LinkedHashSet<>();
@@ -361,12 +363,12 @@ class ReturnValueAnalyzer {
         }
     }
 
-    void analyzeConditionalReturns(MethodDeclaration methodDecl, Set<String> postconditions) {
+    void analyzeConditionalReturns(MethodDeclaration methodDecl, Set<String> postconditions,
+                                    ASTCollector collector) {
         if (!methodDecl.getBody().isPresent()) return;
-        BlockStmt body = methodDecl.getBody().get();
 
         // Analyze if/else statements with return in both branches
-        body.findAll(IfStmt.class).forEach(ifStmt -> {
+        collector.ifStmts.forEach(ifStmt -> {
             Optional<Statement> elseStmt = ifStmt.getElseStmt();
             if (elseStmt.isEmpty()) return;
 
@@ -413,7 +415,7 @@ class ReturnValueAnalyzer {
         });
 
         // Analyze ternary expressions in return statements
-        body.findAll(ReturnStmt.class).forEach(returnStmt -> {
+        collector.returnStmts.forEach(returnStmt -> {
             returnStmt.getExpression().ifPresent(expr -> {
                 if (expr instanceof ConditionalExpr) {
                     ConditionalExpr ternary = (ConditionalExpr) expr;

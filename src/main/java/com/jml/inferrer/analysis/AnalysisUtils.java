@@ -148,12 +148,29 @@ class AnalysisUtils {
         if (isParameter) return false;
 
         // Check if it's a local variable
-        boolean isLocalVar = methodDecl.findAll(VariableDeclarationExpr.class).stream()
+        boolean isLocalVar = methodDecl.findAll(com.github.javaparser.ast.expr.VariableDeclarationExpr.class).stream()
                 .flatMap(vd -> vd.getVariables().stream())
                 .anyMatch(v -> v.getNameAsString().equals(name));
         if (isLocalVar) return false;
 
         // Assume it's a field if not param or local
+        return methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(c -> c.getFields().stream()
+                        .flatMap(f -> f.getVariables().stream())
+                        .anyMatch(v -> v.getNameAsString().equals(name)))
+                .orElse(false);
+    }
+
+    static boolean isFieldReference(MethodDeclaration methodDecl, String name, ASTCollector collector) {
+        boolean isParameter = methodDecl.getParameters().stream()
+                .anyMatch(p -> p.getNameAsString().equals(name));
+        if (isParameter) return false;
+
+        boolean isLocalVar = collector.varDeclExprs.stream()
+                .flatMap(vd -> vd.getVariables().stream())
+                .anyMatch(v -> v.getNameAsString().equals(name));
+        if (isLocalVar) return false;
+
         return methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
                 .map(c -> c.getFields().stream()
                         .flatMap(f -> f.getVariables().stream())

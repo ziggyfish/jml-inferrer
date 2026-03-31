@@ -84,24 +84,27 @@ public class MethodSpecificationInferrer {
     public MethodSpecification inferSpecification(MethodDeclaration methodDecl) {
         MethodSpecification spec = new MethodSpecification();
 
+        // Single-pass AST collection — all sub-analyzers share this collector
+        ASTCollector collector = ASTCollector.collect(methodDecl);
+
         // Basic JML specifications
-        preconditionAnalyzer.inferPreconditions(methodDecl, spec, interproceduralAnalyzer);
-        postconditionAnalyzer.inferPostconditions(methodDecl, spec);
+        preconditionAnalyzer.inferPreconditions(methodDecl, spec, interproceduralAnalyzer, collector);
+        postconditionAnalyzer.inferPostconditions(methodDecl, spec, collector);
         loopInvariantAnalyzer.inferLoopInvariants(methodDecl, spec);
 
         // Phase 1: Method properties
-        purityAnalyzer.inferMethodPurity(methodDecl, spec);
-        exceptionAnalyzer.inferExceptionSpecifications(methodDecl, spec);
+        purityAnalyzer.inferMethodPurity(methodDecl, spec, collector);
+        exceptionAnalyzer.inferExceptionSpecifications(methodDecl, spec, collector);
 
         // Phase 2: Frame conditions and advanced specifications
-        assignableAnalyzer.inferAssignableClauses(methodDecl, spec);
+        assignableAnalyzer.inferAssignableClauses(methodDecl, spec, collector);
 
         // Phase 3: Advanced properties
-        complexityAnalyzer.inferComplexity(methodDecl, spec);
-        complexityAnalyzer.inferThreadSafety(methodDecl, spec);
+        complexityAnalyzer.inferComplexity(methodDecl, spec, collector);
+        complexityAnalyzer.inferThreadSafety(methodDecl, spec, collector);
 
         // Phase 3: Stream API analysis
-        inferStreamSpecifications(methodDecl, spec);
+        inferStreamSpecifications(methodDecl, spec, collector);
 
         // Phase 3: Inheritance propagation
         propagateInheritedSpecifications(methodDecl, spec);
@@ -110,8 +113,8 @@ public class MethodSpecificationInferrer {
         inferGenericTypeConstraints(methodDecl, spec);
 
         // Phase 4: Switch and bitwise analysis
-        switchBitwiseAnalyzer.analyzeSwitchStatements(methodDecl, spec);
-        switchBitwiseAnalyzer.analyzeBitwiseOperations(methodDecl, spec);
+        switchBitwiseAnalyzer.analyzeSwitchStatements(methodDecl, spec, collector);
+        switchBitwiseAnalyzer.analyzeBitwiseOperations(methodDecl, spec, collector);
 
         // Calculate overall confidence
         spec.calculateOverallConfidence();
@@ -122,9 +125,10 @@ public class MethodSpecificationInferrer {
     /**
      * Infers specifications from Stream API operations.
      */
-    private void inferStreamSpecifications(MethodDeclaration methodDecl, MethodSpecification spec) {
+    private void inferStreamSpecifications(MethodDeclaration methodDecl, MethodSpecification spec,
+                                            ASTCollector collector) {
         StreamOperationAnalyzer streamAnalyzer = new StreamOperationAnalyzer();
-        Set<String> streamSpecs = streamAnalyzer.inferStreamPostconditions(methodDecl);
+        Set<String> streamSpecs = streamAnalyzer.inferStreamPostconditions(methodDecl, collector);
         for (String postcond : streamSpecs) {
             spec.addPostcondition(postcond, MethodSpecification.ConfidenceLevel.MEDIUM);
         }

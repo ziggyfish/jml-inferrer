@@ -116,11 +116,11 @@ public class StreamOperationAnalyzer {
     /**
      * Analyzes stream operations in a method and returns inferred specifications.
      */
-    public List<String> analyzeStreamOperations(MethodDeclaration methodDecl) {
+    public List<String> analyzeStreamOperations(MethodDeclaration methodDecl, ASTCollector collector) {
         List<String> specifications = new ArrayList<>();
 
         // Find all method call expressions that might be stream operations
-        List<MethodCallExpr> methodCalls = methodDecl.findAll(MethodCallExpr.class);
+        List<MethodCallExpr> methodCalls = collector.methodCallExprs;
 
         // Look for stream() calls or Stream.of() patterns
         for (MethodCallExpr call : methodCalls) {
@@ -386,9 +386,9 @@ public class StreamOperationAnalyzer {
     /**
      * Analyzes a method and returns stream-related postconditions.
      */
-    public Set<String> inferStreamPostconditions(MethodDeclaration methodDecl) {
+    public Set<String> inferStreamPostconditions(MethodDeclaration methodDecl, ASTCollector collector) {
         Set<String> postconditions = new LinkedHashSet<>();
-        postconditions.addAll(analyzeStreamOperations(methodDecl));
+        postconditions.addAll(analyzeStreamOperations(methodDecl, collector));
         return postconditions;
     }
 }
