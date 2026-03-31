@@ -91,6 +91,7 @@ public class MethodSpecificationInferrer {
         preconditionAnalyzer.inferPreconditions(methodDecl, spec, interproceduralAnalyzer, collector);
         postconditionAnalyzer.inferPostconditions(methodDecl, spec, collector);
         loopInvariantAnalyzer.inferLoopInvariants(methodDecl, spec);
+        postconditionAnalyzer.promoteLoopInvariantsToPostconditions(methodDecl, spec);
 
         // Phase 1: Method properties
         purityAnalyzer.inferMethodPurity(methodDecl, spec, collector);

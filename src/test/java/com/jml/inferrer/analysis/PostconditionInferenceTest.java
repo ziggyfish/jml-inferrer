@@ -54,8 +54,8 @@ class PostconditionInferenceTest extends InferrerTestBase {
     // ---- Numeric results ----
 
     @Test
-    @DisplayName("Result >= 0 for abs")
-    void resultNonNegativeAbs() {
+    @DisplayName("int abs: no \\result >= 0 (Math.abs(Integer.MIN_VALUE) is negative)")
+    void intAbsCanOverflow() {
         MethodSpecification spec = infer("""
             class T {
                 int absVal(int x) {
@@ -63,18 +63,30 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "absVal");
-        // Expected annotated method after inference:
-        //   @Ensures("\\result >= 0")
-        //   int absVal(int x) {
-        //       return Math.abs(x);
-        //   }
-        assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
-                "Expected \\result >= 0");
+        // Math.abs(Integer.MIN_VALUE) returns Integer.MIN_VALUE (negative),
+        // so \result >= 0 is unsound for int
+        assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
+                "int abs can overflow; should not infer \\result >= 0, got: " + spec.getPostconditions());
     }
 
     @Test
-    @DisplayName("Self-multiplication: x * x is non-negative")
+    @DisplayName("double abs: \\result >= 0 is valid (no overflow to negative)")
+    void doubleAbsIsNonNegative() {
+        MethodSpecification spec = infer("""
+            class T {
+                double absVal(double x) {
+                    return Math.abs(x);
+                }
+            }
+            """, "absVal");
+        assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
+                "double abs is non-negative; expected \\result >= 0, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Self-multiplication: int x * x can overflow, double x * x is non-negative")
     void selfMultiplication() {
+        // int x * x can overflow to negative, so \result >= 0 should NOT be inferred
         MethodSpecification spec = infer("""
             class T {
                 int square(int x) {
@@ -82,13 +94,21 @@ class PostconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "square");
-        // Expected annotated method after inference:
-        //   @Ensures("\\result >= 0")
-        //   int square(int x) {
-        //       return x * x;
-        //   }
-        assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
-                "Expected \\result >= 0 for x*x");
+        assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
+                "int x * x can overflow; should not infer \\result >= 0, got: " + spec.getPostconditions());
+        assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == x * x")),
+                "Expected \\result == x * x");
+
+        // double x * x cannot overflow to negative — \result >= 0 is valid
+        MethodSpecification specDouble = infer("""
+            class T {
+                double square(double x) {
+                    return x * x;
+                }
+            }
+            """, "square");
+        assertTrue(specDouble.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
+                "double x * x is non-negative; expected \\result >= 0, got: " + specDouble.getPostconditions());
     }
 
     @Test
@@ -820,5 +840,106 @@ class PostconditionInferenceTest extends InferrerTestBase {
         //   }
         assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == a + b")),
                 "Expected resolved return expression");
+    }
+
+    // ---- Ternary conditional implications ----
+
+    @Test
+    @DisplayName("Ternary max: infers same implications as if/else")
+    void ternaryMaxImplications() {
+        MethodSpecification ternarySpec = infer("""
+            class T {
+                int max(int a, int b) {
+                    return a >= b ? a : b;
+                }
+            }
+            """, "max");
+        MethodSpecification ifElseSpec = infer("""
+            class T {
+                int max(int a, int b) {
+                    if (a >= b) return a;
+                    else return b;
+                }
+            }
+            """, "max");
+        // Both forms should produce the same conditional postconditions
+        assertTrue(ternarySpec.getPostconditions().stream()
+                        .anyMatch(p -> p.contains("a >= b") && p.contains("\\result == a")),
+                "Ternary should infer a >= b ==> \\result == a, got: " + ternarySpec.getPostconditions());
+        assertTrue(ternarySpec.getPostconditions().stream()
+                        .anyMatch(p -> p.contains("a < b") && p.contains("\\result == b")),
+                "Ternary should infer a < b ==> \\result == b, got: " + ternarySpec.getPostconditions());
+        // Verify parity with if/else form
+        assertEquals(ifElseSpec.getPostconditions(), ternarySpec.getPostconditions(),
+                "Ternary and if/else should produce identical postconditions");
+    }
+
+    @Test
+    @DisplayName("Ternary abs: infers conditional implications")
+    void ternaryAbsImplications() {
+        MethodSpecification spec = infer("""
+            class T {
+                int abs(int x) {
+                    return x >= 0 ? x : -x;
+                }
+            }
+            """, "abs");
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.contains("x >= 0") && p.contains("\\result == x")),
+                "Expected x >= 0 ==> \\result == x, got: " + spec.getPostconditions());
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.contains("x < 0") && p.contains("\\result == -x")),
+                "Expected x < 0 ==> \\result == -x, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Multi-branch if-chain: path conditions are simplified")
+    void multiBranchIfChainSimplified() {
+        MethodSpecification spec = infer("""
+            class T {
+                int sign(int x) {
+                    if (x > 0) return 1;
+                    if (x < 0) return -1;
+                    return 0;
+                }
+            }
+            """, "sign");
+        // Should produce simplified conditions, not redundant conjunctions
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.equals("x > 0 ==> \\result == 1")),
+                "Expected x > 0 ==> \\result == 1, got: " + spec.getPostconditions());
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.equals("x < 0 ==> \\result == -1")),
+                "Expected x < 0 ==> \\result == -1 (simplified), got: " + spec.getPostconditions());
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.equals("x == 0 ==> \\result == 0")),
+                "Expected x == 0 ==> \\result == 0 (simplified), got: " + spec.getPostconditions());
+        // Verify no redundant conjunctions leak through
+        assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.contains("&&")),
+                "Should not contain redundant conjunctions, got: " + spec.getPostconditions());
+    }
+
+    // ---- Loop invariant promotion to ensures ----
+
+    @Test
+    @DisplayName("Array fill: loop invariant promoted to ensures with exit value")
+    void loopInvariantPromotedToEnsures() {
+        MethodSpecification spec = infer("""
+            class T {
+                void fill(int[] arr, int val) {
+                    for (int i = 0; i < arr.length; i++) {
+                        arr[i] = val;
+                    }
+                }
+            }
+            """, "fill");
+        // Loop invariant should exist with counter variable
+        assertTrue(spec.getLoopInvariants().stream()
+                        .anyMatch(inv -> inv.contains("\\forall") && inv.contains("< i")),
+                "Expected loop invariant with counter i, got: " + spec.getLoopInvariants());
+        // Postcondition should have the invariant with counter replaced by exit value
+        assertTrue(spec.getPostconditions().stream()
+                        .anyMatch(p -> p.contains("\\forall") && p.contains("< arr.length") && p.contains("arr[k] == val")),
+                "Expected ensures with i replaced by arr.length, got: " + spec.getPostconditions());
     }
 }

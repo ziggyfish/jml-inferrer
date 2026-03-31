@@ -406,6 +406,13 @@ class PreconditionAnalyzer {
                     return ifStmt.getElseStmt().isPresent();
                 }
             }
+            // Ternary condition is branching logic, not a precondition
+            if (parent instanceof ConditionalExpr) {
+                ConditionalExpr ternary = (ConditionalExpr) parent;
+                if (current == ternary.getCondition()) {
+                    return true;
+                }
+            }
             // Also check if embedded inside a larger condition (e.g., x > 0 && y > 0)
             if (parent instanceof BinaryExpr) {
                 BinaryExpr parentBin = (BinaryExpr) parent;

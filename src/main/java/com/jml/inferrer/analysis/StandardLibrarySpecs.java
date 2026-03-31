@@ -68,9 +68,11 @@ public class StandardLibrarySpecs {
                 List.of("\\result != null", "\\result.length() <= this.length()"));
 
         // Math methods
+        // Note: Math.abs(Integer.MIN_VALUE) returns Integer.MIN_VALUE (negative),
+        // so we cannot guarantee \result >= 0 for integer types
         addSpec("Math.abs", 1,
                 List.of(),
-                List.of("\\result >= 0"));
+                List.of());
 
         addSpec("Math.max", 2,
                 List.of(),
@@ -82,7 +84,7 @@ public class StandardLibrarySpecs {
 
         addSpec("abs", 1,
                 List.of(),
-                List.of("\\result >= 0"));
+                List.of());
 
         addSpec("max", 2,
                 List.of(),

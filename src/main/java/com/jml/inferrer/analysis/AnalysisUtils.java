@@ -208,10 +208,16 @@ class AnalysisUtils {
 
         if (expr instanceof MethodCallExpr) {
             String name = ((MethodCallExpr) expr).getNameAsString();
-            return name.equals("abs") || name.equals("length") || name.equals("size");
+            if (name.equals("length") || name.equals("size")) return true;
+            // abs() only guaranteed non-negative for floating-point return types;
+            // Math.abs(Integer.MIN_VALUE) returns Integer.MIN_VALUE (negative)
+            if (name.equals("abs") && isFloatingPointReturn(methodDecl)) return true;
+            return false;
         }
 
-        if (isSelfMultiplication(expr)) {
+        if (isSelfMultiplication(expr) && isFloatingPointReturn(methodDecl)) {
+            // x * x is only guaranteed non-negative for floating-point types;
+            // int/long overflow can produce negative values
             return true;
         }
 
@@ -222,6 +228,16 @@ class AnalysisUtils {
         }
 
         return false;
+    }
+
+    /**
+     * Returns true if the method's return type is a floating-point type (double/float),
+     * which does not overflow to negative values (unlike int/long).
+     */
+    static boolean isFloatingPointReturn(MethodDeclaration methodDecl) {
+        String typeStr = methodDecl.getTypeAsString();
+        return typeStr.equals("double") || typeStr.equals("float") ||
+               typeStr.equals("Double") || typeStr.equals("Float");
     }
 
     /**
@@ -238,5 +254,60 @@ class AnalysisUtils {
             }
         }
         return false;
+    }
+
+    /**
+     * Simplifies a conjoined path condition by removing redundant clauses.
+     * E.g., "(x <= 0) && (x < 0)" → "x < 0"
+     *        "(x <= 0) && (x >= 0)" → "x == 0"
+     */
+    static String simplifyPathCondition(String pathCondition) {
+        if (pathCondition == null) return null;
+
+        // Match pattern: (A op1 B) && (A op2 B) or (A op1 B) && (A op2 C)
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "^\\((.+?)\\s*(<=|>=|<|>|==|!=)\\s*(.+?)\\)\\s*&&\\s*\\((.+?)\\s*(<=|>=|<|>|==|!=)\\s*(.+?)\\)$"
+        ).matcher(pathCondition);
+
+        if (!m.matches()) return pathCondition;
+
+        String left1 = m.group(1).trim(), op1 = m.group(2), right1 = m.group(3).trim();
+        String left2 = m.group(4).trim(), op2 = m.group(5), right2 = m.group(6).trim();
+
+        // Only simplify when both conditions compare the same operands
+        if (!left1.equals(left2) || !right1.equals(right2)) return pathCondition;
+
+        String simplified = simplifyTwoComparisons(left1, op1, op2, right1);
+        return simplified != null ? simplified : pathCondition;
+    }
+
+    private static String simplifyTwoComparisons(String left, String op1, String op2, String right) {
+        // Normalize: put the stronger/tighter condition first
+        String a = op1, b = op2;
+
+        // Subsumption: one condition implies the other
+        // x < N && x <= N  →  x < N  (< is stronger than <=)
+        // x > N && x >= N  →  x > N  (> is stronger than >=)
+        if (subsumes(a, b)) return left + " " + a + " " + right;
+        if (subsumes(b, a)) return left + " " + b + " " + right;
+
+        // Conjunction of complementary inequalities → equality
+        // x <= N && x >= N  →  x == N
+        // x >= N && x <= N  →  x == N
+        if ((a.equals("<=") && b.equals(">=")) || (a.equals(">=") && b.equals("<="))) {
+            return left + " == " + right;
+        }
+
+        return null;
+    }
+
+    /** Returns true if op1 logically implies op2 (op1 is strictly stronger). */
+    private static boolean subsumes(String op1, String op2) {
+        return switch (op1) {
+            case "<" -> op2.equals("<=") || op2.equals("!=");
+            case ">" -> op2.equals(">=") || op2.equals("!=");
+            case "==" -> op2.equals("<=") || op2.equals(">=");
+            default -> false;
+        };
     }
 }

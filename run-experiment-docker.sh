@@ -22,6 +22,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Container runtime: set DOCKER=podman to use Podman instead of Docker
+DOCKER="${DOCKER:-docker}"
+
 CLONE_DIR="$SCRIPT_DIR/.clone-cache"
 
 # --------------- Parse args ---------------
@@ -149,14 +152,14 @@ fi
 # Inject --source-dir pointing to the container mount path
 FORWARD_ARGS+=("--source-dir" "/app/repo")
 
-# --------------- Detect docker compose command ---------------
-if docker compose version &> /dev/null; then
-    COMPOSE="docker compose"
-elif command -v docker-compose &> /dev/null; then
-    COMPOSE="docker-compose"
+# --------------- Detect compose command ---------------
+if $DOCKER compose version &> /dev/null; then
+    COMPOSE="$DOCKER compose"
+elif command -v "${DOCKER}-compose" &> /dev/null; then
+    COMPOSE="${DOCKER}-compose"
 else
-    echo "ERROR: Neither 'docker compose' (v2) nor 'docker-compose' (v1) found."
-    echo "Please install Docker Compose: https://docs.docker.com/compose/install/"
+    echo "ERROR: Neither '$DOCKER compose' (v2) nor '${DOCKER}-compose' (v1) found."
+    echo "Please install Docker/Podman Compose, or set DOCKER=podman."
     exit 1
 fi
 

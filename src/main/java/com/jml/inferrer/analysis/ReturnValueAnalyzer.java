@@ -50,9 +50,13 @@ class ReturnValueAnalyzer {
                 // Check for operations that guarantee non-negative results
                 MethodCallExpr call = (MethodCallExpr) expr;
                 String methodName = call.getNameAsString();
-                if (methodName.equals("abs") || methodName.equals("length") ||
-                    methodName.equals("size") || methodName.equals("count")) {
-                    // These guarantee >= 0 but NOT > 0 (abs(0)==0, "".length()==0)
+                if (methodName.equals("length") || methodName.equals("size") || methodName.equals("count")) {
+                    // These genuinely guarantee >= 0
+                    allReturnsPositive = false;
+                    allReturnsGreaterThanOne = false;
+                } else if (methodName.equals("abs") && AnalysisUtils.isFloatingPointReturn(methodDecl)) {
+                    // abs() only guarantees >= 0 for floating-point types;
+                    // Math.abs(Integer.MIN_VALUE) returns Integer.MIN_VALUE (negative)
                     allReturnsPositive = false;
                     allReturnsGreaterThanOne = false;
                 } else {
@@ -62,8 +66,10 @@ class ReturnValueAnalyzer {
                 }
             } else if (expr instanceof BinaryExpr) {
                 BinaryExpr binExpr = (BinaryExpr) expr;
-                if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY && AnalysisUtils.isSelfMultiplication(binExpr)) {
-                    // x * x is always non-negative; keep allReturnsNonNegative true
+                if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY && AnalysisUtils.isSelfMultiplication(binExpr)
+                        && AnalysisUtils.isFloatingPointReturn(methodDecl)) {
+                    // x * x is non-negative only for floating-point types;
+                    // int/long can overflow to negative values
                     allReturnsPositive = false;
                     allReturnsGreaterThanOne = false;
                 } else if (binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY &&
@@ -92,8 +98,9 @@ class ReturnValueAnalyzer {
                     .anyMatch(p -> p.getNameAsString().equals(name));
                 if (!isParam) {
                     Expression resolved = resolveLocalVariable(methodDecl, name);
-                    if (resolved != null && AnalysisUtils.isSelfMultiplication(resolved)) {
-                        // resolved to x * x → non-negative
+                    if (resolved != null && AnalysisUtils.isSelfMultiplication(resolved)
+                            && AnalysisUtils.isFloatingPointReturn(methodDecl)) {
+                        // resolved to x * x → non-negative only for floating-point types
                         allReturnsPositive = false;
                         allReturnsGreaterThanOne = false;
                     } else {
@@ -348,17 +355,20 @@ class ReturnValueAnalyzer {
         }
 
         for (SymbolicExecutor.SymbolicReturn sr : results) {
-            if (AnalysisUtils.isTrivialResult(sr.resolvedExpr)) continue;
-
             if (sr.pathCondition == null) {
-                // Unconditional
+                // Unconditional — filter trivial results (single identifier, literal, etc.)
+                if (AnalysisUtils.isTrivialResult(sr.resolvedExpr)) continue;
                 if (sr.resolvedExpr.length() > 100) continue;
                 postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr));
             } else {
-                // Conditional
+                // Conditional — single identifiers are meaningful here
+                // (e.g., "a >= b ==> \result == a"), only filter ternary/new expressions
+                if (sr.resolvedExpr.contains("?") && sr.resolvedExpr.contains(":")) continue;
+                if (sr.resolvedExpr.contains("new ")) continue;
                 if (sr.resolvedExpr.length() > 100) continue;
-                if (sr.pathCondition.length() > 80) continue;
-                postconditions.add(sr.pathCondition + " ==> " + AnalysisUtils.buildResultEquality(sr.resolvedExpr));
+                String simplifiedCond = AnalysisUtils.simplifyPathCondition(sr.pathCondition);
+                if (simplifiedCond.length() > 80) continue;
+                postconditions.add(simplifiedCond + " ==> " + AnalysisUtils.buildResultEquality(sr.resolvedExpr));
             }
         }
     }

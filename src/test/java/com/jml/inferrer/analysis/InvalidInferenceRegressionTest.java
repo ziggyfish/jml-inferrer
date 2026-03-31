@@ -401,4 +401,36 @@ class InvalidInferenceRegressionTest extends InferrerTestBase {
                         .anyMatch(p -> p.contains("count") && p.contains("\\old")),
                 "Expected postcondition with \\old(this.count), got: " + spec.getPostconditions());
     }
+
+    // =========================================================================
+    // Integer overflow: x * x can be negative for int/long
+    // =========================================================================
+
+    @Test
+    @DisplayName("x * x with int return should not infer \\result >= 0 (overflow)")
+    void selfMultiplyIntCanOverflow() {
+        MethodSpecification spec = infer("""
+            class T {
+                int square(int x) {
+                    return x * x;
+                }
+            }
+            """, "square");
+        assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
+                "int x * x can overflow to negative; must not infer \\result >= 0, got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("x * x with double return should infer \\result >= 0 (no overflow)")
+    void selfMultiplyDoubleIsNonNegative() {
+        MethodSpecification spec = infer("""
+            class T {
+                double square(double x) {
+                    return x * x;
+                }
+            }
+            """, "square");
+        assertTrue(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result >= 0")),
+                "double x * x cannot overflow to negative; expected \\result >= 0, got: " + spec.getPostconditions());
+    }
 }

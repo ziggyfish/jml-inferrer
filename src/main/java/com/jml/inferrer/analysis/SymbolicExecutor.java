@@ -229,7 +229,21 @@ class SymbolicExecutor {
             if (stmt instanceof ReturnStmt) {
                 ReturnStmt ret = (ReturnStmt) stmt;
                 if (ret.getExpression().isPresent()) {
-                    String rawReturn = ret.getExpression().get().toString();
+                    Expression returnExpr = ret.getExpression().get();
+
+                    // Decompose ternary expressions into two conditional paths
+                    if (returnExpr instanceof ConditionalExpr) {
+                        ConditionalExpr ternary = (ConditionalExpr) returnExpr;
+                        String condStr = substituteEnv(ternary.getCondition().toString(), env, paramNames);
+                        String negCondStr = AnalysisUtils.negateCondition(ternary.getCondition());
+                        String thenResolved = substituteEnv(ternary.getThenExpr().toString(), env, paramNames);
+                        String elseResolved = substituteEnv(ternary.getElseExpr().toString(), env, paramNames);
+                        results.add(new SymbolicReturn(conjoin(pathCondition, condStr), thenResolved));
+                        results.add(new SymbolicReturn(conjoin(pathCondition, negCondStr), elseResolved));
+                        return;
+                    }
+
+                    String rawReturn = returnExpr.toString();
                     String resolved = substituteEnv(rawReturn, env, paramNames);
 
                     // Also resolve through conditional assignments

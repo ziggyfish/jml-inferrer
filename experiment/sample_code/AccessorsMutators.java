@@ -7,8 +7,17 @@ package experiment.sample_code;
 @com.jml.inferrer.annotations.Invariant("tags != null")
 @com.jml.inferrer.annotations.Invariant("name != null")
 @com.jml.inferrer.annotations.Invariant("tags != null")
+@com.jml.inferrer.annotations.Invariant("name != null")
+@com.jml.inferrer.annotations.Invariant("tags != null")
+@com.jml.inferrer.annotations.Invariant("name != null")
+@com.jml.inferrer.annotations.Invariant("tags != null")
+@com.jml.inferrer.annotations.Invariant("name != null")
+@com.jml.inferrer.annotations.Invariant("tags != null")
 public class AccessorsMutators {
 
+    @com.jml.inferrer.annotations.Nullable
+    @com.jml.inferrer.annotations.Nullable
+    @com.jml.inferrer.annotations.Nullable
     @com.jml.inferrer.annotations.Nullable
     @com.jml.inferrer.annotations.Nullable
     private String name;
@@ -19,6 +28,9 @@ public class AccessorsMutators {
 
     private boolean active;
 
+    @com.jml.inferrer.annotations.Nullable
+    @com.jml.inferrer.annotations.Nullable
+    @com.jml.inferrer.annotations.Nullable
     @com.jml.inferrer.annotations.Nullable
     @com.jml.inferrer.annotations.Nullable
     private String[] tags;

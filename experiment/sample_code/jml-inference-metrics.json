@@ -1,59 +1,59 @@
 {
   "timing": {
-    "totalAnalysisTimeMs": 312,
-    "averageTimePerFile": 62.40,
-    "averageTimePerClass": 62.40
+    "totalAnalysisTimeMs": 490,
+    "averageTimePerFile": 81.67,
+    "averageTimePerClass": 81.67
   },
   "codeMetrics": {
-    "totalFiles": 5,
-    "totalClasses": 5,
-    "totalMethods": 51,
-    "totalLinesOfCode": 755
+    "totalFiles": 6,
+    "totalClasses": 6,
+    "totalMethods": 67,
+    "totalLinesOfCode": 1007
   },
   "coverage": {
-    "classAnnotationCoverage": 80.00,
+    "classAnnotationCoverage": 83.33,
     "methodAnnotationCoverage": 100.00,
-    "preconditionCoverage": 37.25,
-    "postconditionCoverage": 68.63,
-    "loopInvariantCoverage": 17.65,
+    "preconditionCoverage": 34.33,
+    "postconditionCoverage": 64.18,
+    "loopInvariantCoverage": 14.93,
     "frameConditionCoverage": 100.00
   },
   "annotationCounts": {
-    "Invariant": 12,
-    "Mutator": 12,
-    "LoopInvariant": 18,
-    "Requires": 36,
-    "Observer": 21,
-    "ThreadSafe": 25,
-    "Ensures": 44,
+    "Invariant": 36,
+    "Mutator": 21,
+    "LoopInvariant": 21,
+    "Requires": 43,
+    "Observer": 28,
+    "ThreadSafe": 28,
+    "Ensures": 53,
     "Override": 3,
     "Pure": 18,
-    "Assignable": 51,
-    "Complexity": 51
+    "Assignable": 72,
+    "Complexity": 67
   },
   "specificationStrength": {
-    "weak": 23,
-    "medium": 21,
-    "strong": 0
+    "weak": 24,
+    "medium": 24,
+    "strong": 5
   },
   "methodPurity": {
     "pure": 18,
-    "observer": 21,
-    "mutator": 12
+    "observer": 28,
+    "mutator": 21
   },
   "complexityDistribution": {
-    "O(n)": 9,
-    "O(1)": 34,
+    "O(n)": 10,
+    "O(1)": 49,
     "O(2^n)": 8
   },
   "classLevelMetrics": {
-    "classesWithInvariants": 12,
+    "classesWithInvariants": 36,
     "classesWithImmutable": 0,
-    "classesWithThreadSafe": 2,
+    "classesWithThreadSafe": 5,
     "classesWithMustCall": 0
   },
   "nullability": {
     "nonNullAnnotations": 0,
-    "nullableAnnotations": 14
+    "nullableAnnotations": 39
   }
 }
