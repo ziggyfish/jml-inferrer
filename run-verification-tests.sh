@@ -18,7 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 IMAGE_NAME="jml-inferrer-tests"
 DOCKERFILE="Dockerfile.test"
-DOCKER=podman
+# Container runtime: set DOCKER=podman to use Podman instead of Docker
+DOCKER="${DOCKER:-docker}"
 
 # Colors (disable if not a terminal)
 if [ -t 1 ]; then
@@ -40,7 +41,7 @@ step()  { echo -e "\n${BOLD}==> $*${NC}"; }
 
 check_docker() {
     if ! command -v $DOCKER &>/dev/null; then
-        error "Docker not found. Install Docker and ensure 'docker' is on PATH."
+        error "Docker not found. Install Docker or podman and ensure it is on PATH."
         exit 1
     fi
 
@@ -61,7 +62,8 @@ do_build() {
     info "This includes OpenJML (~350MB) and may take a few minutes on first build."
 
     cd "$PROJECT_ROOT"
-    $DOCKER build -f "$DOCKERFILE" -t "$IMAGE_NAME" .
+    $DOCKER build --platform linux/amd64 -f "$DOCKERFILE" -t "$IMAGE_NAME" .
+    # $DOCKER build --platform linux/arm64 -f "$DOCKERFILE" -t "$IMAGE_NAME" .
 
     ok "Docker image '$IMAGE_NAME' built successfully"
 }
