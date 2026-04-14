@@ -99,7 +99,7 @@
 
 % Title
 \begin{center}
-{\LARGE\bfseries Automated Specification Inference via Heuristic Static Analysis for Program Comprehension and Test Generation}
+{\LARGE\bfseries Do Specifications Help LLMs Write Better Unit Tests?}
 \vspace{1.5em}
 
 % Authors
@@ -120,16 +120,16 @@
 \noindent\textbf{Abstract}
 \vspace{0.5em}
 
-\noindent Understanding software behavior is critical for maintenance and evolution, especially when documentation is incomplete. This paper presents JML-Inferrer, a static analysis tool that automatically infers formal specifications from Java methods using heuristic pattern matching motivated by weakest precondition and strongest postcondition reasoning. The tool derives method contracts---preconditions, postconditions, loop invariants, and classifications---that facilitate program comprehension, test generation, and interface validation.
+\noindent Large language models can generate unit tests from method signatures, but the resulting tests are weakened by the absence of an oracle: signatures convey what a method takes and returns, not what it should do. This article asks whether giving the model a \emph{specification}---a precise statement of what the method should do---measurably improves the tests it produces, with quality assessed by mutation testing. The question is answered through a controlled four-phase comparison on 312 methods from Apache Commons Lang. The same model (Gemini~2.0, temperature 0.3, five independent runs per configuration) is given (P1)~the method signature alone, (P2)~the signature with edge-case guidance, (P3)~the signature together with a specification, and (P4)~the full method source code as an upper-bound baseline.
 
-We describe the tool's architecture, including its multi-pass analysis pipeline, interprocedural specification propagation, and loop invariant inference heuristics. Applied to 312 methods from 11 classes in Apache Commons Lang, JML-Inferrer achieves 94.2\% precision and 89.3\% recall for preconditions, and 87.6\% precision and 78.1\% recall for postconditions, validated through manual inspection.
+The answer is yes, and the effect is large. Specifications raise test count by 272\% and mutation score by 40.7~percentage points relative to signatures alone ($p < 0.001$, Cohen's $d = 2.41$). Specifications also raise the compilation rate from 89.2\% to 91.5\% and the pass rate from 94.1\% to 96.8\%, which suggests they constrain the model toward syntactically and semantically correct test code. Full source code (P4) attains the highest absolute scores (94.8\% mutation), but the specification phase closes most of the gap to source while remaining materially more compact.
 
-Using inferred specifications to guide LLM-based test generation (Gemini 2.0, temperature 0.3, 5 runs), we observe a 272\% improvement in test count and a 40.7 percentage point improvement in mutation score over signature-only baselines. A source-code baseline confirms that specifications provide complementary guidance to raw implementation access. This work bridges formal methods and practical software engineering through lightweight, automated specification inference; a complete replication package is available.
+To make the study tractable at 312 methods, the specifications are produced automatically by JML-Inferrer, a static analysis system developed alongside the experiment. JML-Inferrer infers JML method contracts using heuristic pattern matching organised by weakest-precondition and strongest-postcondition reasoning, and discharges each inferred clause through OpenJML's Extended Static Checker. On the same corpus, the system attains 94.2\%/89.3\% precision/recall for preconditions and 87.6\%/78.1\% for postconditions under two-rater manual validation. A complete replication package accompanies the article.
 
 \vspace{1em}
 
 % Keywords
-\noindent\textbf{Keywords:} specification inference; heuristic static analysis; program comprehension; software evolution; LLM-based testing; JML; mutation testing
+\noindent\textbf{Keywords:} LLM-based test generation; mutation testing; specification inference; JML; oracle problem; large language models; static analysis
 
 \vspace{1em}
 \hrule

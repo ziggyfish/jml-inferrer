@@ -1,0 +1,24 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Implications}
+
+The results indicate that heuristic static analysis can produce useful specifications for 99.0\% of methods in the evaluation corpus. Such specifications support machine-checkable documentation~\cite{peters1998using}, onboarding aids for understanding method contracts~\cite{sillito2008questions}, and signals for tracking API evolution~\cite{tip2002practical}. With an average analysis time of 88\,ms per file, integration into continuous-integration pipelines (pre-commit hooks, pull-request analysis, automated test generation) is practicable.
+
+The comparison with Jdoctor reveals complementary strengths: Jdoctor recovers documented exceptional behaviour from Javadoc, while JML-Inferrer derives specifications from code structure and is therefore effective on undocumented methods. A practical workflow may combine both to maximise coverage.
+
+Specifications improve test generation along three independent dimensions. Preconditions delimit valid input ranges, guiding the construction of boundary tests; postconditions define expected outputs, enabling oracles stronger than ``does not throw''; and the clause-by-clause decomposition allows LLMs to target individual specification clauses rather than reasoning about entire implementations. Although source-code access (P4) yields higher absolute scores, the substantial improvement from P1 to P3 confirms that specifications encode behavioural information that signatures alone cannot convey.
+
+\subsection{Generalisability}
+
+Although the evaluation uses Apache Commons Lang, the technique is applicable to any Java codebase. Effectiveness depends on code structure---well-structured code yields stronger specifications---and domain-specific business logic may require extending the heuristic repertoire. The JML specification format is independent of any particular LLM and widely recognised~\cite{leavens2006design}; comparable improvements are therefore expected with other models. Application areas include library API specification, legacy code modernisation, documentation generation, and runtime verification.
+
+\subsection{Limitations}
+
+\paragraph{Specification coverage gaps.} The \emph{other} category exhibits the lowest specification strength (42.3\% strong), reflecting the difficulty of inferring contracts for event handlers, I/O operations, and callbacks. Where loop heuristics produce only a weak invariant (14.7\% of looping methods), test effectiveness is reduced by approximately 15~pp. Extensions to \texttt{while}-loop and \texttt{for-each} analysis (counter detection, accumulator tracking, and variable-relationship inference) together with the standard library specification database mitigate these gaps in part; loops involving nested data structures or non-linear counters remain difficult.
+
+\paragraph{Language-feature limitations.} The current treatment of object-oriented constructs has known gaps, including conflicts between inherited specifications, the difficulty that polymorphic dispatch poses for postcondition inference, and the absence of concurrency properties from the analysis. Branch-sensitive postcondition inference (handling \texttt{if}/\texttt{else} returns and ternary expressions) improves postcondition completeness for methods with branching return logic; deeply nested or multi-branch conditions may still yield conservative results.
+
+\paragraph{False positives.} Although precision is high (94.2\%), the 1.3\% of incorrect preconditions may mislead developers or cause spurious test failures. Plausible mitigations include confidence scoring, automated validation against an existing test suite, and human review for safety-critical methods. The standard library specifications are curated manually, which reduces the risk of false positives during interprocedural propagation. The optional OpenJML discharge step (Section~\ref{subsec:validation}) provides an additional safeguard: clauses that fail formal verification are flagged for review, catching residual unsoundness that manual inspection might miss, particularly in numeric corner cases such as integer-overflow boundaries and floating-point edge values.
+
+A detailed comparison with related specification inference methods is provided in the Supplementary Material (Appendix~E).

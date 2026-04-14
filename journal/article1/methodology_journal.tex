@@ -1,0 +1,76 @@
+\section{Evaluation Methodology}
+\label{sec:methodology}
+
+The evaluation addresses three questions: the accuracy of inferred specifications relative to documented or manually written specifications; the effectiveness of specification-guided test generation relative to baseline approaches; and the variation of inference effectiveness across method categories.
+
+\subsection{Subject Selection}
+
+Apache Commons Lang 3.14 was selected as the evaluation subject for its diversity of method types, extensive Javadoc documentation (which enables validation), maturity, deterministic pure functions (well suited to mutation testing), and precedent in the research literature~\cite{pacheco2007randoop, fraser2011evosuite}. Eleven classes covering all method categories were selected: \texttt{NumberUtils}, \texttt{BooleanUtils}, \texttt{CharUtils} (utility); \texttt{MutableInt}, \texttt{MutableDouble}, \texttt{MutableBoolean} (state modification); \texttt{Pair}, \texttt{MutablePair} (factory/delegate); \texttt{Validate}, \texttt{Range} (control flow); and \texttt{Mutable} (interface). The selection yielded 312 methods distributed as shown in Table~\ref{tab:method-distribution}.
+
+\begin{table}[ht]
+\centering
+\caption{Distribution of methods by category in Apache Commons Lang subset}
+\label{tab:method-distribution}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Category} & \textbf{Count} & \textbf{\%} \\
+\midrule
+Utility Methods & 89 & 28.5\% \\
+State Modification & 78 & 25.0\% \\
+Accessors \& Mutators & 62 & 19.9\% \\
+Control Flow & 48 & 15.4\% \\
+Factory \& Delegate & 35 & 11.2\% \\
+\midrule
+\textbf{Total} & \textbf{312} & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Experimental Design}
+
+The evaluation comprises four phases designed to isolate the contribution of formal specifications to test generation quality:
+
+\begin{description}
+    \item[Phase~1 (P1) --- Signature only:] test generation from method signatures alone.
+    \item[Phase~2 (P2) --- Signature with guidance:] signatures supplemented with explicit guidance to cover edge cases.
+    \item[Phase~3 (P3) --- Signature with specification:] signatures augmented with inferred formal specifications.
+    \item[Phase~4 (P4) --- Source-code baseline:] full method source code, providing an upper bound on attainable quality.
+\end{description}
+
+Test generation used Google's Gemini~2.0 (Table~\ref{tab:llm-config}); a sampling temperature of 0.3 was selected to balance diversity against consistency. Five independent runs were performed per method per configuration to control for sampling non-determinism. Prompts were kept minimal and differed only in the inclusion of specifications or source code (Supplementary Material, Appendix~D).
+
+\begin{table}[ht]
+\centering
+\caption{LLM configuration parameters}
+\label{tab:llm-config}
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Model & Gemini 2.0 \\
+Temperature & 0.3 \\
+Max tokens & 4,096 \\
+Top-p & 0.95 \\
+Runs per configuration & 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Metrics}
+
+\paragraph{Specification quality.}
+\emph{Precision} is reported as the proportion of inferred clauses judged correct, and \emph{recall} as the proportion of expected clauses captured. Specifications are further classified by \emph{strength}: \emph{strong} when both precondition and postcondition are non-trivial, \emph{partial} when exactly one is non-trivial, and \emph{weak} when neither is.
+
+\paragraph{Test quality.} The reported metrics are test count, compilation rate, pass rate, and mutation score, the latter computed using PiTest~\cite{coles2016pitest} with the default mutation operators and a per-test timeout of 10 seconds.
+
+\subsection{Manual Validation}
+
+Two authors independently validated the inferred specifications for all 312 methods against the Javadoc documentation, the source code, and standard library specifications. Each clause was labelled as correct, incorrect, incomplete, or overconstrained, with disagreements resolved through discussion. Inter-rater reliability was Cohen's $\kappa = 0.91$ for preconditions and $0.87$ for postconditions.
+
+\subsection{Statistical Analysis}
+
+For each metric the analysis reports mean, standard deviation, median, interquartile range, and 95\% bootstrap confidence intervals (10{,}000 iterations). Phase comparisons use paired $t$-tests (or Wilcoxon signed-rank tests for non-normally distributed samples), with Cohen's $d$ as the effect-size measure and Bonferroni correction applied for multiple comparisons ($\alpha = 0.05$).
+
+\subsection{Comparison Baselines}
+
+JML-Inferrer is compared against Jdoctor~\cite{jdoctor2018}, which uses natural-language processing to extract exception preconditions from Javadoc, and against direct LLM-based specification inference (the same Gemini~2.0 model prompted to infer JML from source code). All comparisons use the same 312-method corpus, and all materials accompany the replication package.

@@ -13,16 +13,18 @@ import java.util.regex.Pattern;
  * OpenJML output format examples:
  *   File.java:42: warning: The prover cannot establish an assertion (Precondition) in method foo
  *   File.java:42: error: cannot find symbol
- *   File.java:42: verified: method foo
+ *   File.java:42: verify: method foo verified
+ *   File.java:42: note: Associated declaration: ...
  *   1 verification failure(s) out of 5 method(s)
  */
 public class OpenJMLOutputParser {
 
     private static final Logger logger = LoggerFactory.getLogger(OpenJMLOutputParser.class);
 
-    // Pattern: File.java:LINE: warning/verify: ... (AssertionType) in method METHODNAME
+    // Pattern: File.java:LINE: warning: ... (AssertionType) in method METHODNAME
+    // Also matches "warning: The prover cannot establish an assertion (Type): ..."
     private static final Pattern WARNING_PATTERN = Pattern.compile(
-            "([^:]+):(\\d+):\\s*(?:warning|verify):\\s*(.+?)\\s*(?:\\(([^)]+)\\))?\\s*(?:in method\\s+(\\w+))?");
+            "([^:]+):(\\d+):\\s*warning:\\s*(.+?)\\s*(?:\\(([^)]+)\\))?\\s*(?:in method\\s+(\\w+))?");
 
     // Pattern: File.java:LINE: error: ...
     private static final Pattern ERROR_PATTERN = Pattern.compile(
@@ -32,9 +34,23 @@ public class OpenJMLOutputParser {
     private static final Pattern VERIFIED_PATTERN = Pattern.compile(
             "(?:verified:\\s*method\\s+(\\w+))|(?:Verifying\\s+[^\\s]+\\.([\\w]+)\\s+.*verified)");
 
-    // Pattern for assertion type extraction from warning messages
-    private static final Pattern ASSERTION_TYPE_PATTERN = Pattern.compile(
-            "\\(([^)]+)\\)");
+    // Pattern: File.java:LINE: verify: ... — alternate verification success format
+    private static final Pattern VERIFY_PATTERN = Pattern.compile(
+            "([^:]+):(\\d+):\\s*verify:\\s*(.+)");
+
+    // Pattern: N verification failure(s) — summary line
+    private static final Pattern FAILURE_SUMMARY_PATTERN = Pattern.compile(
+            "(\\d+)\\s+verification\\s+failure");
+
+    // Pattern: File.java:LINE: note: ... — associated declaration or additional info
+    private static final Pattern NOTE_PATTERN = Pattern.compile(
+            "([^:]+):(\\d+):\\s*note:\\s*(.+)");
+
+    // Broad fallback: any line mentioning Postcondition/Precondition/Assert failure
+    private static final Pattern BROAD_FAILURE_PATTERN = Pattern.compile(
+            "(?i)(?:cannot establish|not established|unsatisfiable|" +
+            "postcondition|precondition|assertion|invariant|" +
+            "assignable|exception).*(?:fail|cannot|not\\s+established|false)");
 
     /**
      * Parses OpenJML output for a single file into method verification results.
@@ -55,6 +71,8 @@ public class OpenJMLOutputParser {
         Map<String, List<String>> warningsByMethod = new HashMap<>();
         Map<String, List<String>> errorsByMethod = new HashMap<>();
         Set<String> verifiedMethods = new HashSet<>();
+        boolean hasFailureSummary = false;
+        List<String> unmatchedLines = new ArrayList<>();
 
         String[] lines = output.split("\n");
         for (String line : lines) {
@@ -69,6 +87,28 @@ public class OpenJMLOutputParser {
                 if (methodName != null) {
                     verifiedMethods.add(methodName);
                 }
+                continue;
+            }
+
+            // Check for verify: lines (alternate success format)
+            Matcher verifyMatcher = VERIFY_PATTERN.matcher(line);
+            if (verifyMatcher.find()) {
+                // "verify:" lines that don't match VERIFIED_PATTERN are informational
+                continue;
+            }
+
+            // Check for failure summary line
+            Matcher summaryMatcher = FAILURE_SUMMARY_PATTERN.matcher(line);
+            if (summaryMatcher.find()) {
+                int failureCount = Integer.parseInt(summaryMatcher.group(1));
+                if (failureCount > 0) {
+                    hasFailureSummary = true;
+                }
+                continue;
+            }
+
+            // Check for note: lines (associated declarations, skip)
+            if (NOTE_PATTERN.matcher(line).find()) {
                 continue;
             }
 
@@ -103,6 +143,13 @@ public class OpenJMLOutputParser {
                     errorsByMethod.computeIfAbsent(matchedMethod, k -> new ArrayList<>())
                             .add(message);
                 }
+                continue;
+            }
+
+            // Track lines that didn't match any known pattern
+            // Skip caret lines (^), blank lines, and pure whitespace
+            if (!line.equals("^") && !line.startsWith("^")) {
+                unmatchedLines.add(line);
             }
         }
 
@@ -129,17 +176,58 @@ public class OpenJMLOutputParser {
                         result.addVerifiedSpec(spec);
                     }
                 }
-            } else if (verifiedMethods.contains(method.methodName())
-                    || (!warningsByMethod.containsKey(method.methodName())
-                    && !errorsByMethod.containsKey(method.methodName()))) {
+            } else if (verifiedMethods.contains(method.methodName())) {
                 result.setStatus(MethodVerificationResult.Status.VERIFIED);
                 method.specs().forEach(result::addVerifiedSpec);
+            } else if (hasFailureSummary) {
+                // OpenJML reported failures but we couldn't match them to this method
+                result.setStatus(MethodVerificationResult.Status.FAILED);
+                result.addFailedSpec("OpenJML reported verification failure(s) — " +
+                        "could not match to specific spec");
+            } else if (!warningsByMethod.containsKey(method.methodName())
+                    && !errorsByMethod.containsKey(method.methodName())) {
+                // No warnings, no errors, no explicit verified — check unmatched lines
+                // for signs of failure
+                boolean unmatchedFailure = unmatchedLines.stream()
+                        .anyMatch(l -> BROAD_FAILURE_PATTERN.matcher(l).find());
+                if (unmatchedFailure) {
+                    result.setStatus(MethodVerificationResult.Status.FAILED);
+                    result.addFailedSpec("OpenJML output contains failure indicators " +
+                            "not matched by parser");
+                    unmatchedLines.forEach(result::addErrorMessage);
+                } else {
+                    result.setStatus(MethodVerificationResult.Status.VERIFIED);
+                    method.specs().forEach(result::addVerifiedSpec);
+                }
             }
 
             results.add(result);
         }
 
+        // Log unmatched lines for debugging
+        if (!unmatchedLines.isEmpty()) {
+            logger.debug("Unmatched OpenJML output lines:");
+            unmatchedLines.forEach(l -> logger.debug("  > {}", l));
+        }
+
         return results;
+    }
+
+    /**
+     * Returns true if the output contains any indication of verification failure,
+     * even if the parser couldn't match it to a specific method/spec.
+     */
+    public boolean hasAnyFailureIndicator(String output) {
+        if (output == null || output.isBlank()) return false;
+
+        // Check for explicit failure patterns
+        if (FAILURE_SUMMARY_PATTERN.matcher(output).find()) return true;
+        if (output.contains("warning:")) return true;
+        if (output.contains("error:")) return true;
+
+        // Check for broad failure indicators
+        return output.lines().anyMatch(line ->
+                BROAD_FAILURE_PATTERN.matcher(line.trim()).find());
     }
 
     /**

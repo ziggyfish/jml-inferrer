@@ -132,3 +132,83 @@ Uses SLF4J with Logback:
 - Console: INFO level progress messages
 - File: DEBUG level detailed logs in `jml-inferrer.log`
 - Configuration: `src/main/resources/logback.xml`
+
+## Journal Article Quality Gates
+
+**Trigger:** every time any file under `journal/article1/` or `journal/article2/` is modified (any `.tex`, `.bib`, `.cls`, or referenced figure file), all seven publication-readiness passes below must be run before reporting completion to the user. The user has explicitly accepted the cost.
+
+The user has been told this will take ~2 hours per edit. Honour the directive — do not skip passes for being expensive, slow, or apparently unnecessary. If a pass returns identical output to a recent run, say so explicitly rather than silently skipping.
+
+For each pass, report: (a) what was checked, (b) what was found, (c) what was fixed automatically vs.\ flagged for the user. End the overall response with a one-line summary: `[passes 1-7 complete; N issues found, M fixed, K flagged]`.
+
+### Pass 1 — Build integrity
+
+- Run `pdflatex` + `bibtex` + `pdflatex` + `pdflatex` from the article directory
+- Confirm: zero LaTeX warnings (not just zero errors), zero BibTeX warnings, no undefined citations / references / labels, no multiply-defined labels, all `\input{}` files exist
+- Report final page count
+
+### Pass 2 — Internal consistency
+
+- Every figure and table is referenced in text via `\ref` (no orphan figures/tables)
+- Every figure and table is referenced *before* it appears physically
+- Every numeric claim in the abstract appears in the body with the same value
+- Every numeric claim in the conclusion appears in the body with the same value
+- Section ordering matches what the introduction promises
+- Every `\ref{sec:...}` points where the surrounding prose claims
+- Every section is reached from at least one navigational reference, or has a clear independent purpose
+
+### Pass 3 — Bibliographic integrity
+
+- Every `\cite{}` key resolves to a `references.bib` entry
+- Every `references.bib` entry is cited at least once (no orphans)
+- Author lists complete (flag any `and others` for paper-of-record entries)
+- For every entry: title, year, venue match the actual publication (verify via web for entries added or modified since the last Pass 3 run)
+- DOIs resolve where present
+- No citations to predatory venues or retracted papers
+- Citation style consistent with target venue (Wiley/JSEP)
+
+### Pass 4 — Register and prose audit
+
+- One spelling convention throughout (British English for this article)
+- Tense consistency within sections (past for completed work, present for the article's claims)
+- Every acronym defined on first use
+- "the tool" / "we" / "JML-Inferrer" / "the system" usage consistent
+- No colloquialisms or marketing language ("seamlessly", "powerful", "leverage", "robust")
+- No bold for emphasis in body text where italic is the convention
+- No double spaces, em-dash overuse, or LaTeX-rendered straight quotes ("...")
+- Title, abstract, introduction, and conclusion all answer the same question with the same framing
+
+### Pass 5 — Empirical defensibility
+
+- Every statistical claim has effect size, confidence interval, p-value, and (where multiple comparisons) correction
+- Sample size justified or power-analysed
+- Variance / standard deviation reported alongside means
+- Baselines described in enough detail to reproduce
+- Random seeds, model versions, temperature, and full prompts disclosed (or pointed to in supplementary material)
+- Threats-to-validity section addresses the obvious counterarguments
+- Categorisation criteria are operational
+
+Report: missing items only. Do not vouch for whether the experiment was sound — that is outside scope.
+
+### Pass 6 — Reviewer red-team
+
+Read the article as an adversarial reviewer. Produce a list of likely Reviewer 2 objections, ordered by severity (Critical / Major / Minor). For each:
+- The objection in one sentence
+- Where in the article it would land
+- What the rebuttal would need to say
+- Whether the rebuttal needs new experiments or can be addressed by editing alone
+
+This pass produces text only. Do not edit the article in response unless explicitly asked.
+
+### Pass 7 — Submission packaging
+
+- Conforms to target venue's LaTeX class (Wiley template for JSEP)
+- Author affiliations and ORCIDs present
+- Conflict-of-interest statement present
+- Author contributions (CRediT taxonomy) present
+- Data accessibility statement present
+- Acknowledgments and funding present
+- Anonymisation done correctly if double-blind submission
+- Replication package is referenced and the URL resolves
+- Cover letter present in the article directory (or flagged as missing)
+- Suggested reviewers / non-reviewers list present (or flagged as missing)

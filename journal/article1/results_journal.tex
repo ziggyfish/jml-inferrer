@@ -25,7 +25,7 @@ Overconstrained & 1 (0.3\%) & 3 (1.0\%) & 4 (0.6\%) \\
 \end{tabular}
 \end{table}
 
-Overall precision is \textbf{94.2\%} for preconditions and \textbf{87.6\%} for postconditions. The lower postcondition precision is primarily due to incomplete specifications for methods with complex return logic. Comparing against Javadoc-documented behavior, recall is \textbf{89.3\%} for preconditions and \textbf{78.1\%} for postconditions. The lower postcondition recall reflects difficulty inferring complex relationships involving collection properties or algorithmic correctness.
+Precision is 94.2\% for preconditions and 87.6\% for postconditions. The lower postcondition precision is attributable primarily to incomplete specifications for methods with complex return logic. Measured against Javadoc-documented behaviour, recall is 89.3\% for preconditions and 78.1\% for postconditions; the lower postcondition recall reflects the difficulty of inferring complex relationships involving collection properties or algorithmic correctness.
 
 \subsubsection{Specification Strength Distribution}
 
@@ -101,7 +101,7 @@ Consistency (5 runs) & 100\% & 100\% & 72.4\% \\
 \end{tabular}
 \end{table}
 
-JML-Inferrer covers 99.0\% of methods versus Jdoctor's 45.2\% (Jdoctor requires documented exceptions). The tools are complementary: Jdoctor captures 25 exception preconditions that JML-Inferrer missed (complex natural language descriptions), while JML-Inferrer captures 37 that Jdoctor missed (undocumented in Javadoc). Static analysis achieves higher precision than LLM-based inference (94.2\% vs.\ 81.3\%) because heuristic pattern matching is grounded in concrete code structure, whereas the LLM can hallucinate specifications. The LLM achieves comparable recall but only 72.4\% consistency across runs versus 100\% for our deterministic approach.
+JML-Inferrer produces non-trivial specifications for 99.0\% of the corpus, in contrast to Jdoctor's 45.2\% (Jdoctor requires documented exceptions). The two tools are complementary: Jdoctor captures 25 exception preconditions that JML-Inferrer missed (typically expressed in complex natural-language descriptions), while JML-Inferrer captures 37 preconditions that Jdoctor missed (those undocumented in Javadoc). Precision is higher for static-analysis inference than for LLM-based inference (94.2\% versus 81.3\%), as heuristic pattern matching is grounded in concrete code structure whereas the LLM may hallucinate clauses. Recall is comparable, but the LLM achieves only 72.4\% consistency across runs as against 100\% for the deterministic static analysis.
 
 \subsection{Test Generation Effectiveness}
 
@@ -140,8 +140,8 @@ Valid Tests & \multicolumn{2}{c|}{83.9\%} & \multicolumn{2}{c|}{81.1\%} & \multi
 \end{tabular}
 \end{table}
 
-\paragraph{Key Findings.}
-P3 produces 272\% more tests than P1, with 95\% CI [245\%, 299\%] (paired $t$-test, $p < 0.001$, Cohen's $d = 2.41$). P3 achieves 40.7 percentage points higher mutation score than P1 (68.2\% vs.\ 27.5\%). P4 achieves the highest scores overall (94.8\%), confirming source code provides complete implementation details. However, P3's substantial improvement over P1 demonstrates that specifications capture meaningful behavioral information. P3 also achieves higher compilation (91.5\%) and pass rates (96.8\%) than P1 and P2, suggesting specifications help the LLM generate more correct test code.
+\paragraph{Principal findings.}
+P3 produces 272\% more tests than P1 (95\% CI [245\%, 299\%]; paired $t$-test, $p < 0.001$; Cohen's $d = 2.41$), and achieves a mutation score 40.7 percentage points higher than P1 (68.2\% versus 27.5\%). P4 attains the highest absolute scores (94.8\%), as expected when full source code is available. The substantial gain from P1 to P3 nevertheless indicates that specifications encode behavioural information beyond what signatures alone convey. P3 additionally achieves higher compilation (91.5\%) and pass (96.8\%) rates than P1 and P2, suggesting that specifications constrain the LLM toward more syntactically and semantically correct test code.
 
 \subsection{Category-Specific Effectiveness}
 
@@ -178,14 +178,14 @@ Figure~\ref{fig:improvement-by-category} shows the mutation score improvement fr
 \label{fig:improvement-by-category}
 \end{figure}
 
-Control Flow methods benefit most (+47.1 pp) because specifications delineate expected behavior for each branch. Utility methods (+40.6 pp) have complex input constraints well-captured by preconditions. State Modification methods (+36.6 pp) benefit from postconditions specifying state changes. Among the 48 looping methods, those with successfully inferred loop invariants (41 methods) achieve 72.4$\pm$3.8\% P3 mutation scores versus 54.1$\pm$6.2\% for the 7 methods where heuristics failed, confirming the importance of loop handling.
+Control-flow methods benefit most (+47.1~pp), as specifications delineate expected behaviour for each branch. Utility methods (+40.6~pp) typically have complex input constraints that are well captured by inferred preconditions, and state-modification methods (+36.6~pp) benefit from postconditions specifying their state changes. Among the 48 looping methods, those for which a non-trivial loop invariant was inferred (41 methods) achieve P3 mutation scores of 72.4$\pm$3.8\%, compared with 54.1$\pm$6.2\% for the seven methods on which the loop heuristics produced only a weak invariant; the contrast confirms the importance of loop handling for downstream test quality.
 
-\subsection{Summary of Results}
+\subsection{Summary of Findings}
 
 \begin{enumerate}
-    \item \textbf{Accuracy}: JML-Inferrer achieves 94.2\%/89.3\% precision/recall for preconditions and 87.6\%/78.1\% for postconditions, validated through manual inspection of all 312 methods.
+    \item \emph{Accuracy.} JML-Inferrer achieves 94.2\%/89.3\% precision and recall for preconditions and 87.6\%/78.1\% for postconditions, established by two-rater manual validation across all 312 methods.
 
-    \item \textbf{Test effectiveness}: Specification-guided generation (P3) produces 272\% more tests and achieves 40.7 pp higher mutation scores than signature-only baselines ($p < 0.001$, $d = 2.41$). Source code access (P4) achieves the highest scores (94.8\%).
+    \item \emph{Test effectiveness.} Specification-guided generation (P3) produces 272\% more tests and achieves a mutation score 40.7~pp higher than signature-only baselines ($p < 0.001$, $d = 2.41$); source-code access (P4) attains the highest absolute scores (94.8\%).
 
-    \item \textbf{Category variation}: Control Flow and Utility methods benefit most; Accessors \& Mutators show more modest gains due to already-high baseline performance.
+    \item \emph{Category variation.} Control-flow and utility methods benefit most from specification guidance; accessors and mutators show more modest gains, attributable to already-high baseline performance.
 \end{enumerate}

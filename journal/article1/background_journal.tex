@@ -1,0 +1,42 @@
+\section{Background: What Counts as a Specification}
+\label{sec:background}
+
+The central question of this article hinges on what is given to the LLM in phase P3---namely, a \emph{specification} of a method's intended behaviour in the form of pre- and postconditions. This section establishes what those specifications look like and which classical analyses justify them; the next section describes how they are produced automatically.
+
+The two classical directions of program reasoning are complementary. Weakest-precondition (WP) analysis~\cite{dijkstra_guarded_1975, dijkstra1976discipline} computes, for a statement $S$ and postcondition $Q$, the weakest predicate $\text{WP}(S, Q)$ on the entry state under which every terminating execution of $S$ establishes $Q$. Strongest-postcondition (SP) analysis~\cite{hoare1969axiomatic, cousot1977abstract} computes, for a precondition $P$, the strongest predicate $\text{SP}(S, P)$ that holds on the exit state. WP propagates obligations backward from desired outcomes; SP propagates known facts forward from assumed inputs.
+
+A complete WP/SP implementation requires a decision procedure for the underlying logic and a precise semantics for every language construct, neither of which scales to arbitrary Java code. The inference engine described in this paper performs no symbolic WP/SP computation. Instead, the WP and SP calculi are used as a \emph{design discipline}: they determine which abstract syntax tree (AST) patterns the engine recognises, what JML clause each pattern produces, and how clauses are propagated across procedure boundaries. The remainder of this section makes that mapping explicit; the corresponding implementation is described in Section~\ref{sec:approach}.
+
+\subsection{Precondition Inference}
+\label{subsec:wp-mapping}
+
+Guard-and-throw idioms in Java methods correspond directly to WP obligations on the method entry state. Given a body in which an early statement \texttt{if (G) throw \dots} aborts execution, a WP analysis with $Q$ taken as the post of the normal-return path propagates $\neg G$ backward to the entry; the precondition is whatever must hold on entry to avoid the throw. JML-Inferrer recognises throw-, return-, and validation-style guards and emits the negation of each guard as a \texttt{requires} clause. Range checks of the form \texttt{if (i < 0 || i >= n) throw} yield two conjuncts; null guards yield non-nullness preconditions; chained dereferences contribute their definedness conditions ($\text{def}(e)$ in WP terminology --- non-null receiver, in-bounds index, non-zero divisor).
+
+The same discipline determines what the engine deliberately omits. A condition controlling branching logic that does not abort, such as an \texttt{if/else} where both branches return a value, carries no WP obligation on the entry state and is therefore excluded from precondition inference. Subconditions of ternary expressions are treated identically. This filter prevents internal control flow from being misclassified as a contract requirement.
+
+\subsection{Postcondition Inference}
+\label{subsec:sp-mapping}
+
+Postconditions are forward-flow facts derived from return statements and field assignments. Each return statement \texttt{return $e$} contributes the SP-derived clause $\texttt{\textbackslash result} = e$, and each field assignment \texttt{this.f = $e$} contributes $\texttt{this.f} = e$ evaluated in the pre-state. Substituting field references with $\texttt{\textbackslash old}(\cdot)$ in the right-hand side captures the SP convention that assignments refer to the prior state.
+
+Branching is handled at finer granularity than the textbook SP rule for conditionals, which combines two branches via $\text{SP}(S_1, P \land C) \lor \text{SP}(S_2, P \land \neg C)$. Emitting that disjunction directly would discard the path information that links each return value to its enabling condition. Instead, returns are recorded with the path conditions that reach them, and the inferred specification contains independent guarded clauses $C \Rightarrow \texttt{post}_1$ and $\neg C \Rightarrow \texttt{post}_2$. Ternary expressions are decomposed into the same form. Path conditions are simplified algebraically before emission (for instance, $x \le 0 \land x < 0$ reduces to $x < 0$, and $x \le 0 \land x \ge 0$ reduces to $x = 0$) so that the resulting JML remains readable.
+
+\subsection{Interprocedural Propagation}
+\label{subsec:proc-summaries}
+
+Method calls are handled through procedure summaries, the standard mechanism for modular WP/SP analysis. Methods are analysed in dependency order during a first pass, and their inferred specifications are cached. When inference subsequently encounters a call site $\texttt{m}(a_1, \ldots, a_k)$, the cached pre- and post-conditions of \texttt{m} are instantiated by formal-to-actual parameter substitution, exactly as a textbook WP rule for procedure call would prescribe. Calls into the Java standard library are resolved against a curated specification database covering common operations on \texttt{String}, \texttt{Math}, \texttt{List}, \texttt{Map}, and utility classes; calls into other unannotated methods are treated as uninterpreted, with conservative summaries that may throw, may modify accessible state, and return unconstrained values.
+
+\subsection{Loop Invariants}
+\label{subsec:loop-mapping}
+
+Loops are the principal site at which WP/SP reasoning is incomplete by syntax alone: the rule for $\text{WP}(\text{while } C \text{ do } S, Q)$ requires a loop invariant, which no purely syntactic procedure can derive. JML-Inferrer addresses this obligation through four complementary heuristics: bound-based invariants for counter loops, accumulator pattern detection, monotonicity inference from update expressions, and bounded symbolic unrolling (three iterations) as a fallback. Quantified loop invariants that remain valid at loop termination are promoted to method postconditions by substituting the loop counter with its exit value, allowing established loop facts to flow into the SP of the surrounding method. When all four heuristics fail to derive a non-trivial invariant, a conservative weak invariant is emitted in preference to nothing, so that the WP obligation is at least partially discharged.
+
+\subsection{Parameter Treatment}
+\label{subsec:parameter-handling}
+
+Java parameters are mutable, which would render postconditions ambiguous in the presence of re-assignment. Following the standard SP convention, each parameter \texttt{x} is modelled as a fresh entry-value variable, and postconditions are expressed in terms of that entry value. In emitted JML this convention is rendered using the original parameter name (which JML interprets as the entry value) for parameters and \texttt{\textbackslash old(\dots)} for fields.
+
+\subsection{Soundness Recovery via Formal Validation}
+\label{subsec:soundness-recovery}
+
+Because the engine matches AST patterns rather than performing symbolic computation, individual clauses are not guaranteed sound by construction; the WP/SP framing prescribes \emph{what} the engine looks for, not whether each emitted clause is provable. Soundness is recovered \emph{a posteriori} by discharging every emitted clause through OpenJML's Extended Static Checker~\cite{openjml} (Section~\ref{subsec:validation}). Clauses that fail verification are flagged for review rather than silently retained, and a regression test suite of 237 end-to-end verification tests gates the inference engine against this oracle. The empirical question of how closely the heuristic engine approximates a complete WP/SP analysis is addressed in Section~\ref{sec:results}.

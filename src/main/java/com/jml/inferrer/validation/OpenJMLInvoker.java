@@ -116,10 +116,22 @@ public class OpenJMLInvoker {
     public record InvocationResult(int exitCode, String output, long durationMs, boolean timedOut) {
 
         /**
-         * Returns true if the verification completed successfully (all verified).
+         * Returns true if the process completed without error.
+         * Note: exit code 0 does NOT mean all specs verified — OpenJML returns 0
+         * even when verification failures are found. Always check the output
+         * for actual verification results.
          */
         public boolean isSuccess() {
             return exitCode == 0 && !timedOut;
+        }
+
+        /**
+         * Returns true if the output contains any warning or error lines,
+         * indicating that OpenJML found issues even if exit code was 0.
+         */
+        public boolean hasOutputWarnings() {
+            if (output == null || output.isBlank()) return false;
+            return output.contains("warning:") || output.contains("error:");
         }
     }
 }

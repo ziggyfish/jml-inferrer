@@ -78,9 +78,23 @@ do_test() {
         do_build
     fi
 
-    docker run --rm "$IMAGE_NAME" \
-        mvn test -B -Dtest="com.jml.inferrer.verification.**" \
-        -Dsurefire.failIfNoSpecifiedTests=false
+    local mvn_args=(-B -Dsurefire.failIfNoSpecifiedTests=false)
+
+    # Test filter: specific suite or default to all verification tests
+    if [ -n "$TEST_FILTER" ]; then
+        mvn_args+=(-Dtest="$TEST_FILTER")
+        info "Running: $TEST_FILTER"
+    else
+        mvn_args+=(-Dtest="com.jml.inferrer.verification.**")
+    fi
+
+    # Show inferred JML output if requested
+    if [ "$SHOW_JML" = true ]; then
+        mvn_args+=(-Djml.showInferred=true)
+        info "Showing inferred JML output"
+    fi
+
+    docker run --rm "$IMAGE_NAME" mvn test "${mvn_args[@]}"
 
     local exit_code=$?
 
@@ -118,38 +132,72 @@ main() {
 
     check_docker
 
-    local mode="${1:-all}"
+    local mode=""
+    TEST_FILTER=""
+    SHOW_JML=false
+
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --build|-b)       mode="build" ;;
+            --test-only|-t)   mode="test-only" ;;
+            --clean|-c)       mode="clean" ;;
+            --help|-h)        mode="help" ;;
+            --show-jml)       SHOW_JML=true ;;
+            --test)
+                shift
+                if [ -z "$1" ]; then
+                    error "--test requires a test class or method name"
+                    exit 1
+                fi
+                TEST_FILTER="$1"
+                ;;
+            *)
+                error "Unknown option: $1"
+                echo "Run '$0 --help' for usage."
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    mode="${mode:-all}"
 
     case "$mode" in
-        --build|-b)
+        build)
             do_build
             ;;
-        --test-only|-t)
+        test-only)
             do_test
             ;;
-        --clean|-c)
+        clean)
             do_clean
             ;;
-        --help|-h)
+        help)
             echo ""
-            echo "Usage: $0 [option]"
+            echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  (no args)     Build image (if needed) and run verification tests"
+            echo "  (no args)     Build image (if needed) and run all verification tests"
             echo "  --build       Build the Docker image only"
             echo "  --test-only   Run tests only (builds image if not found)"
             echo "  --clean       Remove the Docker image"
+            echo "  --show-jml    Print inferred JML specifications for each test"
+            echo "  --test NAME   Run specific test suite or method, e.g.:"
+            echo "                  --test 'com.jml.inferrer.verification.BitwiseSwitchVerificationTest'"
+            echo "                  --test '...BitwiseSwitchVerificationTest#switchDispatchCalc'"
             echo "  --help        Show this help"
             echo ""
+            echo "Examples:"
+            echo "  $0                                    # build + run all"
+            echo "  $0 --test-only --show-jml             # run all, show JML output"
+            echo "  $0 --test-only --test '...StringOperationVerificationTest'"
+            echo "  $0 --test-only --test '...BitwiseSwitchVerificationTest#popcount' --show-jml"
+            echo ""
             ;;
-        all|"")
+        all)
             do_build
             do_test
-            ;;
-        *)
-            error "Unknown option: $mode"
-            echo "Run '$0 --help' for usage."
-            exit 1
             ;;
     esac
 }

@@ -1,0 +1,408 @@
+\begin{thebibliography}{54}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Andronick et~al.(2012)Andronick, Jeffery, Klein, Kolanski, Staples,
+  Zhang, and Zhu]{andronick_large-scale_2012}
+June Andronick, Ross Jeffery, Gerwin Klein, Rafal Kolanski, Mark Staples,
+  He~Zhang, and Liming Zhu.
+\newblock Large-scale formal verification in practice: A process perspective.
+\newblock In \emph{34th International Conference on Software Engineering
+  (ICSE)}, pages 1002--1011, 2012.
+\newblock \doi{10.1109/ICSE.2012.6227120}.
+
+\bibitem[Barnett and Leino(2005)]{barnett2005weakest}
+Mike Barnett and K.~Rustan~M. Leino.
+\newblock Weakest-precondition of unstructured programs.
+\newblock In \emph{Workshop on Program Analysis for Software Tools and
+  Engineering (PASTE)}, pages 82--87, 2005.
+\newblock \doi{10.1145/1108792.1108813}.
+
+\bibitem[Blasi et~al.(2018)Blasi, Goffi, Kuznetsov, Gorla, Ernst, Pezz\`{e},
+  and Castellanos]{jdoctor2018}
+Arianna Blasi, Alberto Goffi, Konstantin Kuznetsov, Alessandra Gorla,
+  Michael~D. Ernst, Mauro Pezz\`{e}, and Sergio~Delgado Castellanos.
+\newblock Translating code comments to procedure specifications.
+\newblock In \emph{Proceedings of the 27th ACM SIGSOFT International Symposium
+  on Software Testing and Analysis}, ISSTA '18, pages 242--253. ACM, July 2018.
+\newblock \doi{10.1145/3213846.3213872}.
+\newblock URL \url{http://dx.doi.org/10.1145/3213846.3213872}.
+
+\bibitem[Boyapati et~al.(2002)Boyapati, Khurshid, and
+  Marinov]{boyapati2002korat}
+Chandrasekhar Boyapati, Sarfraz Khurshid, and Darko Marinov.
+\newblock Korat: Automated testing based on {Java} predicates.
+\newblock In \emph{International Symposium on Software Testing and Analysis
+  (ISSTA)}, pages 123--133, 2002.
+\newblock \doi{10.1145/566172.566191}.
+
+\bibitem[Cadar et~al.(2008)Cadar, Dunbar, and Engler]{cadar2008klee}
+Cristian Cadar, Daniel Dunbar, and Dawson Engler.
+\newblock {KLEE}: Unassisted and automatic generation of high-coverage tests
+  for complex systems programs.
+\newblock In \emph{USENIX Symposium on Operating Systems Design and
+  Implementation (OSDI)}, pages 209--224, 2008.
+
+\bibitem[Calcagno et~al.(2015)Calcagno, Distefano, Dubreil, Gabi, Hooimeijer,
+  Luca, O'Hearn, Papakonstantinou, Purbrick, and Rodriguez]{calcagno2015infer}
+Cristiano Calcagno, Dino Distefano, J{\'e}r{\'e}my Dubreil, Dominik Gabi,
+  Pieter Hooimeijer, Martino Luca, Peter O'Hearn, Irene Papakonstantinou, Jim
+  Purbrick, and Dulma Rodriguez.
+\newblock Moving fast with software verification.
+\newblock In \emph{NASA Formal Methods Symposium (NFM)}, pages 3--11, 2015.
+\newblock \doi{10.1007/978-3-319-17524-9_1}.
+
+\bibitem[Chalin et~al.(2006)Chalin, Kiniry, Leavens, and Poll]{chalin2010jml}
+Patrice Chalin, Joseph~R. Kiniry, Gary~T. Leavens, and Erik Poll.
+\newblock Beyond assertions: Advanced specification and verification with {JML}
+  and {ESC/Java2}.
+\newblock \emph{Formal Methods for Components and Objects}, 4111:\penalty0
+  342--363, 2006.
+\newblock \doi{10.1007/11804192_16}.
+
+\bibitem[Chen et~al.(2023)]{chen2022codet}
+Bei Chen et~al.
+\newblock {CodeT}: Code generation with generated tests.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2023.
+
+\bibitem[Chen et~al.(2021)Chen, Tworek, Jun, Yuan, et~al.]{chen2021codex}
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, et~al.
+\newblock Evaluating large language models trained on code.
+\newblock \emph{arXiv preprint arXiv:2107.03374}, 2021.
+
+\bibitem[Cok(2014)]{openjml}
+David~R. Cok.
+\newblock {OpenJML}: Software verification for {Java 7} using {JML}, {OpenJDK},
+  and {Eclipse}.
+\newblock In \emph{1st Workshop on Formal Integrated Development Environment
+  (F-IDE)}, volume 149 of \emph{EPTCS}, pages 79--92, 2014.
+\newblock \doi{10.4204/EPTCS.149.8}.
+
+\bibitem[Coles(2016)]{coles2016pitest}
+Henry Coles.
+\newblock {PiTest}: Mutation testing system for {Java}.
+\newblock \url{https://pitest.org}, 2016.
+\newblock Accessed: 2025-01-15.
+
+\bibitem[Cousot and Cousot(1977)]{cousot1977abstract}
+Patrick Cousot and Radhia Cousot.
+\newblock Abstract interpretation: A unified lattice model for static analysis
+  of programs by construction or approximation of fixpoints.
+\newblock In \emph{ACM Symposium on Principles of Programming Languages
+  (POPL)}, pages 238--252, 1977.
+\newblock \doi{10.1145/512950.512973}.
+
+\bibitem[Cousot et~al.(2011)Cousot, Cousot, and Logozzo]{cousot2011contract}
+Patrick Cousot, Radhia Cousot, and Francesco Logozzo.
+\newblock Precondition inference from intermittent assertions and application
+  to contracts on collections.
+\newblock In \emph{International Conference on Verification, Model Checking,
+  and Abstract Interpretation (VMCAI)}, pages 150--168, 2011.
+\newblock \doi{10.1007/978-3-642-18275-4_12}.
+
+\bibitem[Dijkstra(1975)]{dijkstra_guarded_1975}
+Edsger~W. Dijkstra.
+\newblock Guarded commands, nondeterminacy and formal derivation of programs.
+\newblock \emph{Communications of the ACM}, 18\penalty0 (8):\penalty0 453--457,
+  1975.
+\newblock \doi{10.1145/360933.360975}.
+
+\bibitem[Dijkstra(1976)]{dijkstra1976discipline}
+Edsger~W. Dijkstra.
+\newblock \emph{A Discipline of Programming}.
+\newblock Prentice-Hall, Englewood Cliffs, NJ, USA, 1976.
+
+\bibitem[Dragan et~al.(2006)Dragan, Collard, and Maletic]{dragan2006reverse}
+Natalia Dragan, Michael~L. Collard, and Jonathan~I. Maletic.
+\newblock Reverse engineering method stereotypes.
+\newblock In \emph{22nd IEEE International Conference on Software Maintenance
+  (ICSM)}, pages 24--34, 2006.
+\newblock \doi{10.1109/ICSM.2006.68}.
+
+\bibitem[Endres et~al.(2024)Endres, Fakhoury, Chakraborty, and
+  Lahiri]{endres2024can}
+Madeline Endres, Sarah Fakhoury, Saikat Chakraborty, and Shuvendu~K. Lahiri.
+\newblock Can large language models transform natural language intent into
+  formal method postconditions?
+\newblock In \emph{ACM Joint European Software Engineering Conference and
+  Symposium on the Foundations of Software Engineering (ESEC/FSE)}, pages
+  1--12, 2024.
+\newblock \doi{10.1145/3660773}.
+
+\bibitem[Ernst et~al.(2007)Ernst, Perkins, Guo, McCamant, Pacheco, Tschantz,
+  and Xiao]{ernst2007daikon}
+Michael~D. Ernst, Jeff~H. Perkins, Philip~J. Guo, Stephen McCamant, Carlos
+  Pacheco, Matthew~S. Tschantz, and Chen Xiao.
+\newblock The {Daikon} system for dynamic detection of likely invariants.
+\newblock \emph{Science of Computer Programming}, 69\penalty0 (1--3):\penalty0
+  35--45, 2007.
+\newblock \doi{10.1016/j.scico.2007.01.015}.
+
+\bibitem[Flanagan et~al.(2002)Flanagan, Leino, Lillibridge, Nelson, Saxe, and
+  Stata]{flanagan2002extended}
+Cormac Flanagan, K.~Rustan~M. Leino, Mark Lillibridge, Greg Nelson, James~B.
+  Saxe, and Raymie Stata.
+\newblock Extended static checking for {Java}.
+\newblock In \emph{ACM SIGPLAN Conference on Programming Language Design and
+  Implementation (PLDI)}, pages 234--245, 2002.
+\newblock \doi{10.1145/512529.512558}.
+
+\bibitem[Foster et~al.(2025)Foster, Gulati, Harman, Harper, Mao, Ritchey,
+  Robert, and Sengupta]{foster2025meta}
+Christopher Foster, Abhishek Gulati, Mark Harman, Inna Harper, Ke~Mao, Jillian
+  Ritchey, Herv{\'e} Robert, and Shubho Sengupta.
+\newblock Mutation-guided {LLM}-based test generation at {Meta}.
+\newblock In \emph{Companion Proceedings of the 33rd ACM International
+  Conference on the Foundations of Software Engineering (FSE Industry)}, 2025.
+
+\bibitem[Fraser and Arcuri(2011)]{fraser2011evosuite}
+Gordon Fraser and Andrea Arcuri.
+\newblock {EvoSuite}: Automatic test suite generation for object-oriented
+  software.
+\newblock In \emph{19th ACM SIGSOFT Symposium and 13th European Conference on
+  Foundations of Software Engineering (ESEC/FSE)}, pages 416--419, 2011.
+\newblock \doi{10.1145/2025113.2025179}.
+
+\bibitem[Goffi et~al.(2016)Goffi, Gorla, Ernst, and Pezz\`{e}]{toradocu2016}
+Alberto Goffi, Alessandra Gorla, Michael~D. Ernst, and Mauro Pezz\`{e}.
+\newblock Automatic generation of oracles for exceptional behaviors.
+\newblock In \emph{International Symposium on Software Testing and Analysis
+  (ISSTA)}, pages 213--224, 2016.
+\newblock \doi{10.1145/2931037.2931061}.
+
+\bibitem[Hall(1990)]{hall1990seven}
+Anthony Hall.
+\newblock Seven myths of formal methods.
+\newblock \emph{IEEE Software}, 7\penalty0 (5):\penalty0 11--19, 1990.
+\newblock \doi{10.1109/52.57887}.
+
+\bibitem[Hoare(1969)]{hoare1969axiomatic}
+C.~A.~R. Hoare.
+\newblock An axiomatic basis for computer programming.
+\newblock \emph{Communications of the ACM}, 12\penalty0 (10):\penalty0
+  576--580, 1969.
+\newblock \doi{10.1145/363235.363259}.
+
+\bibitem[Hovemeyer and Pugh(2004)]{hovemeyer2004finding}
+David Hovemeyer and William Pugh.
+\newblock Finding bugs is easy.
+\newblock In \emph{ACM SIGPLAN Conference on Object-Oriented Programming,
+  Systems, Languages, and Applications (OOPSLA)}, pages 92--106, 2004.
+\newblock \doi{10.1145/1028664.1028717}.
+
+\bibitem[{JavaParser Team}(2024)]{javaparser}
+{JavaParser Team}.
+\newblock {JavaParser}: Java parser and abstract syntax tree.
+\newblock \url{https://javaparser.org}, 2024.
+\newblock Accessed: 2025-01-15.
+
+\bibitem[Jiang et~al.(2024)Jiang, Wang, Shen, Kim, and Kim]{jiang2024survey}
+Juyong Jiang, Fan Wang, Jiasi Shen, Sungju Kim, and Sunghun Kim.
+\newblock A survey on large language models for code generation.
+\newblock \emph{arXiv preprint arXiv:2406.00515}, 2024.
+
+\bibitem[King(1976)]{king1976symbolic}
+James~C. King.
+\newblock Symbolic execution and program testing.
+\newblock \emph{Communications of the ACM}, 19\penalty0 (7):\penalty0 385--394,
+  1976.
+\newblock \doi{10.1145/360248.360252}.
+
+\bibitem[Klein et~al.(2014)]{klein2014sel4}
+Gerwin Klein et~al.
+\newblock Comprehensive formal verification of an {OS} microkernel.
+\newblock \emph{ACM Transactions on Computer Systems}, 32\penalty0
+  (1):\penalty0 2:1--2:70, 2014.
+\newblock \doi{10.1145/2560537}.
+
+\bibitem[Konstantinou et~al.(2024)Konstantinou, Degiovanni, and
+  Papadakis]{konstantinou2024oracles}
+Michael Konstantinou, Renzo Degiovanni, and Mike Papadakis.
+\newblock Do {LLM}s generate test oracles that capture the actual or the
+  expected program behaviour?
+\newblock \emph{arXiv preprint arXiv:2410.21136}, 2024.
+
+\bibitem[Leavens et~al.(2006)Leavens, Baker, and Ruby]{leavens2006design}
+Gary~T. Leavens, Albert~L. Baker, and Clyde Ruby.
+\newblock Preliminary design of {JML}: A behavioral interface specification
+  language for {Java}.
+\newblock \emph{ACM SIGSOFT Software Engineering Notes}, 31\penalty0
+  (3):\penalty0 1--38, 2006.
+\newblock \doi{10.1145/1127878.1127884}.
+
+\bibitem[Leavens et~al.(2013)]{jml}
+Gary~T. Leavens et~al.
+\newblock {JML} reference manual.
+\newblock \url{http://www.jmlspecs.org}, 2013.
+\newblock Accessed: 2025-01-15.
+
+\bibitem[Lemieux et~al.(2023)]{lemieux2023codamosa}
+Caroline Lemieux et~al.
+\newblock {CodaMOSA}: Escaping coverage plateaus in test generation with
+  pre-trained large language models.
+\newblock In \emph{45th International Conference on Software Engineering
+  (ICSE)}, pages 919--931, 2023.
+\newblock \doi{10.1109/ICSE48619.2023.00085}.
+
+\bibitem[Ma et~al.(2024)Ma, Liu, Li, Xie, and Bu]{ma2024specgen}
+Lezhi Ma, Shangqing Liu, Yi~Li, Xiaofei Xie, and Lei Bu.
+\newblock {SpecGen}: Automated generation of formal program specifications via
+  large language models.
+\newblock \emph{arXiv preprint arXiv:2401.08807}, 2024.
+
+\bibitem[Matichuk et~al.(2015)Matichuk, Murray, Andronick, Jeffery, Klein, and
+  Staples]{matichuk_cost_2015}
+Daniel Matichuk, Toby Murray, June Andronick, Ross Jeffery, Gerwin Klein, and
+  Mark Staples.
+\newblock Empirical study towards a leading indicator for cost of formal
+  software verification.
+\newblock In \emph{37th IEEE International Conference on Software Engineering
+  (ICSE)}, pages 722--732, 2015.
+\newblock \doi{10.1109/ICSE.2015.76}.
+
+\bibitem[Meyer(1992)]{meyer1992design}
+Bertrand Meyer.
+\newblock Applying ``design by contract''.
+\newblock \emph{Computer}, 25\penalty0 (10):\penalty0 40--51, 1992.
+\newblock \doi{10.1109/2.161279}.
+
+\bibitem[Molinelli et~al.(2025)Molinelli, Grazia, Martin-Lopez, Ernst, and
+  Pezz{\`e}]{molinelli2025oracles}
+Davide Molinelli, Luca~Di Grazia, Alberto Martin-Lopez, Michael~D. Ernst, and
+  Mauro Pezz{\`e}.
+\newblock Do {LLM}s generate useful test oracles? an empirical study with an
+  unbiased dataset.
+\newblock In \emph{40th IEEE/ACM International Conference on Automated Software
+  Engineering (ASE)}, 2025.
+
+\bibitem[Pacheco et~al.(2007)Pacheco, Lahiri, Ernst, and
+  Ball]{pacheco2007randoop}
+Carlos Pacheco, Shuvendu~K. Lahiri, Michael~D. Ernst, and Thomas Ball.
+\newblock Feedback-directed random test generation.
+\newblock In \emph{29th International Conference on Software Engineering
+  (ICSE)}, pages 75--84, 2007.
+\newblock \doi{10.1109/ICSE.2007.37}.
+
+\bibitem[Pandita et~al.(2012)Pandita, Xiao, Zhong, Xie, Oney, and
+  Paradkar]{pandita2012inferring}
+Rahul Pandita, Xusheng Xiao, Hao Zhong, Tao Xie, Stephen Oney, and Amit
+  Paradkar.
+\newblock Inferring method specifications from natural language {API}
+  descriptions.
+\newblock In \emph{34th International Conference on Software Engineering
+  (ICSE)}, pages 815--825, 2012.
+\newblock \doi{10.1109/ICSE.2012.6227137}.
+
+\bibitem[Papadakis et~al.(2019)Papadakis, Kintis, Zhang, Jia, Traon, and
+  Harman]{papadakis2019mutation}
+Mike Papadakis, Marinos Kintis, Jie Zhang, Yue Jia, Yves~Le Traon, and Mark
+  Harman.
+\newblock Mutation testing advances: An analysis and survey.
+\newblock \emph{Advances in Computers}, 112:\penalty0 275--378, 2019.
+\newblock \doi{10.1016/bs.adcom.2018.03.015}.
+
+\bibitem[Peters and Parnas(1998)]{peters1998using}
+Dennis~K. Peters and David~Lorge Parnas.
+\newblock Using test oracles generated from program documentation.
+\newblock \emph{IEEE Transactions on Software Engineering}, 24\penalty0
+  (3):\penalty0 161--173, 1998.
+\newblock \doi{10.1109/32.667877}.
+
+\bibitem[Richter and Wehrheim(2025)]{richter2025beyondpostconditions}
+Cedric Richter and Heike Wehrheim.
+\newblock Beyond postconditions: Can large language models infer formal
+  contracts for automatic software verification?
+\newblock \emph{arXiv preprint arXiv:2510.12702}, 2025.
+
+\bibitem[Sch{\"a}fer et~al.(2024)]{schafer2023adaptive}
+Max Sch{\"a}fer et~al.
+\newblock An empirical evaluation of using large language models for automated
+  unit test generation.
+\newblock \emph{IEEE Transactions on Software Engineering}, 50\penalty0
+  (1):\penalty0 85--105, 2024.
+\newblock \doi{10.1109/TSE.2023.3334955}.
+
+\bibitem[Sillito et~al.(2008)Sillito, Murphy, and Volder]{sillito2008questions}
+Jonathan Sillito, Gail~C. Murphy, and Kris~De Volder.
+\newblock Asking and answering questions during a programming change task.
+\newblock \emph{IEEE Transactions on Software Engineering}, 34\penalty0
+  (4):\penalty0 434--451, 2008.
+\newblock \doi{10.1109/TSE.2008.26}.
+
+\bibitem[Teuber and Beckert(2025)]{teuber2025nextsteps}
+Samuel Teuber and Bernhard Beckert.
+\newblock Next steps in {LLM}-supported {Java} verification.
+\newblock In \emph{IEEE/ACM International Workshop on Neuro-Symbolic Software
+  Engineering (NSE), ICSE Workshops}, 2025.
+
+\bibitem[Tip et~al.(2002)Tip, Sweeney, Laffra, Eisma, and
+  Streeter]{tip2002practical}
+Frank Tip, Peter~F. Sweeney, Chris Laffra, Aldo Eisma, and David Streeter.
+\newblock Practical extraction techniques for {Java}.
+\newblock \emph{ACM Transactions on Programming Languages and Systems},
+  24\penalty0 (6):\penalty0 625--666, 2002.
+\newblock \doi{10.1145/586088.586090}.
+
+\bibitem[Wang et~al.(2024)Wang, Chen, Deng, Lin, Harman, Papadakis, and
+  Zhang]{wang2024llmmutation}
+Bo~Wang, Mingda Chen, Ming Deng, Youfang Lin, Mark Harman, Mike Papadakis, and
+  Jie~M. Zhang.
+\newblock A comprehensive study on large language models for mutation testing.
+\newblock \emph{arXiv preprint arXiv:2406.09843}, 2024.
+
+\bibitem[Wang et~al.(2025)Wang, Xu, Briand, and Liu]{wang2025mutgen}
+Guancheng Wang, Qinghua Xu, Lionel Briand, and Kui Liu.
+\newblock Mutation-guided unit test generation with a large language model.
+\newblock \emph{arXiv preprint arXiv:2506.02954}, 2025.
+
+\bibitem[Wang et~al.(2017)Wang, Dillig, and Piskac]{preinfer2017}
+Xinyu Wang, Isil Dillig, and Ruzica Piskac.
+\newblock {PreInfer}: Inferring preconditions via symbolic execution.
+\newblock In \emph{ACM SIGPLAN International Conference on Object-Oriented
+  Programming, Systems, Languages, and Applications (OOPSLA)}, pages 779--793,
+  2017.
+\newblock \doi{10.1145/3133876}.
+
+\bibitem[Wei et~al.(2011)Wei, Furia, Kazmin, and Meyer]{wei2011inferring}
+Yi~Wei, Carlo~A. Furia, Nikolay Kazmin, and Bertrand Meyer.
+\newblock Inferring better contracts.
+\newblock In \emph{33rd International Conference on Software Engineering
+  (ICSE)}, pages 191--200, 2011.
+\newblock \doi{10.1145/1985793.1985820}.
+
+\bibitem[Wohlin et~al.(2012)Wohlin, Runeson, H{\"o}st, Ohlsson, Regnell, and
+  Wessl{\'e}n]{wohlin2012experimentation}
+Claes Wohlin, Per Runeson, Martin H{\"o}st, Magnus~C. Ohlsson, Bj{\"o}rn
+  Regnell, and Anders Wessl{\'e}n.
+\newblock \emph{Experimentation in Software Engineering}.
+\newblock Springer, 2012.
+\newblock \doi{10.1007/978-3-642-29044-2}.
+
+\bibitem[Yuan et~al.(2024)Yuan, Lou, Liu, Ding, Wang, Chen, and
+  Peng]{yuan2024chatunitest}
+Zhiqiang Yuan, Yiling Lou, Mingwei Liu, Shiji Ding, Kaixin Wang, Yixuan Chen,
+  and Xin Peng.
+\newblock No more manual tests? evaluating and improving {ChatGPT} for unit
+  test generation.
+\newblock \emph{arXiv preprint arXiv:2305.04207}, 2024.
+
+\bibitem[Zhang et~al.(2025)Zhang, Fang, Gu, Shang, Chen, and
+  Xiao]{zhang2025llmunitsurvey}
+Quanjun Zhang, Chunrong Fang, Siqi Gu, Ye~Shang, Zhenyu Chen, and Liang Xiao.
+\newblock Large language models for unit testing: A systematic literature
+  review.
+\newblock \emph{arXiv preprint arXiv:2506.15227}, 2025.
+
+\bibitem[Zimmermann and Wehrheim(2019)]{zimmermann2019lightweight}
+Daniel Zimmermann and Heike Wehrheim.
+\newblock Increasing the practicality of formal methods for devops with
+  lightweight specifications.
+\newblock In \emph{Formal Methods for Industrial Critical Systems (FMICS)},
+  volume 11815 of \emph{LNCS}, pages 3--20. Springer, 2019.
+\newblock \doi{10.1007/978-3-030-30942-8_1}.
+
+\end{thebibliography}

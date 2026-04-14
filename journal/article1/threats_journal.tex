@@ -1,0 +1,34 @@
+\section{Threats to Validity}
+\label{sec:threats}
+
+Threats to validity are discussed below following established guidelines~\cite{wohlin2012experimentation}. Table~\ref{tab:threats-summary} summarises the principal threats and the corresponding mitigations.
+
+\begin{table}[ht]
+\centering
+\caption{Summary of validity threats and mitigations}
+\label{tab:threats-summary}
+\begin{tabular}{p{2.2cm}p{4.5cm}}
+\toprule
+\textbf{Threat} & \textbf{Mitigation} \\
+\midrule
+LLM non-determinism & 5 runs, statistical analysis, low temperature \\
+Prompt confounding & Minimal prompts, P4 control \\
+Subject selection & Diverse categories across 11 classes \\
+Small sample size & Future work on additional subjects \\
+LLM familiarity & P4 (source) as control \\
+Manual validation & Two evaluators, inter-rater reliability \\
+Mutation limitations & Standard operators, equivalent mutant filtering \\
+Heuristic soundness & OpenJML ESC discharge of inferred clauses \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Internal validity.} Sampling non-determinism from the LLM was mitigated through five independent runs combined with statistical analysis. Prompt confounding was addressed by keeping prompts minimal---differing only in the inclusion of specifications or source code---and by including P4 as a control. Subjectivity in manual validation was reduced through explicit criteria, two independent evaluators, and high inter-rater reliability (Cohen's $\kappa = 0.91$ for preconditions and $0.87$ for postconditions).
+
+\paragraph{External validity.} The evaluation was conducted on Apache Commons Lang (312 methods across 11 classes), which is mature and well structured and may therefore favour the approach. Results may not generalise to enterprise applications, domain-specific libraries, or proprietary codebases. The LLM is likely to have encountered Apache Commons Lang during training; the consistent improvement from P1 to P3 nevertheless suggests that specifications provide value beyond prior model knowledge. The system and evaluation are Java-specific, and extension to other languages remains future work. A single LLM (Gemini~2.0) was used; absolute scores may vary with other models, though the qualitative findings are likely to generalise~\cite{schafer2023adaptive, yuan2024chatunitest}.
+
+\paragraph{Heuristic soundness.} Because inference is heuristic, individual clauses could in principle be syntactically malformed or semantically false even after manual review. This threat is mitigated by discharging every inferred clause through OpenJML's Extended Static Checker (Section~\ref{subsec:validation}); a continuously executed verification suite of 237 end-to-end tests gates engine changes against this oracle. Clauses that fail formal verification are flagged rather than silently retained, reducing the risk that high precision under manual review masks subtle semantic errors that a verifier would catch.
+
+\paragraph{Construct validity.} Mutation testing has known limitations~\cite{papadakis2019mutation}, principally equivalent mutants and the representativeness of mutation operators. The PiTest default operator set~\cite{coles2016pitest} was used, and trivially equivalent mutants were excluded. Test count is reported as a complementary metric to mutation score.
+
+\paragraph{Conclusion validity.} With 312 methods and five independent runs per configuration, an a~priori power analysis confirms statistical power exceeding 95\% for the observed effect sizes. Bonferroni correction was applied for multiple comparisons, and all reported significant differences remain significant after correction.
