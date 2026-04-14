@@ -18,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 IMAGE_NAME="jml-inferrer-tests"
 DOCKERFILE="Dockerfile.test"
+DOCKER=podman
 
 # Colors (disable if not a terminal)
 if [ -t 1 ]; then
@@ -38,12 +39,12 @@ step()  { echo -e "\n${BOLD}==> $*${NC}"; }
 # ==============================================================================
 
 check_docker() {
-    if ! command -v docker &>/dev/null; then
+    if ! command -v $DOCKER &>/dev/null; then
         error "Docker not found. Install Docker and ensure 'docker' is on PATH."
         exit 1
     fi
 
-    if ! docker info &>/dev/null; then
+    if ! $DOCKER info &>/dev/null; then
         error "Docker daemon is not running. Start Docker Desktop or the Docker service."
         exit 1
     fi
@@ -60,7 +61,7 @@ do_build() {
     info "This includes OpenJML (~350MB) and may take a few minutes on first build."
 
     cd "$PROJECT_ROOT"
-    docker build -f "$DOCKERFILE" -t "$IMAGE_NAME" .
+    $DOCKER build -f "$DOCKERFILE" -t "$IMAGE_NAME" .
 
     ok "Docker image '$IMAGE_NAME' built successfully"
 }
@@ -73,7 +74,7 @@ do_test() {
     step "Running verification tests in Docker"
 
     # Check if image exists
-    if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+    if ! $DOCKER image inspect "$IMAGE_NAME" &>/dev/null; then
         warn "Image '$IMAGE_NAME' not found. Building first..."
         do_build
     fi
@@ -94,7 +95,7 @@ do_test() {
         info "Showing inferred JML output"
     fi
 
-    docker run --rm "$IMAGE_NAME" mvn test "${mvn_args[@]}"
+    $DOCKER run --rm "$IMAGE_NAME" mvn test "${mvn_args[@]}"
 
     local exit_code=$?
 
@@ -113,8 +114,8 @@ do_test() {
 
 do_clean() {
     step "Removing Docker image: $IMAGE_NAME"
-    if docker image inspect "$IMAGE_NAME" &>/dev/null; then
-        docker rmi "$IMAGE_NAME"
+    if $DOCKER image inspect "$IMAGE_NAME" &>/dev/null; then
+        $DOCKER rmi "$IMAGE_NAME"
         ok "Removed image '$IMAGE_NAME'"
     else
         info "Image '$IMAGE_NAME' not found, nothing to clean"
