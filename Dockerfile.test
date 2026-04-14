@@ -18,10 +18,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip curl libg
 # Install OpenJML
 ENV OPENJML_VERSION=21-0.23
 ENV OPENJML_HOME=/opt/openjml
+ENV OPENJML_PLATFORM=openjml-ubuntu-22.04
+# ENV OPENJML_PLATFORM=openjml-macos-14
 
 RUN mkdir -p "$OPENJML_HOME" \
     && curl -L --progress-bar -o /tmp/openjml.zip \
-       "https://github.com/OpenJML/OpenJML/releases/download/${OPENJML_VERSION}/openjml-ubuntu-22.04-${OPENJML_VERSION}.zip" \
+       "https://github.com/OpenJML/OpenJML/releases/download/${OPENJML_VERSION}/${OPENJML_PLATFORM}-${OPENJML_VERSION}.zip" \
     && unzip -q /tmp/openjml.zip -d "$OPENJML_HOME" \
     && if [ ! -f "$OPENJML_HOME/openjml" ]; then \
          INNER=$(find "$OPENJML_HOME" -maxdepth 1 -type d ! -path "$OPENJML_HOME" | head -1); \
