@@ -359,6 +359,13 @@ class PreconditionAnalyzer {
         collector.binaryExprs.stream()
             .filter(binExpr -> binExpr.getLeft().toString().equals(paramName + ".length") ||
                                binExpr.getRight().toString().equals(paramName + ".length"))
+            // Skip comparisons that appear inside if-throw guards or branching ifs --
+            // those are handled by analyzeEarlyValidation (which inverts them) and
+            // copying them verbatim here produces contradictory preconditions
+            // (e.g. `if (arr.length == 0) throw` would yield both `arr.length == 0`
+            // here and `arr.length != 0` from the inversion).
+            .filter(binExpr -> !isGuardThrowCondition(binExpr))
+            .filter(binExpr -> !isBranchingIfCondition(binExpr))
             .forEach(binExpr -> {
                 if (binExpr.getLeft().toString().equals(paramName + ".length")) {
                     String otherSide = binExpr.getRight().toString();
