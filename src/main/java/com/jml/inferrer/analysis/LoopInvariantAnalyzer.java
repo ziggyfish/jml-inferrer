@@ -16,31 +16,107 @@ class LoopInvariantAnalyzer {
     void inferLoopInvariants(MethodDeclaration methodDecl, MethodSpecification spec) {
         LoopInvariantVisitor loopVisitor = new LoopInvariantVisitor();
         methodDecl.accept(loopVisitor, null);
-        loopVisitor.getInvariants().forEach(spec::addLoopInvariant);
+        loopVisitor.getInvariantsByOrdinal().forEach((ordinal, invs) ->
+                invs.forEach(inv -> spec.addLoopInvariant(inv, ordinal)));
     }
 
     /**
      * Visitor to analyze loops and infer loop invariants.
+     *
+     * Each loop visited gets a sequential ordinal in document order (0, 1, 2, ...).
+     * Invariants are tagged with the ordinal of the loop being visited at the time of
+     * emission so the converter can place them above the matching loop without depending
+     * on source line numbers (which shift when annotations are injected into the source).
      */
     static class LoopInvariantVisitor extends VoidVisitorAdapter<Void> {
-        private final Set<String> invariants = new LinkedHashSet<>();
+        // Insertion-ordered map: loop ordinal -> invariants emitted for that loop.
+        private final Map<Integer, List<String>> invariantsByOrdinal = new LinkedHashMap<>();
+        private int currentLoopOrdinal = 0;
+        private int loopCounter = 0;
+
+        public Map<Integer, List<String>> getInvariantsByOrdinal() {
+            return invariantsByOrdinal;
+        }
+
+        // Backed by a shadow set to keep dedup semantics; routes additions to the bucket
+        // for whichever loop is currently being analysed.
+        private final Set<String> seen = new LinkedHashSet<>();
+        private final Set<String> invariants = new java.util.AbstractSet<String>() {
+            @Override public boolean add(String s) {
+                if (!seen.add(s)) return false;
+                invariantsByOrdinal.computeIfAbsent(currentLoopOrdinal, k -> new ArrayList<>()).add(s);
+                return true;
+            }
+            @Override public java.util.Iterator<String> iterator() { return seen.iterator(); }
+            @Override public int size() { return seen.size(); }
+            @Override public boolean contains(Object o) { return seen.contains(o); }
+        };
 
         @Override
         public void visit(ForStmt forStmt, Void arg) {
+            int prev = currentLoopOrdinal;
+            currentLoopOrdinal = loopCounter++;
             analyzeForLoop(forStmt);
             super.visit(forStmt, arg);
+            currentLoopOrdinal = prev;
         }
 
         @Override
         public void visit(WhileStmt whileStmt, Void arg) {
+            int prev = currentLoopOrdinal;
+            currentLoopOrdinal = loopCounter++;
             analyzeWhileLoop(whileStmt);
             super.visit(whileStmt, arg);
+            currentLoopOrdinal = prev;
         }
 
         @Override
         public void visit(ForEachStmt forEachStmt, Void arg) {
+            int prev = currentLoopOrdinal;
+            currentLoopOrdinal = loopCounter++;
             analyzeForEachLoop(forEachStmt);
             super.visit(forEachStmt, arg);
+            currentLoopOrdinal = prev;
+        }
+
+        @Override
+        public void visit(DoStmt doStmt, Void arg) {
+            int prev = currentLoopOrdinal;
+            currentLoopOrdinal = loopCounter++;
+            analyzeDoWhileLoop(doStmt);
+            super.visit(doStmt, arg);
+            currentLoopOrdinal = prev;
+        }
+
+        private void analyzeDoWhileLoop(DoStmt doStmt) {
+            // Treat the do-while body the same way as while: same guard, same monotonic-counter
+            // detection. The only semantic difference (body always runs at least once) does not
+            // affect `counter >= 0` invariants that hold trivially on entry.
+            Statement body = doStmt.getBody();
+            Expression condition = doStmt.getCondition();
+
+            List<String> counterNames = detectCountersInBody(body);
+
+            for (Expression conjunct : flattenAndConjuncts(condition)) {
+                if (conjunct instanceof BinaryExpr binExpr) {
+                    if (counterNames.isEmpty()) continue;
+                    String left = binExpr.getLeft().toString();
+                    String right = binExpr.getRight().toString();
+                    if (counterNames.contains(left)) {
+                        invariants.add(left + " " + getWeakenedOperatorForInvariant(binExpr.getOperator()) + " " + right);
+                        invariants.add(left + " >= 0");
+                    } else if (counterNames.contains(right)) {
+                        invariants.add(right + " >= 0");
+                    }
+                }
+            }
+            for (String counter : findMonotonicNonNegativeCounters(doStmt, body)) {
+                invariants.add(counter + " >= 0");
+            }
+
+            analyzeAccumulators(body, invariants, counterNames);
+            analyzeVariableRelationships(body, invariants);
+            analyzeLoopBodyForInvariants(body, invariants);
         }
 
         private void analyzeForLoop(ForStmt forStmt) {
@@ -337,10 +413,11 @@ class LoopInvariantAnalyzer {
 
             List<String> counterNames = detectCountersInBody(body);
 
-            if (condition instanceof BinaryExpr) {
-                BinaryExpr binExpr = (BinaryExpr) condition;
-
-                if (!counterNames.isEmpty()) {
+            // Decompose `cond1 && cond2 && ...` into individual conjuncts so each numeric
+            // condition gets a chance to contribute its own invariant.
+            for (Expression conjunct : flattenAndConjuncts(condition)) {
+                if (conjunct instanceof BinaryExpr binExpr) {
+                    if (counterNames.isEmpty()) continue;
                     String left = binExpr.getLeft().toString();
                     String right = binExpr.getRight().toString();
                     if (counterNames.contains(left)) {
@@ -349,16 +426,118 @@ class LoopInvariantAnalyzer {
                     } else if (counterNames.contains(right)) {
                         invariants.add(right + " >= 0");
                     }
+                } else if (conjunct instanceof MethodCallExpr call) {
+                    call.getScope().ifPresent(scope -> invariants.add(scope + " != null"));
                 }
-            } else if (condition instanceof MethodCallExpr) {
-                MethodCallExpr call = (MethodCallExpr) condition;
-                call.getScope().ifPresent(scope ->
-                    invariants.add(scope + " != null"));
+            }
+
+            // Independent of the guard shape: if a counter starts at 0 and is only ever
+            // incremented (++ / += literal), then `counter >= 0` is sound throughout the loop.
+            // This catches the common `count++` pattern even when the guard isn't of the form
+            // `counter <op> something`.
+            for (String counter : findMonotonicNonNegativeCounters(whileStmt, body)) {
+                invariants.add(counter + " >= 0");
             }
 
             analyzeAccumulators(body, invariants, counterNames);
             analyzeVariableRelationships(body, invariants);
             analyzeLoopBodyForInvariants(body, invariants);
+        }
+
+        /**
+         * Returns every operand of a chain of {@code &&} expressions, or the expression
+         * itself if it isn't a top-level {@code &&}. Conservative: doesn't flatten {@code ||}.
+         */
+        private List<Expression> flattenAndConjuncts(Expression expr) {
+            List<Expression> out = new ArrayList<>();
+            if (expr instanceof BinaryExpr be && be.getOperator() == BinaryExpr.Operator.AND) {
+                out.addAll(flattenAndConjuncts(be.getLeft()));
+                out.addAll(flattenAndConjuncts(be.getRight()));
+            } else {
+                out.add(expr);
+            }
+            return out;
+        }
+
+        /**
+         * Identifies counters that (a) are declared with a non-negative integer-literal
+         * initializer immediately before the loop, AND (b) are only ever modified inside
+         * the loop body by {@code ++} or {@code += positiveLiteral}.
+         *
+         * For these, {@code counter >= initialValue >= 0} is sound at every iteration:
+         * non-negative on entry and a non-negative-preserving update.
+         *
+         * Soundness gate: any other write (including plain {@code =}, {@code -=},
+         * {@code *=}, etc.) disqualifies the counter.
+         */
+        private List<String> findMonotonicNonNegativeCounters(com.github.javaparser.ast.Node loopNode, Statement body) {
+            List<String> result = new ArrayList<>();
+
+            // Pull all candidate-counter names from the body (++ / +=)
+            Set<String> bodyCounters = new LinkedHashSet<>();
+            body.findAll(UnaryExpr.class).forEach(u -> {
+                if (u.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT
+                        || u.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT) {
+                    if (u.getExpression() instanceof NameExpr ne) bodyCounters.add(ne.getNameAsString());
+                }
+            });
+            body.findAll(AssignExpr.class).forEach(a -> {
+                if (a.getOperator() == AssignExpr.Operator.PLUS
+                        && a.getTarget() instanceof NameExpr ne) {
+                    bodyCounters.add(ne.getNameAsString());
+                }
+            });
+
+            outer:
+            for (String name : bodyCounters) {
+                // Find the most recent declaration of `name` in the enclosing method,
+                // require non-negative integer literal initialiser.
+                Optional<MethodDeclaration> methodOpt = loopNode.findAncestor(MethodDeclaration.class);
+                if (methodOpt.isEmpty()) continue;
+                MethodDeclaration method = methodOpt.get();
+
+                Expression init = null;
+                for (com.github.javaparser.ast.body.VariableDeclarator vd
+                        : method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                    if (vd.getNameAsString().equals(name) && vd.getInitializer().isPresent()) {
+                        init = vd.getInitializer().get();
+                    }
+                }
+                if (init == null) continue;
+                if (!init.isIntegerLiteralExpr()) continue;
+                if (init.asIntegerLiteralExpr().asInt() < 0) continue;
+
+                // Verify ALL writes to `name` in the method are either:
+                // - the initialiser declaration itself (already non-negative)
+                // - inside this loop's body and of the monotonic kind
+                for (AssignExpr a : method.findAll(AssignExpr.class)) {
+                    if (!(a.getTarget() instanceof NameExpr targ) || !targ.getNameAsString().equals(name)) continue;
+                    if (!isInsideStatement(a, body)) continue outer; // write outside this loop body — bail
+                    if (a.getOperator() != AssignExpr.Operator.PLUS) continue outer;
+                    Expression rhs = a.getValue();
+                    // RHS must be a non-negative integer literal (sound under bounded arithmetic
+                    // only when overflow is excluded — but `count >= 0` is the inferred invariant
+                    // and overflow would invalidate it; we leave proof of overflow-freedom to OpenJML).
+                    if (!(rhs.isIntegerLiteralExpr() && rhs.asIntegerLiteralExpr().asInt() >= 0)) continue outer;
+                }
+                for (UnaryExpr u : method.findAll(UnaryExpr.class)) {
+                    if (!(u.getExpression() instanceof NameExpr ne) || !ne.getNameAsString().equals(name)) continue;
+                    if (!isInsideStatement(u, body)) continue outer;
+                    if (u.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT
+                            && u.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT) continue outer;
+                }
+                result.add(name);
+            }
+            return result;
+        }
+
+        private boolean isInsideStatement(com.github.javaparser.ast.Node node, Statement container) {
+            com.github.javaparser.ast.Node n = node;
+            while (n.getParentNode().isPresent()) {
+                n = n.getParentNode().get();
+                if (n == container) return true;
+            }
+            return false;
         }
 
         private List<String> detectCountersInBody(Statement body) {
@@ -435,8 +614,5 @@ class LoopInvariantAnalyzer {
             };
         }
 
-        public Set<String> getInvariants() {
-            return invariants;
-        }
     }
 }

@@ -358,9 +358,11 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
             methodDecl.addAnnotation(annotation);
         }
 
-        // Add @LoopInvariant annotations
+        // Add @LoopInvariant annotations, tagged with the source line of the loop they
+        // attach to so AnnotationToJMLConverter can place each one above the right loop.
         for (String loopInvariant : specification.getLoopInvariants()) {
-            AnnotationExpr annotation = createAnnotation("com.jml.inferrer.annotations.LoopInvariant", loopInvariant);
+            int loopLine = specification.getLoopInvariantLine(loopInvariant);
+            AnnotationExpr annotation = createLoopInvariantAnnotation(loopInvariant, loopLine);
             methodDecl.addAnnotation(annotation);
         }
 
@@ -436,6 +438,26 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
             new Name(annotationName),
             new StringLiteralExpr(escapedValue)
         );
+    }
+
+    /**
+     * Creates a @LoopInvariant(value="...", loopLine=N) annotation. The {@code loopLine}
+     * member tells the converter which loop to place this invariant above when a method
+     * has multiple loops.
+     */
+    private AnnotationExpr createLoopInvariantAnnotation(String value, int loopLine) {
+        if (loopLine == 0) {
+            return createAnnotation("com.jml.inferrer.annotations.LoopInvariant", value);
+        }
+        String escapedValue = value.replace("\\", "\\\\").replace("\"", "\\\"");
+        com.github.javaparser.ast.NodeList<com.github.javaparser.ast.expr.MemberValuePair> members =
+                new com.github.javaparser.ast.NodeList<>();
+        members.add(new com.github.javaparser.ast.expr.MemberValuePair(
+                "value", new StringLiteralExpr(escapedValue)));
+        members.add(new com.github.javaparser.ast.expr.MemberValuePair(
+                "loopLine", new com.github.javaparser.ast.expr.IntegerLiteralExpr(String.valueOf(loopLine))));
+        return new com.github.javaparser.ast.expr.NormalAnnotationExpr(
+                new Name("com.jml.inferrer.annotations.LoopInvariant"), members);
     }
 
     /**

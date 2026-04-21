@@ -20,6 +20,7 @@ public class MethodSpecification {
     private final List<String> preconditions;
     private final List<String> postconditions;
     private final List<String> loopInvariants;
+    private final Map<String, Integer> loopInvariantLine; // invariant -> source line of its loop (0 = legacy/first)
     private final List<String> exceptionSpecifications;
     private final List<String> assignableClauses;
 
@@ -50,6 +51,7 @@ public class MethodSpecification {
         this.preconditions = new ArrayList<>();
         this.postconditions = new ArrayList<>();
         this.loopInvariants = new ArrayList<>();
+        this.loopInvariantLine = new HashMap<>();
         this.exceptionSpecifications = new ArrayList<>();
         this.assignableClauses = new ArrayList<>();
         this.specificationConfidence = new HashMap<>();
@@ -85,16 +87,28 @@ public class MethodSpecification {
     }
 
     public void addLoopInvariant(String loopInvariant) {
-        if (!this.loopInvariants.contains(loopInvariant)) {
-            this.loopInvariants.add(loopInvariant);
-        }
+        addLoopInvariant(loopInvariant, 0);
     }
 
     public void addLoopInvariant(String loopInvariant, ConfidenceLevel confidence) {
+        addLoopInvariant(loopInvariant, 0);
+        this.specificationConfidence.put(loopInvariant, confidence);
+    }
+
+    /**
+     * Adds a loop invariant tied to the loop at {@code loopLine} (the loop's source line).
+     * When a method has multiple loops the converter uses this to place each invariant
+     * directly above the right loop. {@code loopLine == 0} means "first loop" (legacy).
+     */
+    public void addLoopInvariant(String loopInvariant, int loopLine) {
         if (!this.loopInvariants.contains(loopInvariant)) {
             this.loopInvariants.add(loopInvariant);
+            this.loopInvariantLine.put(loopInvariant, loopLine);
         }
-        this.specificationConfidence.put(loopInvariant, confidence);
+    }
+
+    public int getLoopInvariantLine(String loopInvariant) {
+        return loopInvariantLine.getOrDefault(loopInvariant, 0);
     }
 
     public void addExceptionSpecification(String exceptionSpec) {

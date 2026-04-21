@@ -287,6 +287,30 @@ class FieldModificationAnalyzer {
                 }
                 return wrapFieldRefsWithOld(rawCond, methodDecl);
             }
+            if (parent instanceof com.github.javaparser.ast.stmt.SwitchEntry entry) {
+                // Find the enclosing switch and emit `selector == label` for the entry's labels
+                com.github.javaparser.ast.Node switchNode = entry.getParentNode().orElse(null);
+                String selector = null;
+                if (switchNode instanceof com.github.javaparser.ast.stmt.SwitchStmt ss) {
+                    selector = ss.getSelector().toString();
+                } else if (switchNode instanceof com.github.javaparser.ast.expr.SwitchExpr se) {
+                    selector = se.getSelector().toString();
+                }
+                if (selector == null || entry.getLabels().isEmpty()) {
+                    current = parent;
+                    continue;
+                }
+                String guard;
+                if (entry.getLabels().size() == 1) {
+                    guard = selector + " == " + entry.getLabels().get(0).toString();
+                } else {
+                    final String sel = selector;
+                    guard = entry.getLabels().stream()
+                            .map(l -> sel + " == " + l.toString())
+                            .collect(java.util.stream.Collectors.joining(" || ", "(", ")"));
+                }
+                return wrapFieldRefsWithOld(guard, methodDecl);
+            }
             current = parent;
         }
         return null;

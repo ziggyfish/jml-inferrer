@@ -52,6 +52,8 @@ class PostconditionAnalyzer {
                 analyzeReturnValueConstraints(methodDecl, postconditions, collector);
                 returnValueAnalyzer.analyzeNumericReturnBounds(methodDecl, postconditions, collector);
                 returnValueAnalyzer.analyzeReturnRelationToParameters(methodDecl, postconditions, collector);
+                // Loop accumulator: `int x = 0; for(...) x += positive; return x;` → \result >= 0
+                returnValueAnalyzer.analyzeLoopAccumulatorReturn(methodDecl, postconditions);
             }
 
             // String return analysis
@@ -205,30 +207,55 @@ class PostconditionAnalyzer {
     private void analyzeReturnValueIdentity(MethodDeclaration methodDecl, Set<String> postconditions,
                                              ASTCollector collector) {
         List<ReturnStmt> returnStmts = collector.returnStmts;
-        String methodName = methodDecl.getNameAsString();
+        if (returnStmts.size() != 1) return;
 
-        if (methodName.startsWith("get") && returnStmts.size() == 1) {
-            returnStmts.get(0).getExpression().ifPresent(expr -> {
-                if (expr instanceof FieldAccessExpr) {
-                    FieldAccessExpr fieldAccess = (FieldAccessExpr) expr;
-                    if (fieldAccess.getScope().toString().equals("this")) {
-                        postconditions.add("\\result == this." + fieldAccess.getNameAsString());
-                    }
-                } else if (expr instanceof NameExpr) {
-                    methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                        .ifPresent(classDecl -> {
-                            String exprName = expr.toString();
-                            classDecl.getFields().forEach(field -> {
-                                field.getVariables().forEach(var -> {
-                                    if (var.getNameAsString().equals(exprName)) {
-                                        postconditions.add("\\result == this." + exprName);
-                                    }
-                                });
-                            });
-                        });
+        // Only emit \result == this.field when the field is not modified in this method,
+        // otherwise the spec would be unsound (e.g., next() that returns this.cursor and increments it).
+        returnStmts.get(0).getExpression().ifPresent(expr -> {
+            String fieldName = null;
+            if (expr instanceof FieldAccessExpr fieldAccess
+                    && fieldAccess.getScope().toString().equals("this")) {
+                fieldName = fieldAccess.getNameAsString();
+            } else if (expr instanceof NameExpr nameExpr) {
+                String exprName = nameExpr.getNameAsString();
+                if (AnalysisUtils.isFieldReference(methodDecl, exprName)) {
+                    fieldName = exprName;
+                }
+            }
+            if (fieldName == null) return;
+
+            String fName = fieldName;
+            boolean fieldWritten = collector.assignExprs.stream().anyMatch(a -> {
+                Expression t = a.getTarget();
+                if (t instanceof FieldAccessExpr fa
+                        && fa.getScope().toString().equals("this")
+                        && fa.getNameAsString().equals(fName)) return true;
+                if (t instanceof NameExpr ne && ne.getNameAsString().equals(fName)
+                        && AnalysisUtils.isFieldReference(methodDecl, fName)) return true;
+                return false;
+            });
+            if (fieldWritten) return;
+            boolean fieldUnaryWritten = collector.unaryExprs.stream().anyMatch(u -> {
+                switch (u.getOperator()) {
+                    case POSTFIX_INCREMENT:
+                    case POSTFIX_DECREMENT:
+                    case PREFIX_INCREMENT:
+                    case PREFIX_DECREMENT:
+                        Expression e = u.getExpression();
+                        if (e instanceof FieldAccessExpr fa
+                                && fa.getScope().toString().equals("this")
+                                && fa.getNameAsString().equals(fName)) return true;
+                        if (e instanceof NameExpr ne && ne.getNameAsString().equals(fName)
+                                && AnalysisUtils.isFieldReference(methodDecl, fName)) return true;
+                        return false;
+                    default:
+                        return false;
                 }
             });
-        }
+            if (fieldUnaryWritten) return;
+
+            postconditions.add("\\result == this." + fieldName);
+        });
     }
 
     private void analyzeParameterModifications(MethodDeclaration methodDecl, Set<String> postconditions,

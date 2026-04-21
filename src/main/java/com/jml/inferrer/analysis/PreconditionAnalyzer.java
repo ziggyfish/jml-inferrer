@@ -36,6 +36,7 @@ class PreconditionAnalyzer {
             // Numeric type constraints
             if (AnalysisUtils.isNumericType(paramType)) {
                 analyzeNumericConstraints(methodDecl, paramName, preconditions, collector);
+                analyzeFieldArrayIndexConstraints(methodDecl, paramName, preconditions, collector);
             }
 
             // Array and collection constraints
@@ -197,6 +198,37 @@ class PreconditionAnalyzer {
         analyzeArrayLengthConstraints(methodDecl, paramName, preconditions, collector);
     }
 
+    /**
+     * If a numeric parameter is used to index an instance-field array
+     * (e.g. {@code data[idx]} where {@code data} is a field), emit
+     * {@code idx >= 0} and {@code idx < this.data.length} preconditions.
+     * Symmetric to {@link #analyzeArrayParameterConstraints} but handles the case where
+     * the array lives on {@code this}, not in the parameter list.
+     */
+    private void analyzeFieldArrayIndexConstraints(MethodDeclaration methodDecl, String paramName,
+                                                    Set<String> preconditions, ASTCollector collector) {
+        for (var access : collector.arrayAccessExprs) {
+            // Top-level access: index must be the parameter we're analyzing
+            Expression index = access.getIndex();
+            if (!(index instanceof NameExpr ne) || !ne.getNameAsString().equals(paramName)) continue;
+
+            // Resolve the underlying field name (handles `data[i]`, `this.data[i]`, nested arrays)
+            Expression name = access.getName();
+            String fieldName = null;
+            while (name instanceof ArrayAccessExpr inner) name = inner.getName();
+            if (name instanceof FieldAccessExpr fa && fa.getScope().toString().equals("this")) {
+                fieldName = fa.getNameAsString();
+            } else if (name instanceof NameExpr nameExpr) {
+                String n = nameExpr.getNameAsString();
+                if (AnalysisUtils.isFieldReference(methodDecl, n)) fieldName = n;
+            }
+            if (fieldName == null) continue;
+
+            preconditions.add(paramName + " >= 0");
+            preconditions.add(paramName + " < this." + fieldName + ".length");
+        }
+    }
+
     private void analyzeCollectionParameterConstraints(MethodDeclaration methodDecl, String paramName,
                                                         Set<String> preconditions, ASTCollector collector) {
         // Check for null requirement
@@ -234,7 +266,16 @@ class PreconditionAnalyzer {
 
     private void analyzeEarlyValidation(MethodDeclaration methodDecl, Set<String> preconditions,
                                          ASTCollector collector) {
+        Set<String> paramNames = new java.util.LinkedHashSet<>();
+        for (Parameter p : methodDecl.getParameters()) paramNames.add(p.getNameAsString());
+        SymbolicExecutor scopeChecker = new SymbolicExecutor();
+
         collector.ifStmts.forEach(ifStmt -> {
+            // An if-throw nested inside a loop refers to loop-local variables
+            // (e.g., for(int i...) if (matrix[i] == null) throw ...) that cannot appear
+            // in a method-level requires clause.
+            if (isInsideLoop(ifStmt)) return;
+
             // Check if this if statement throws an exception
             boolean throwsException = ifStmt.getThenStmt().findAll(ThrowStmt.class).size() > 0;
 
@@ -245,18 +286,29 @@ class PreconditionAnalyzer {
                 if (condition instanceof BinaryExpr) {
                     BinaryExpr binExpr = (BinaryExpr) condition;
                     String invertedCondition = invertCondition(binExpr);
-                    if (invertedCondition != null && !invertedCondition.isEmpty()) {
+                    if (invertedCondition != null && !invertedCondition.isEmpty()
+                            && scopeChecker.isMethodScopeSafe(invertedCondition, methodDecl, paramNames)) {
                         preconditions.add(invertedCondition);
                     }
                 } else if (condition instanceof UnaryExpr) {
                     UnaryExpr unaryExpr = (UnaryExpr) condition;
                     if (unaryExpr.getOperator() == UnaryExpr.Operator.LOGICAL_COMPLEMENT) {
                         // !(condition) in if-throw means condition must be true
-                        preconditions.add(unaryExpr.getExpression().toString());
+                        String inner = unaryExpr.getExpression().toString();
+                        if (scopeChecker.isMethodScopeSafe(inner, methodDecl, paramNames)) {
+                            preconditions.add(inner);
+                        }
                     }
                 }
             }
         });
+    }
+
+    static boolean isInsideLoop(com.github.javaparser.ast.Node node) {
+        return node.findAncestor(com.github.javaparser.ast.stmt.ForStmt.class).isPresent()
+                || node.findAncestor(com.github.javaparser.ast.stmt.ForEachStmt.class).isPresent()
+                || node.findAncestor(com.github.javaparser.ast.stmt.WhileStmt.class).isPresent()
+                || node.findAncestor(com.github.javaparser.ast.stmt.DoStmt.class).isPresent();
     }
 
     private void analyzeParameterRelationships(MethodDeclaration methodDecl, Set<String> preconditions,

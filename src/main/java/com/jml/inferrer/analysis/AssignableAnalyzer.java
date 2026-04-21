@@ -59,12 +59,9 @@ class AssignableAnalyzer {
                     assignedLocations.add("this." + varName);
                 }
             } else if (target instanceof ArrayAccessExpr) {
-                ArrayAccessExpr arrayAccess = (ArrayAccessExpr) target;
-                String arrayName = arrayAccess.getName().toString();
-                if (AnalysisUtils.isFieldReference(methodDecl, arrayName) ||
-                    methodDecl.getParameters().stream()
-                        .anyMatch(p -> p.getNameAsString().equals(arrayName))) {
-                    assignedLocations.add(arrayName + "[*]");
+                String baseName = extractArrayBase((ArrayAccessExpr) target, methodDecl);
+                if (baseName != null) {
+                    assignedLocations.add(baseName + "[*]");
                 }
             }
         });
@@ -74,5 +71,33 @@ class AssignableAnalyzer {
         } else {
             assignedLocations.forEach(spec::addAssignableClause);
         }
+    }
+
+    /**
+     * Returns the canonical base name (e.g. {@code data}, {@code arr}) of an array-access
+     * write target, or {@code null} if the array is not a field or parameter we can name.
+     * Handles {@code data[i]}, {@code this.data[i]}, and nested arrays like {@code data[i][j]}.
+     */
+    static String extractArrayBase(ArrayAccessExpr access, MethodDeclaration methodDecl) {
+        Expression name = access.getName();
+        if (name instanceof ArrayAccessExpr inner) {
+            return extractArrayBase(inner, methodDecl);
+        }
+        if (name instanceof FieldAccessExpr fa) {
+            if (fa.getScope().toString().equals("this")) {
+                return fa.getNameAsString();
+            }
+            return fa.toString();
+        }
+        if (name instanceof NameExpr nameExpr) {
+            String varName = nameExpr.getNameAsString();
+            if (AnalysisUtils.isFieldReference(methodDecl, varName)) {
+                return varName;
+            }
+            boolean isParam = methodDecl.getParameters().stream()
+                    .anyMatch(p -> p.getNameAsString().equals(varName));
+            if (isParam) return varName;
+        }
+        return null;
     }
 }

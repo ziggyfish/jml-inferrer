@@ -324,6 +324,85 @@ class ReturnValueAnalyzer {
         return resolved;
     }
 
+    /**
+     * Recognises the simple loop-accumulator return pattern and emits a non-negativity
+     * postcondition when sound:
+     *   {@code int x = 0; for(...) { x += positiveLiteral; } return x;} → {@code \result >= 0}
+     *   {@code int x = 0; for(...) { x++; } return x;}                  → {@code \result >= 0}
+     *
+     * <p>Soundness gate: the accumulator must be a local var that is (a) declared with a
+     * non-negative integer-literal initialiser, (b) modified ONLY inside loops, and ONLY
+     * by {@code ++} or {@code += positiveIntegerLiteral}. Any other write (assignment,
+     * subtract, multiply, etc.) disqualifies the variable. We do NOT allow non-literal
+     * RHS — those introduce overflow risk that JML would have to account for.
+     */
+    void analyzeLoopAccumulatorReturn(MethodDeclaration methodDecl, Set<String> postconditions) {
+        if (methodDecl.getBody().isEmpty()) return;
+        List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
+        if (returnStmts.size() != 1) return;
+        ReturnStmt rs = returnStmts.get(0);
+        if (rs.getExpression().isEmpty()) return;
+        if (!(rs.getExpression().get() instanceof NameExpr returnName)) return;
+        String varName = returnName.getNameAsString();
+
+        boolean isParam = methodDecl.getParameters().stream()
+                .anyMatch(p -> p.getNameAsString().equals(varName));
+        if (isParam) return;
+        if (AnalysisUtils.isFieldReference(methodDecl, varName)) return;
+
+        // Find the variable's declaration & initial value
+        Expression init = null;
+        for (com.github.javaparser.ast.body.VariableDeclarator vd
+                : methodDecl.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+            if (vd.getNameAsString().equals(varName) && vd.getInitializer().isPresent()) {
+                init = vd.getInitializer().get();
+                break;
+            }
+        }
+        if (init == null) return;
+        boolean initNonNeg, initPositive;
+        if (init.isIntegerLiteralExpr()) {
+            int v = init.asIntegerLiteralExpr().asInt();
+            initNonNeg = v >= 0;
+            initPositive = v > 0;
+        } else if (init.isLongLiteralExpr()) {
+            try {
+                String s = init.asLongLiteralExpr().getValue().replaceAll("[Ll_]", "");
+                long v = Long.parseLong(s);
+                initNonNeg = v >= 0;
+                initPositive = v > 0;
+            } catch (NumberFormatException ex) { return; }
+        } else {
+            return;
+        }
+        if (!initNonNeg) return;
+
+        // Verify all writes to varName are inside a loop AND of monotonic-non-negative form
+        boolean anyLoopWrite = false;
+        for (AssignExpr a : methodDecl.findAll(AssignExpr.class)) {
+            if (!(a.getTarget() instanceof NameExpr ne) || !ne.getNameAsString().equals(varName)) continue;
+            if (!PreconditionAnalyzer.isInsideLoop(a)) return; // outside-loop write — bail
+            if (a.getOperator() != AssignExpr.Operator.PLUS) return; // only += allowed
+            Expression rhs = a.getValue();
+            if (!(rhs.isIntegerLiteralExpr() && rhs.asIntegerLiteralExpr().asInt() >= 0)) return;
+            anyLoopWrite = true;
+        }
+        for (UnaryExpr u : methodDecl.findAll(UnaryExpr.class)) {
+            if (!(u.getExpression() instanceof NameExpr ne) || !ne.getNameAsString().equals(varName)) continue;
+            if (!PreconditionAnalyzer.isInsideLoop(u)) return;
+            if (u.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT
+                    && u.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT) return;
+            anyLoopWrite = true;
+        }
+        if (!anyLoopWrite) return;
+
+        if (initPositive && !postconditions.contains("\\result >= 0")) {
+            postconditions.add("\\result > 0");
+        } else if (!postconditions.contains("\\result > 0")) {
+            postconditions.add("\\result >= 0");
+        }
+    }
+
     void analyzeExactReturnExpression(MethodDeclaration methodDecl, Set<String> postconditions,
                                       SymbolicExecutor symbolicExecutor) {
         if (methodDecl.getBody().isEmpty()) return;
@@ -350,6 +429,7 @@ class ReturnValueAnalyzer {
             // All paths return the same expression — treat as unconditional
             if (AnalysisUtils.isTrivialResult(firstExpr)) return;
             if (firstExpr.length() > 100) return;
+            if (!symbolicExecutor.isMethodScopeSafe(firstExpr, methodDecl, paramNames)) return;
             postconditions.add(AnalysisUtils.buildResultEquality(firstExpr));
             return;
         }
@@ -359,6 +439,7 @@ class ReturnValueAnalyzer {
                 // Unconditional — filter trivial results (single identifier, literal, etc.)
                 if (AnalysisUtils.isTrivialResult(sr.resolvedExpr)) continue;
                 if (sr.resolvedExpr.length() > 100) continue;
+                if (!symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) continue;
                 postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr));
             } else {
                 // Conditional — single identifiers are meaningful here
@@ -366,8 +447,10 @@ class ReturnValueAnalyzer {
                 if (sr.resolvedExpr.contains("?") && sr.resolvedExpr.contains(":")) continue;
                 if (sr.resolvedExpr.contains("new ")) continue;
                 if (sr.resolvedExpr.length() > 100) continue;
+                if (!symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) continue;
                 String simplifiedCond = AnalysisUtils.simplifyPathCondition(sr.pathCondition);
                 if (simplifiedCond.length() > 80) continue;
+                if (!symbolicExecutor.isMethodScopeSafe(simplifiedCond, methodDecl, paramNames)) continue;
                 postconditions.add(simplifiedCond + " ==> " + AnalysisUtils.buildResultEquality(sr.resolvedExpr));
             }
         }

@@ -36,25 +36,37 @@ class SwitchBitwiseAnalyzer {
         Set<String> caseValues = new LinkedHashSet<>();
         boolean hasDefault = false;
 
+        // Track the "active" labels for fall-through cases (case A: case B: return X;)
+        // — labels accumulate until we hit a case body that yields a value.
+        List<String> pendingLabels = new ArrayList<>();
+        SymbolicExecutor scopeChecker = new SymbolicExecutor();
+        Set<String> paramNames = new LinkedHashSet<>();
+        for (var p : methodDecl.getParameters()) paramNames.add(p.getNameAsString());
+        boolean selectorSafe = scopeChecker.isMethodScopeSafe(selectorStr, methodDecl, paramNames);
+
         for (SwitchEntry entry : entries) {
             if (entry.getLabels().isEmpty()) {
                 hasDefault = true;
             } else {
                 entry.getLabels().forEach(label -> caseValues.add(label.toString()));
+                entry.getLabels().forEach(label -> pendingLabels.add(label.toString()));
             }
 
-            entry.getStatements().forEach(stmt -> {
-                if (stmt instanceof ReturnStmt) {
-                    ReturnStmt returnStmt = (ReturnStmt) stmt;
-                    returnStmt.getExpression().ifPresent(returnExpr -> {
-                        entry.getLabels().forEach(label -> {
-                            String labelStr = label.toString();
-                            String returnVal = returnExpr.toString();
-                            logger.debug("Switch case {} returns {}", labelStr, returnVal);
-                        });
-                    });
+            String yieldedExpr = extractCaseYield(entry);
+            if (yieldedExpr != null && selectorSafe && !pendingLabels.isEmpty()
+                    && scopeChecker.isMethodScopeSafe(yieldedExpr, methodDecl, paramNames)) {
+                String guard;
+                if (pendingLabels.size() == 1) {
+                    guard = selectorStr + " == " + pendingLabels.get(0);
+                } else {
+                    guard = pendingLabels.stream()
+                            .map(l -> selectorStr + " == " + l)
+                            .collect(java.util.stream.Collectors.joining(" || ", "(", ")"));
                 }
-            });
+                spec.addPostcondition(guard + " ==> " + AnalysisUtils.buildResultEquality(yieldedExpr),
+                        MethodSpecification.ConfidenceLevel.HIGH);
+                pendingLabels.clear();
+            }
         }
 
         if (hasDefault || isExpression) {
@@ -171,6 +183,49 @@ class SwitchBitwiseAnalyzer {
                 }
             });
         }
+    }
+
+    /**
+     * Returns the expression a switch entry yields/returns, or {@code null} if the entry
+     * has no clear single-expression yield (multiple statements, void body, throws, etc.).
+     * Handles:
+     *   case X -> expr;        (switch-expression arrow form)
+     *   case X: return expr;   (switch-statement return)
+     *   case X: yield expr;    (switch-statement yield)
+     *   fall-through (case X: case Y: return expr;) is handled by the caller.
+     */
+    private String extractCaseYield(SwitchEntry entry) {
+        var stmts = entry.getStatements();
+        if (stmts.isEmpty()) return null;
+
+        // Switch-expression arrow form: single ExpressionStmt yielding the value
+        if (entry.getType() == SwitchEntry.Type.EXPRESSION && stmts.size() == 1
+                && stmts.get(0) instanceof ExpressionStmt es) {
+            return es.getExpression().toString();
+        }
+
+        // Walk statements to find a return/yield, ignoring break
+        for (Statement s : stmts) {
+            if (s instanceof BreakStmt) continue;
+            if (s instanceof ReturnStmt rs) {
+                return rs.getExpression().map(Object::toString).orElse(null);
+            }
+            if (s instanceof YieldStmt ys) {
+                return ys.getExpression().toString();
+            }
+            if (s instanceof BlockStmt bs && bs.getStatements().size() == 1) {
+                Statement only = bs.getStatements().get(0);
+                if (only instanceof ReturnStmt rs) {
+                    return rs.getExpression().map(Object::toString).orElse(null);
+                }
+                if (only instanceof YieldStmt ys) {
+                    return ys.getExpression().toString();
+                }
+            }
+            // Any other statement (assignment, throw, side-effect) means we can't summarise this case
+            return null;
+        }
+        return null;
     }
 
     private void analyzeRightShift(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {

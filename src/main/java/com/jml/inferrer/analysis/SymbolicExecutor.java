@@ -23,12 +23,77 @@ class SymbolicExecutor {
         }
     }
 
+    /**
+     * Returns {@code true} if every bare identifier in {@code expression} is visible at method
+     * scope — i.e. a parameter, an instance field, or a Java/JML reserved name. Used to discard
+     * postconditions that would reference loop-locals or other identifiers OpenJML cannot
+     * resolve at the spec site.
+     */
+    boolean isMethodScopeSafe(String expression,
+                              com.github.javaparser.ast.body.MethodDeclaration methodDecl,
+                              Set<String> paramNames) {
+        if (expression == null || expression.isEmpty()) return true;
+
+        Set<String> reserved = Set.of("this", "null", "true", "false", "new",
+                "Math", "Integer", "Long", "Double", "Float", "String", "System",
+                "Collections", "Arrays", "Objects", "Optional", "super", "Object",
+                "Number", "Boolean", "Byte", "Short", "Character",
+                "byte", "short", "int", "long", "float", "double", "char", "boolean", "void");
+
+        int i = 0;
+        while (i < expression.length()) {
+            char ch = expression.charAt(i);
+
+            if (ch == '"' || ch == '\'') {
+                char quote = ch;
+                i++;
+                while (i < expression.length() && expression.charAt(i) != quote) {
+                    if (expression.charAt(i) == '\\' && i + 1 < expression.length()) i++;
+                    i++;
+                }
+                if (i < expression.length()) i++;
+                continue;
+            }
+
+            if (ch == '\\') {
+                // JML keyword like \result, \old, \forall — always method-scope safe
+                i++;
+                while (i < expression.length() && Character.isJavaIdentifierPart(expression.charAt(i))) i++;
+                continue;
+            }
+
+            if (Character.isJavaIdentifierStart(ch)) {
+                int start = i;
+                while (i < expression.length() && Character.isJavaIdentifierPart(expression.charAt(i))) i++;
+                String token = expression.substring(start, i);
+
+                boolean afterDot = start > 0 && expression.charAt(start - 1) == '.';
+                if (afterDot) continue;
+                // Method-call name: a token immediately followed by '(' is the name of an
+                // invocation (e.g. gcd(a, b), Math.abs(x)), not a free variable.
+                int peek = i;
+                while (peek < expression.length() && Character.isWhitespace(expression.charAt(peek))) peek++;
+                if (peek < expression.length() && expression.charAt(peek) == '(') continue;
+                if (reserved.contains(token)) continue;
+                if (paramNames.contains(token)) continue;
+                if (AnalysisUtils.isFieldReference(methodDecl, token)) continue;
+
+                return false;
+            }
+
+            i++;
+        }
+        return true;
+    }
+
     String substituteEnv(String expression, Map<String, String> env, Set<String> paramNames) {
         if (expression == null || expression.isEmpty()) return expression;
 
         Set<String> reserved = Set.of("this", "null", "true", "false", "new",
                 "Math", "Integer", "Long", "Double", "Float", "String", "System",
-                "Collections", "Arrays", "Objects", "Optional", "super");
+                "Collections", "Arrays", "Objects", "Optional", "super", "Object",
+                "Number", "Boolean", "Byte", "Short", "Character",
+                "byte", "short", "int", "long", "float", "double", "char", "boolean", "void");
 
         StringBuilder result = new StringBuilder();
         int i = 0;

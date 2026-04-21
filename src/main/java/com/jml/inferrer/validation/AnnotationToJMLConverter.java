@@ -76,6 +76,10 @@ public class AnnotationToJMLConverter {
         CompilationUnit cu = parseResult.getResult().get();
         List<Replacement> replacements = new ArrayList<>();
         boolean hasAnnotations = false;
+        // Collected field names referenced by any inferred spec. Used after the per-method
+        // pass to inject /*@ spec_public @*/ before non-public fields so OpenJML allows
+        // public-method specs to mention them.
+        Set<String> specReferencedFields = new java.util.LinkedHashSet<>();
 
         // Process class-level annotations
         for (ClassOrInterfaceDeclaration classDecl : cu.findAll(ClassOrInterfaceDeclaration.class)) {
@@ -104,7 +108,9 @@ public class AnnotationToJMLConverter {
         // Process method-level annotations
         for (MethodDeclaration methodDecl : cu.findAll(MethodDeclaration.class)) {
             List<String> specComments = new ArrayList<>();
-            List<String> loopInvariants = new ArrayList<>();
+            // Loop invariants tagged by their owning loop's source line. line 0 means
+            // "default to the first loop" (legacy single-loop behaviour).
+            Map<Integer, List<String>> invariantsByLoop = new java.util.LinkedHashMap<>();
             boolean isPure = false;
             List<int[]> annotationLineRanges = new ArrayList<>();
 
@@ -116,12 +122,19 @@ public class AnnotationToJMLConverter {
                     String value = extractAnnotationValue(ann);
                     if (value != null) {
                         if (name.equals("LoopInvariant")) {
-                            loopInvariants.add(normalizeJMLExpression(value));
+                            int loopLine = extractLoopLineMember(ann);
+                            invariantsByLoop.computeIfAbsent(loopLine, k -> new ArrayList<>())
+                                    .add(normalizeJMLExpression(value));
                         } else {
                             String jmlClause = convertMethodAnnotation(name, value);
                             if (jmlClause != null) {
                                 specComments.add(jmlClause);
                             }
+                        }
+                        // Record any field references that appear in the spec text so the
+                        // class-level `spec_public` injection below can find them.
+                        if (methodDecl.isPublic()) {
+                            collectFieldReferences(value, methodDecl, specReferencedFields);
                         }
                     }
                     if (ann.getBegin().isPresent()) {
@@ -151,7 +164,7 @@ public class AnnotationToJMLConverter {
                 }
             }
 
-            if (!specComments.isEmpty() || isPure || !loopInvariants.isEmpty()) {
+            if (!specComments.isEmpty() || isPure || !invariantsByLoop.isEmpty()) {
                 // Build JML spec block to insert before method declaration
                 String indent = "";
                 if (methodDecl.getBegin().isPresent()) {
@@ -182,15 +195,28 @@ public class AnnotationToJMLConverter {
                 }
                 replacements.add(new Replacement(insertLine, insertLine, jmlBlock.toString(), true));
 
-                // Handle loop invariants: insert before first loop in method body
-                if (!loopInvariants.isEmpty() && methodDecl.getBody().isPresent()) {
+                // Handle loop invariants: insert each tagged group above its loop. Tag 0 means
+                // "first loop" (legacy fallback for invariants the analyzer didn't attribute).
+                if (!invariantsByLoop.isEmpty() && methodDecl.getBody().isPresent()) {
                     BlockStmt body = methodDecl.getBody().get();
-                    Optional<Statement> firstLoop = findFirstLoop(body);
-                    if (firstLoop.isPresent() && firstLoop.get().getBegin().isPresent()) {
-                        int loopLine = firstLoop.get().getBegin().get().line;
+                    List<Statement> loopsByOrdinal = collectLoopsInVisitOrder(body);
+
+                    for (Map.Entry<Integer, List<String>> entry : invariantsByLoop.entrySet()) {
+                        int ordinal = entry.getKey();
+                        // Ordinal 0 is the legacy/untagged form (and matches the first loop too).
+                        // Out-of-range ordinals fall back to the first loop.
+                        Statement targetLoop;
+                        if (ordinal >= 0 && ordinal < loopsByOrdinal.size()) {
+                            targetLoop = loopsByOrdinal.get(ordinal);
+                        } else {
+                            targetLoop = loopsByOrdinal.isEmpty() ? null : loopsByOrdinal.get(0);
+                        }
+                        if (targetLoop == null || targetLoop.getBegin().isEmpty()) continue;
+
+                        int loopLine = targetLoop.getBegin().get().line;
                         String loopIndent = getIndent(source, loopLine);
                         StringBuilder loopJml = new StringBuilder();
-                        for (String inv : loopInvariants) {
+                        for (String inv : entry.getValue()) {
                             loopJml.append(loopIndent).append("//@ loop_invariant ")
                                     .append(inv).append(";\n");
                         }
@@ -205,10 +231,49 @@ public class AnnotationToJMLConverter {
             return null;
         }
 
+        // For each non-public field referenced by an inferred public-method spec, inject
+        // /*@ spec_public @*/ before the field declaration. Without this, OpenJML rejects
+        // ensures/assignable clauses on public methods that name the field.
+        for (com.github.javaparser.ast.body.FieldDeclaration field
+                : cu.findAll(com.github.javaparser.ast.body.FieldDeclaration.class)) {
+            if (field.isPublic()) continue;
+            boolean referenced = field.getVariables().stream()
+                    .anyMatch(v -> specReferencedFields.contains(v.getNameAsString()));
+            if (!referenced) continue;
+            if (field.getBegin().isEmpty()) continue;
+            int line = field.getBegin().get().line;
+            String indent = getIndent(source, line);
+            replacements.add(new Replacement(line, line, indent + "/*@ spec_public @*/\n", true));
+        }
+
         // Also remove import lines for our annotation package
         String result = applyReplacements(source, replacements);
         result = removeAnnotationImports(result);
         return result;
+    }
+
+    /**
+     * Scans {@code specValue} for bare identifiers that match instance-field names of the
+     * enclosing class and records them in {@code into}. Used to seed the spec_public
+     * injection pass.
+     */
+    private void collectFieldReferences(String specValue,
+                                        MethodDeclaration methodDecl,
+                                        Set<String> into) {
+        if (specValue == null) return;
+        Optional<ClassOrInterfaceDeclaration> classOpt = methodDecl
+                .findAncestor(ClassOrInterfaceDeclaration.class);
+        if (classOpt.isEmpty()) return;
+        Set<String> fieldNames = new java.util.HashSet<>();
+        classOpt.get().getFields().forEach(fd -> fd.getVariables()
+                .forEach(v -> fieldNames.add(v.getNameAsString())));
+        if (fieldNames.isEmpty()) return;
+
+        Matcher m = Pattern.compile("\\b([a-zA-Z_$][a-zA-Z_$0-9]*)\\b").matcher(specValue);
+        while (m.find()) {
+            String tok = m.group(1);
+            if (fieldNames.contains(tok)) into.add(tok);
+        }
     }
 
     /**
@@ -330,6 +395,41 @@ public class AnnotationToJMLConverter {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Returns all loop statements in the method body in document (visit) order — depth-first
+     * preorder, matching {@link com.github.javaparser.ast.visitor.VoidVisitorAdapter}'s walk
+     * order. The analyzer assigns each loop an ordinal in the same traversal order so each
+     * invariant tag matches the correct loop irrespective of source-line shifts.
+     */
+    private List<Statement> collectLoopsInVisitOrder(BlockStmt body) {
+        List<Statement> loops = new ArrayList<>();
+        body.accept(new com.github.javaparser.ast.visitor.VoidVisitorAdapter<Void>() {
+            @Override public void visit(ForStmt n, Void arg) { loops.add(n); super.visit(n, arg); }
+            @Override public void visit(WhileStmt n, Void arg) { loops.add(n); super.visit(n, arg); }
+            @Override public void visit(ForEachStmt n, Void arg) { loops.add(n); super.visit(n, arg); }
+            @Override public void visit(DoStmt n, Void arg) { loops.add(n); super.visit(n, arg); }
+        }, null);
+        return loops;
+    }
+
+    /**
+     * Reads the {@code loopLine} member from a {@code @LoopInvariant(...)} annotation, or
+     * 0 if absent (legacy single-member form).
+     */
+    private int extractLoopLineMember(AnnotationExpr ann) {
+        if (ann instanceof com.github.javaparser.ast.expr.NormalAnnotationExpr nae) {
+            for (var pair : nae.getPairs()) {
+                if ("loopLine".equals(pair.getNameAsString())) {
+                    var v = pair.getValue();
+                    if (v.isIntegerLiteralExpr()) {
+                        return v.asIntegerLiteralExpr().asInt();
+                    }
+                }
+            }
+        }
+        return 0;
     }
 
     /**

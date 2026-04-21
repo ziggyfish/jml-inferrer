@@ -6,6 +6,7 @@ import com.github.javaparser.ast.stmt.*;
 import com.jml.inferrer.model.MethodSpecification;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Infers exception specifications (@signals) and analyzes exception handling patterns.
@@ -27,14 +28,23 @@ class ExceptionAnalyzer {
 
     void inferExceptionSpecifications(MethodDeclaration methodDecl, MethodSpecification spec,
                                         ASTCollector collector) {
+        Set<String> paramNames = new java.util.LinkedHashSet<>();
+        for (var p : methodDecl.getParameters()) paramNames.add(p.getNameAsString());
+        SymbolicExecutor scopeChecker = new SymbolicExecutor();
+
         // Find all throw statements
         collector.throwStmts.forEach(throwStmt -> {
+            // A throw nested inside a loop refers to loop-local variables in its guard;
+            // the resulting "X when ..." spec would reference identifiers undefined at method scope.
+            if (PreconditionAnalyzer.isInsideLoop(throwStmt)) return;
+
             Expression thrownExpr = throwStmt.getExpression();
             String exceptionType = getExceptionType(thrownExpr);
 
             throwStmt.findAncestor(IfStmt.class).ifPresent(ifStmt -> {
                 String condition = getThrowCondition(ifStmt, throwStmt);
                 if (condition != null && !condition.isEmpty()) {
+                    if (!scopeChecker.isMethodScopeSafe(condition, methodDecl, paramNames)) return;
                     spec.addExceptionSpecification(exceptionType + " when " + condition,
                             MethodSpecification.ConfidenceLevel.HIGH);
                 } else {

@@ -25,17 +25,75 @@ class PurityAnalyzer {
     }
 
     boolean hasFieldWrites(MethodDeclaration methodDecl, ASTCollector collector) {
-        return !collector.assignExprs.stream()
-                .filter(assign -> assign.getTarget() instanceof FieldAccessExpr ||
-                               (assign.getTarget() instanceof NameExpr &&
-                                AnalysisUtils.isFieldReference(methodDecl, assign.getTarget().toString())))
-                .toList().isEmpty();
+        boolean directWrite = collector.assignExprs.stream().anyMatch(assign -> {
+            Expression target = assign.getTarget();
+            if (target instanceof FieldAccessExpr) return true;
+            if (target instanceof NameExpr) {
+                return AnalysisUtils.isFieldReference(methodDecl, target.toString());
+            }
+            if (target instanceof ArrayAccessExpr aa) {
+                return AssignableAnalyzer.extractArrayBase(aa, methodDecl) != null
+                        && !isParameterArray(aa, methodDecl);
+            }
+            return false;
+        });
+        if (directWrite) return true;
+
+        return collector.unaryExprs.stream().anyMatch(u -> {
+            switch (u.getOperator()) {
+                case POSTFIX_INCREMENT:
+                case POSTFIX_DECREMENT:
+                case PREFIX_INCREMENT:
+                case PREFIX_DECREMENT:
+                    Expression e = u.getExpression();
+                    if (e instanceof FieldAccessExpr) return true;
+                    if (e instanceof NameExpr) {
+                        return AnalysisUtils.isFieldReference(methodDecl, e.toString());
+                    }
+                    return false;
+                default:
+                    return false;
+            }
+        });
+    }
+
+    private boolean isParameterArray(ArrayAccessExpr access, MethodDeclaration methodDecl) {
+        Expression name = access.getName();
+        while (name instanceof ArrayAccessExpr inner) {
+            name = inner.getName();
+        }
+        if (name instanceof NameExpr ne) {
+            String varName = ne.getNameAsString();
+            return methodDecl.getParameters().stream()
+                    .anyMatch(p -> p.getNameAsString().equals(varName));
+        }
+        return false;
     }
 
     boolean hasFieldReads(MethodDeclaration methodDecl, ASTCollector collector) {
-        return !collector.fieldAccessExprs.isEmpty() ||
-               collector.nameExprs.stream()
-                       .anyMatch(ne -> AnalysisUtils.isFieldReference(methodDecl, ne.getNameAsString()));
+        // A FieldAccessExpr whose scope is a parameter or local (e.g. arr.length on a parameter)
+        // is NOT a read of an instance field — don't let it block @pure.
+        boolean realFieldAccess = collector.fieldAccessExprs.stream()
+                .anyMatch(fa -> {
+                    String scope = fa.getScope().toString();
+                    if (scope.equals("this")) return true;
+                    // scope is some name — only treat as field read if it isn't a param/local
+                    if (fa.getScope() instanceof NameExpr ne) {
+                        String varName = ne.getNameAsString();
+                        boolean isParam = methodDecl.getParameters().stream()
+                                .anyMatch(p -> p.getNameAsString().equals(varName));
+                        if (isParam) return false;
+                        boolean isLocal = methodDecl.findAll(VariableDeclarationExpr.class).stream()
+                                .flatMap(vd -> vd.getVariables().stream())
+                                .anyMatch(v -> v.getNameAsString().equals(varName));
+                        if (isLocal) return false;
+                    }
+                    return true;
+                });
+        if (realFieldAccess) return true;
+
+        return collector.nameExprs.stream()
+                .anyMatch(ne -> AnalysisUtils.isFieldReference(methodDecl, ne.getNameAsString()));
     }
 
     boolean performsIO(ASTCollector collector) {

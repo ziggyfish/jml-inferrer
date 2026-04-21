@@ -17,6 +17,14 @@ public @interface LoopInvariant {
     String value();
 
     /**
+     * Source line of the loop this invariant attaches to. The
+     * AnnotationToJMLConverter uses this to place each invariant directly above the
+     * correct loop when a method contains multiple (nested or sequential) loops.
+     * {@code 0} means "first loop in the body" (legacy behaviour).
+     */
+    int loopLine() default 0;
+
+    /**
      * Container annotation for multiple @LoopInvariant.
      */
     @Retention(RetentionPolicy.RUNTIME)

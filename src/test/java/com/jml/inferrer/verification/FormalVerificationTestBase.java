@@ -279,19 +279,91 @@ abstract class FormalVerificationTestBase {
      * Runs all spec quality checks on the inferred JML for the given method.
      * Each check collects failures; all are reported together at the end.
      */
+    /**
+     * Extracts the JML-relevant lines for a single method:
+     *   - the contiguous comment / blank-line block immediately preceding the method declaration
+     *     (where {@code //@ requires}, {@code //@ ensures}, {@code //@ assignable}, and
+     *     {@code /*@ pure @*\/} live), and
+     *   - the method body itself (where {@code //@ loop_invariant} lines live, emitted just
+     *     above each loop by {@link com.jml.inferrer.validation.AnnotationToJMLConverter}).
+     *
+     * Per-method scoping is required because the converter emits one file containing every method
+     * in the class; checks like duplicate-spec detection and assignable-coverage must not see
+     * specs belonging to sibling methods.
+     */
+    private String getMethodJmlBlock(String jmlSource, String methodName) {
+        String[] lines = jmlSource.split("\n", -1);
+        java.util.regex.Pattern methodPattern = java.util.regex.Pattern.compile(
+                "\\b" + java.util.regex.Pattern.quote(methodName) + "\\s*\\(");
+
+        int declLine = -1;
+        for (int i = 0; i < lines.length; i++) {
+            String trimmed = lines[i].stripLeading();
+            if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) continue;
+            if (methodPattern.matcher(lines[i]).find()) {
+                declLine = i;
+                break;
+            }
+        }
+        if (declLine < 0) return jmlSource;
+
+        int startLine = declLine;
+        for (int i = declLine - 1; i >= 0; i--) {
+            String trimmed = lines[i].stripLeading();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            if (trimmed.startsWith("//@") || trimmed.startsWith("/*@") ||
+                    trimmed.startsWith("@") || trimmed.startsWith("*") ||
+                    trimmed.startsWith("//")) {
+                startLine = i;
+            } else {
+                break;
+            }
+        }
+
+        int endLine = declLine;
+        int braceDepth = 0;
+        boolean foundOpenBrace = false;
+        outer:
+        for (int i = declLine; i < lines.length; i++) {
+            String line = lines[i];
+            for (int j = 0; j < line.length(); j++) {
+                char c = line.charAt(j);
+                if (c == '{') { braceDepth++; foundOpenBrace = true; }
+                else if (c == '}') {
+                    braceDepth--;
+                    if (foundOpenBrace && braceDepth == 0) {
+                        endLine = i;
+                        break outer;
+                    }
+                }
+            }
+            endLine = i;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = startLine; i <= endLine; i++) {
+            sb.append(lines[i]).append('\n');
+        }
+        return sb.toString();
+    }
+
     private void runSpecQualityChecks(MethodDeclaration method, String jmlSource,
                                        String className, String methodName) {
         List<String> failures = new ArrayList<>();
 
-        checkEnsuresForNonVoid(method, jmlSource, failures);
-        checkRequiresForDereferencedParams(method, jmlSource, failures);
-        checkAssignableOrPure(method, jmlSource, failures);
-        checkLoopInvariantsForLoops(method, jmlSource, failures);
-        checkAssignableCoversFieldWrites(method, jmlSource, failures);
-        checkRequiresForArrayIndexing(method, jmlSource, failures);
-        checkContradictoryEnsures(jmlSource, failures);
-        checkDuplicateSpecs(jmlSource, failures);
-        checkPureMethodDoesNotWriteFields(method, jmlSource, failures);
+        String methodJmlBlock = getMethodJmlBlock(jmlSource, methodName);
+
+        checkEnsuresForNonVoid(method, methodJmlBlock, failures);
+        checkRequiresForDereferencedParams(method, methodJmlBlock, failures);
+        checkAssignableOrPure(method, methodJmlBlock, failures);
+        checkLoopInvariantsForLoops(method, methodJmlBlock, failures);
+        checkAssignableCoversFieldWrites(method, methodJmlBlock, failures);
+        checkRequiresForArrayIndexing(method, methodJmlBlock, failures);
+        checkContradictoryEnsures(methodJmlBlock, failures);
+        checkDuplicateSpecs(methodJmlBlock, failures);
+        checkPureMethodDoesNotWriteFields(method, methodJmlBlock, failures);
 
         if (!failures.isEmpty()) {
             fail("Specification quality check(s) failed for " + className + "." + methodName + ":\n" +
@@ -467,24 +539,25 @@ abstract class FormalVerificationTestBase {
                 line.stripLeading().startsWith("/*@ pure"));
         if (hasPure) return;
 
-        // Check assignable clause covers the written fields
-        String assignableLine = jmlSource.lines()
+        // Check assignable clauses cover the written fields. The converter emits one
+        // //@ assignable line per location, so collect all of them.
+        String assignableText = jmlSource.lines()
                 .filter(line -> line.stripLeading().startsWith("//@ assignable"))
-                .findFirst().orElse("");
+                .collect(Collectors.joining(" "));
 
-        if (assignableLine.isEmpty()) {
+        if (assignableText.isEmpty()) {
             // No assignable at all — already caught by checkAssignableOrPure
             return;
         }
 
         // Don't check if assignable is \everything
-        if (assignableLine.contains("\\everything")) return;
+        if (assignableText.contains("\\everything")) return;
 
         for (String field : writtenFields) {
             // Accept this.field or just field in the assignable clause
-            if (!assignableLine.contains("this." + field) && !assignableLine.contains(field)) {
+            if (!assignableText.contains("this." + field) && !assignableText.contains(field)) {
                 failures.add("Field 'this." + field + "' is written but not in assignable clause: " +
-                        assignableLine.strip());
+                        assignableText.strip());
             }
         }
     }
