@@ -434,6 +434,21 @@ class ReturnValueAnalyzer {
             return;
         }
 
+        // Single return path with a path condition: the path condition just describes which
+        // input states reach the return (other paths throw). The ensures
+        // \result == resolvedExpr holds unconditionally for any normal return — emit it
+        // without the guard. This recovers ensures for guard-then-compute methods like
+        // safeAdd, where conditions reference local vars and would otherwise be dropped.
+        if (results.size() == 1 && results.get(0).pathCondition != null) {
+            SymbolicExecutor.SymbolicReturn sr = results.get(0);
+            if (!AnalysisUtils.isTrivialResult(sr.resolvedExpr)
+                    && sr.resolvedExpr.length() <= 100
+                    && symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) {
+                postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr));
+                return;
+            }
+        }
+
         for (SymbolicExecutor.SymbolicReturn sr : results) {
             if (sr.pathCondition == null) {
                 // Unconditional — filter trivial results (single identifier, literal, etc.)

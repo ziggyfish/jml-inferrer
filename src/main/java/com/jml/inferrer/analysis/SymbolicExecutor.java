@@ -177,6 +177,53 @@ class SymbolicExecutor {
         return false;
     }
 
+    /**
+     * Folds a one-armed {@code if (cond) var = expr;} (or compound-assign) into a conditional
+     * value rebinding for {@code var}: {@code var := cond ? newValue : oldValue}. Returns
+     * true if the fold succeeded — the caller can then skip the default tainting.
+     *
+     * Conservative: only applies when the then-branch is a single statement that is itself
+     * a plain ASSIGN/PLUS/MINUS/MULTIPLY/DIVIDE assignment to a NameExpr that is already in
+     * env. Anything more complex (multiple statements, nested control flow, side effects on
+     * other variables) falls through to the legacy taint behaviour.
+     */
+    boolean tryFoldOneArmedAssignment(Map<String, String> env, Statement thenStmt,
+                                       String condStr, Set<String> paramNames) {
+        Statement single;
+        if (thenStmt instanceof BlockStmt block) {
+            if (block.getStatements().size() != 1) return false;
+            single = block.getStatements().get(0);
+        } else {
+            single = thenStmt;
+        }
+        if (!(single instanceof ExpressionStmt es)) return false;
+        if (!(es.getExpression() instanceof AssignExpr a)) return false;
+        if (!(a.getTarget() instanceof NameExpr ne)) return false;
+        String varName = ne.getNameAsString();
+        if (!env.containsKey(varName)) return false;
+
+        String oldValue = env.get(varName);
+        String rhsRaw = a.getValue().toString();
+        String resolvedRhs = substituteEnv(rhsRaw, env, paramNames);
+
+        String newValue;
+        if (a.getOperator() == AssignExpr.Operator.ASSIGN) {
+            newValue = resolvedRhs;
+        } else {
+            String op = AnalysisUtils.getCompoundOperatorString(a.getOperator());
+            if (op == null) return false;
+            String lhs = AnalysisUtils.isCompoundExpression(oldValue) ? "(" + oldValue + ")" : oldValue;
+            String rhs = AnalysisUtils.isCompoundExpression(resolvedRhs) ? "(" + resolvedRhs + ")" : resolvedRhs;
+            newValue = lhs + " " + op + " " + rhs;
+        }
+
+        String oldWrapped = AnalysisUtils.isCompoundExpression(oldValue) ? "(" + oldValue + ")" : oldValue;
+        String newWrapped = AnalysisUtils.isCompoundExpression(newValue) ? "(" + newValue + ")" : newValue;
+        String condWrapped = AnalysisUtils.isCompoundExpression(condStr) ? "(" + condStr + ")" : condStr;
+        env.put(varName, condWrapped + " ? " + newWrapped + " : " + oldWrapped);
+        return true;
+    }
+
     void taintModifiedVariables(Map<String, String> env, Statement stmt) {
         for (AssignExpr assign : stmt.findAll(AssignExpr.class)) {
             if (assign.getTarget() instanceof NameExpr) {
@@ -300,7 +347,8 @@ class SymbolicExecutor {
                     if (returnExpr instanceof ConditionalExpr) {
                         ConditionalExpr ternary = (ConditionalExpr) returnExpr;
                         String condStr = substituteEnv(ternary.getCondition().toString(), env, paramNames);
-                        String negCondStr = AnalysisUtils.negateCondition(ternary.getCondition());
+                        String negCondStr = substituteEnv(
+                                AnalysisUtils.negateCondition(ternary.getCondition()), env, paramNames);
                         String thenResolved = substituteEnv(ternary.getThenExpr().toString(), env, paramNames);
                         String elseResolved = substituteEnv(ternary.getElseExpr().toString(), env, paramNames);
                         results.add(new SymbolicReturn(conjoin(pathCondition, condStr), thenResolved));
@@ -338,7 +386,8 @@ class SymbolicExecutor {
                 IfStmt ifStmt = (IfStmt) stmt;
                 String condRaw = ifStmt.getCondition().toString();
                 String condStr = substituteEnv(condRaw, env, paramNames);
-                String negCondStr = AnalysisUtils.negateCondition(ifStmt.getCondition());
+                String negCondStr = substituteEnv(
+                        AnalysisUtils.negateCondition(ifStmt.getCondition()), env, paramNames);
 
                 boolean thenReturns = branchAlwaysReturns(ifStmt.getThenStmt());
                 boolean hasElse = ifStmt.getElseStmt().isPresent();
@@ -437,6 +486,15 @@ class SymbolicExecutor {
                     continue;
 
                 } else {
+                    // One-armed `if (cond) var = expr;` (no else, no early-exit). When the
+                    // then-branch is a single plain assignment to an existing local, fold it
+                    // into a conditional value: `var := (cond ? newValue : oldValue)`. This
+                    // preserves the symbolic value across the if so subsequent uses (and the
+                    // return) can substitute it -- without this, the variable gets tainted
+                    // and any postcondition that mentions it would reference a local.
+                    if (tryFoldOneArmedAssignment(env, ifStmt.getThenStmt(), condStr, paramNames)) {
+                        continue;
+                    }
                     taintModifiedVariables(env, ifStmt.getThenStmt());
                     continue;
                 }

@@ -21,6 +21,7 @@ class PostconditionAnalyzer {
     private final InterproceduralAnalyzer interproceduralAnalyzer;
     private final SymbolicExecutor symbolicExecutor;
     private final FieldModificationAnalyzer fieldModificationAnalyzer;
+    private final LoopReturnPatternAnalyzer loopReturnPatternAnalyzer;
 
     PostconditionAnalyzer(StringAnalyzer stringAnalyzer, CollectionAnalyzer collectionAnalyzer,
                           ReturnValueAnalyzer returnValueAnalyzer, InterproceduralAnalyzer interproceduralAnalyzer,
@@ -31,6 +32,7 @@ class PostconditionAnalyzer {
         this.interproceduralAnalyzer = interproceduralAnalyzer;
         this.symbolicExecutor = symbolicExecutor;
         this.fieldModificationAnalyzer = new FieldModificationAnalyzer();
+        this.loopReturnPatternAnalyzer = new LoopReturnPatternAnalyzer();
     }
 
     void inferPostconditions(MethodDeclaration methodDecl, com.jml.inferrer.model.MethodSpecification spec,
@@ -55,6 +57,10 @@ class PostconditionAnalyzer {
                 // Loop accumulator: `int x = 0; for(...) x += positive; return x;` → \result >= 0
                 returnValueAnalyzer.analyzeLoopAccumulatorReturn(methodDecl, postconditions);
             }
+
+            // Pattern-based loop-return ensures (sum, product, max/min, conditional counter,
+            // linear search). Runs for any non-void return type.
+            loopReturnPatternAnalyzer.analyze(methodDecl, postconditions);
 
             // String return analysis
             if (returnType.equals("String")) {

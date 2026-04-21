@@ -81,8 +81,6 @@ class AnalysisUtils {
         if (expr.equals("this")) return true;
         // Expressions with 'new' are not valid in JML postconditions
         if (expr.contains("new ")) return true;
-        // Ternary expressions can cause operator precedence issues in JML
-        if (expr.contains("?") && expr.contains(":")) return true;
         return false;
     }
 
@@ -94,12 +92,14 @@ class AnalysisUtils {
         if (isStringLiteral(resolvedExpr)) {
             return "\\result.equals(" + resolvedExpr + ")";
         }
-        // Parenthesize expressions containing comparison/equality/logical operators to avoid
-        // ambiguous precedence like \result == a == b
+        // Parenthesize expressions containing comparison/equality/logical operators OR a
+        // ternary `?:` to avoid ambiguous precedence like \result == a == b or
+        // \result == cond ? a : b.
         if (resolvedExpr.matches(".*[=!<>]=.*") ||
             resolvedExpr.matches(".*(?<!=)>(?!=).*") ||
             resolvedExpr.matches(".*(?<!=)<(?!=).*") ||
-            resolvedExpr.contains("&&") || resolvedExpr.contains("||")) {
+            resolvedExpr.contains("&&") || resolvedExpr.contains("||") ||
+            (resolvedExpr.contains("?") && resolvedExpr.contains(":"))) {
             return "\\result == (" + resolvedExpr + ")";
         }
         return "\\result == " + resolvedExpr;

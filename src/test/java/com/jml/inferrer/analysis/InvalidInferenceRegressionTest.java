@@ -274,7 +274,7 @@ class InvalidInferenceRegressionTest extends InferrerTestBase {
     }
 
     @Test
-    @DisplayName("Postcondition should not contain ternary from resolved local")
+    @DisplayName("Postcondition with ternary from resolved local must be fully parenthesised")
     void noTernaryFromResolvedLocal() {
         MethodSpecification spec = infer("""
             class T {
@@ -284,9 +284,15 @@ class InvalidInferenceRegressionTest extends InferrerTestBase {
                 }
             }
             """, "clamp");
+        // Ternary postconditions ARE valid JML so long as the whole expression is wrapped
+        // in parentheses (otherwise `\result == cond ? a : b` parses as
+        // `(\result == cond) ? a : b`). Earlier this test forbade ternary outright; now it
+        // enforces the parenthesisation contract instead.
         for (String post : spec.getPostconditions()) {
-            assertFalse(post.contains("?") && post.contains(":"),
-                    "Postcondition must not contain resolved ternary: " + post);
+            if (post.contains("?") && post.contains(":")) {
+                assertTrue(post.matches("\\\\result\\s*==\\s*\\(.*\\)"),
+                        "Ternary postcondition must be wrapped \\result == (...): " + post);
+            }
         }
     }
 

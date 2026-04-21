@@ -250,12 +250,12 @@ class ComplexMethodTest extends InferrerTestBase {
                 }
             }
             """, "power");
-        // Expected annotated method after inference:
-        //   @Complexity(time = "O(n)")
-        //   (no @Ensures for \\result == 1 -- result is loop-tainted)
-        //   int power(int base, int exp) { ... }
-        assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.contains("\\result == 1")),
-                "Should not resolve loop-tainted accumulator");
+        // Sound conditional ensures of the form "<empty-loop-cond> ==> \result == 1" are
+        // allowed (when the loop body never runs, result stays at the initial value 1).
+        // What must NOT be emitted is the unconditional form, which would be false whenever
+        // the loop body actually executes.
+        assertFalse(spec.getPostconditions().stream().anyMatch(p -> p.equals("\\result == 1")),
+                "Should not emit unconditional \\result == 1 for loop-tainted accumulator");
         assertEquals("O(n)", spec.getTimeComplexity());
     }
 
