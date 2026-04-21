@@ -384,7 +384,7 @@ class ReturnValueAnalyzer {
             if (!PreconditionAnalyzer.isInsideLoop(a)) return; // outside-loop write — bail
             if (a.getOperator() != AssignExpr.Operator.PLUS) return; // only += allowed
             Expression rhs = a.getValue();
-            if (!(rhs.isIntegerLiteralExpr() && rhs.asIntegerLiteralExpr().asInt() >= 0)) return;
+            if (!isKnownNonNegativeRhs(rhs)) return;
             anyLoopWrite = true;
         }
         for (UnaryExpr u : methodDecl.findAll(UnaryExpr.class)) {
@@ -401,6 +401,24 @@ class ReturnValueAnalyzer {
         } else if (!postconditions.contains("\\result > 0")) {
             postconditions.add("\\result >= 0");
         }
+    }
+
+    /**
+     * Mirror of {@link LoopInvariantAnalyzer}'s monotonic-counter RHS gate: accepts a
+     * non-negative integer literal or a bit-mask {@code <expr> & <non-negative-literal>}.
+     * The mask case bounds the result into {@code [0, mask]} which is always non-negative,
+     * letting popcount-style accumulators like {@code count += v & 1} qualify.
+     */
+    private boolean isKnownNonNegativeRhs(Expression rhs) {
+        if (rhs.isIntegerLiteralExpr() && rhs.asIntegerLiteralExpr().asInt() >= 0) return true;
+        if (rhs instanceof BinaryExpr be && be.getOperator() == BinaryExpr.Operator.BINARY_AND) {
+            return isNonNegativeIntegerLiteral(be.getLeft()) || isNonNegativeIntegerLiteral(be.getRight());
+        }
+        return false;
+    }
+
+    private boolean isNonNegativeIntegerLiteral(Expression e) {
+        return e.isIntegerLiteralExpr() && e.asIntegerLiteralExpr().asInt() >= 0;
     }
 
     void analyzeExactReturnExpression(MethodDeclaration methodDecl, Set<String> postconditions,

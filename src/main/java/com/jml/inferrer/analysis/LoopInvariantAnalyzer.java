@@ -14,7 +14,7 @@ import java.util.*;
 class LoopInvariantAnalyzer {
 
     void inferLoopInvariants(MethodDeclaration methodDecl, MethodSpecification spec) {
-        LoopInvariantVisitor loopVisitor = new LoopInvariantVisitor();
+        LoopInvariantVisitor loopVisitor = new LoopInvariantVisitor(spec);
         methodDecl.accept(loopVisitor, null);
         loopVisitor.getInvariantsByOrdinal().forEach((ordinal, invs) ->
                 invs.forEach(inv -> spec.addLoopInvariant(inv, ordinal)));
@@ -33,6 +33,13 @@ class LoopInvariantAnalyzer {
         private final Map<Integer, List<String>> invariantsByOrdinal = new LinkedHashMap<>();
         private int currentLoopOrdinal = 0;
         private int loopCounter = 0;
+        private final MethodSpecification spec;
+
+        LoopInvariantVisitor() { this(null); }
+
+        LoopInvariantVisitor(MethodSpecification spec) {
+            this.spec = spec;
+        }
 
         public Map<Integer, List<String>> getInvariantsByOrdinal() {
             return invariantsByOrdinal;
@@ -58,6 +65,7 @@ class LoopInvariantAnalyzer {
             currentLoopOrdinal = loopCounter++;
             analyzeForLoop(forStmt);
             super.visit(forStmt, arg);
+            ensureAtLeastOneInvariant(forStmt.getBody());
             currentLoopOrdinal = prev;
         }
 
@@ -67,6 +75,7 @@ class LoopInvariantAnalyzer {
             currentLoopOrdinal = loopCounter++;
             analyzeWhileLoop(whileStmt);
             super.visit(whileStmt, arg);
+            ensureAtLeastOneInvariant(whileStmt.getBody());
             currentLoopOrdinal = prev;
         }
 
@@ -76,6 +85,7 @@ class LoopInvariantAnalyzer {
             currentLoopOrdinal = loopCounter++;
             analyzeForEachLoop(forEachStmt);
             super.visit(forEachStmt, arg);
+            ensureAtLeastOneInvariant(forEachStmt.getBody());
             currentLoopOrdinal = prev;
         }
 
@@ -85,7 +95,72 @@ class LoopInvariantAnalyzer {
             currentLoopOrdinal = loopCounter++;
             analyzeDoWhileLoop(doStmt);
             super.visit(doStmt, arg);
+            ensureAtLeastOneInvariant(doStmt.getBody());
             currentLoopOrdinal = prev;
+        }
+
+        /**
+         * Guarantees at least one loop_invariant per loop. Tries in order:
+         *   1. Method preconditions whose free variables are NOT modified in the loop body
+         *      (trivially preserved → sound invariants).
+         *   2. The literal {@code true} as a last-resort placeholder. Always valid JML.
+         *
+         * No-op when the loop already has at least one invariant from the main analysis.
+         */
+        private void ensureAtLeastOneInvariant(Statement body) {
+            if (invariantsByOrdinal.getOrDefault(currentLoopOrdinal, List.of()).size() > 0) return;
+
+            if (spec != null) {
+                Set<String> modified = collectModifiedNames(body);
+                for (String precond : spec.getPreconditions()) {
+                    if (!referencesAny(precond, modified) && isSafePreconditionForInvariant(precond)) {
+                        invariants.add(precond);
+                    }
+                }
+                if (invariantsByOrdinal.getOrDefault(currentLoopOrdinal, List.of()).size() > 0) return;
+            }
+
+            invariants.add("true");
+        }
+
+        /**
+         * Names written to in {@code body} (assignments, compound-assignments, and unary
+         * increment/decrement). Used to filter preconditions that wouldn't be preserved.
+         */
+        private Set<String> collectModifiedNames(Statement body) {
+            Set<String> out = new LinkedHashSet<>();
+            for (AssignExpr a : body.findAll(AssignExpr.class)) {
+                Expression t = a.getTarget();
+                if (t instanceof NameExpr ne) out.add(ne.getNameAsString());
+                else if (t instanceof FieldAccessExpr fa) out.add(fa.getNameAsString());
+                else if (t instanceof ArrayAccessExpr aa) out.add(aa.getName().toString());
+            }
+            for (UnaryExpr u : body.findAll(UnaryExpr.class)) {
+                if (u.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT
+                        || u.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT
+                        || u.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT
+                        || u.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT) {
+                    if (u.getExpression() instanceof NameExpr ne) out.add(ne.getNameAsString());
+                }
+            }
+            return out;
+        }
+
+        private boolean referencesAny(String precond, Set<String> names) {
+            for (String n : names) {
+                if (precond.matches(".*\\b" + java.util.regex.Pattern.quote(n) + "\\b.*")) return true;
+            }
+            return false;
+        }
+
+        /**
+         * Keeps precondition-as-invariant propagation conservative: skip anything mentioning
+         * JML-only identifiers (\old, \result, \forall, etc.) since those have meanings that
+         * don't necessarily carry over into a loop_invariant context.
+         */
+        private boolean isSafePreconditionForInvariant(String precond) {
+            return !precond.contains("\\old") && !precond.contains("\\result")
+                    && !precond.contains("\\forall") && !precond.contains("\\exists");
         }
 
         private void analyzeDoWhileLoop(DoStmt doStmt) {
@@ -515,10 +590,10 @@ class LoopInvariantAnalyzer {
                     if (!isInsideStatement(a, body)) continue outer; // write outside this loop body — bail
                     if (a.getOperator() != AssignExpr.Operator.PLUS) continue outer;
                     Expression rhs = a.getValue();
-                    // RHS must be a non-negative integer literal (sound under bounded arithmetic
-                    // only when overflow is excluded — but `count >= 0` is the inferred invariant
-                    // and overflow would invalidate it; we leave proof of overflow-freedom to OpenJML).
-                    if (!(rhs.isIntegerLiteralExpr() && rhs.asIntegerLiteralExpr().asInt() >= 0)) continue outer;
+                    // RHS must be known non-negative: either a non-negative integer literal or a
+                    // bit-mask expression `<expr> & <non-negative-literal>` (the mask bounds the
+                    // result to [0, mask]). Overflow soundness is left to OpenJML as before.
+                    if (!isKnownNonNegativeRhs(rhs)) continue outer;
                 }
                 for (UnaryExpr u : method.findAll(UnaryExpr.class)) {
                     if (!(u.getExpression() instanceof NameExpr ne) || !ne.getNameAsString().equals(name)) continue;
@@ -529,6 +604,23 @@ class LoopInvariantAnalyzer {
                 result.add(name);
             }
             return result;
+        }
+
+        /**
+         * True when the expression is guaranteed non-negative without semantic analysis:
+         * a non-negative integer literal, or {@code <expr> & <non-negative-int-literal>}.
+         * The latter covers popcount-style accumulators where {@code count += v & 1}.
+         */
+        private boolean isKnownNonNegativeRhs(Expression rhs) {
+            if (rhs.isIntegerLiteralExpr() && rhs.asIntegerLiteralExpr().asInt() >= 0) return true;
+            if (rhs instanceof BinaryExpr be && be.getOperator() == BinaryExpr.Operator.BINARY_AND) {
+                return isNonNegativeIntegerLiteral(be.getLeft()) || isNonNegativeIntegerLiteral(be.getRight());
+            }
+            return false;
+        }
+
+        private boolean isNonNegativeIntegerLiteral(Expression e) {
+            return e.isIntegerLiteralExpr() && e.asIntegerLiteralExpr().asInt() >= 0;
         }
 
         private boolean isInsideStatement(com.github.javaparser.ast.Node node, Statement container) {
