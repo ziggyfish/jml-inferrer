@@ -44,7 +44,7 @@ class LoopReturnPatternAnalyzer {
 
         // Linear-search patterns dispatch on the SHAPE of the returns, not on a single
         // accumulator local — handle them first as they don't fit the "return localVar" mould.
-        analyzeLinearSearch(methodDecl, postconditions);
+        analyzeLinearSearch(methodDecl, postconditions, spec);
 
         // Accumulator patterns: must end with `return localVar;` as the unique return.
         List<ReturnStmt> allReturns = methodDecl.findAll(ReturnStmt.class);
@@ -215,7 +215,8 @@ class LoopReturnPatternAnalyzer {
     // Linear search
     // -----------------------------------------------------------------------
 
-    private void analyzeLinearSearch(MethodDeclaration methodDecl, Set<String> postconditions) {
+    private void analyzeLinearSearch(MethodDeclaration methodDecl, Set<String> postconditions,
+                                       MethodSpecification spec) {
         // Two returns: one inside a loop (early exit on match), one after the loop (sentinel).
         List<ReturnStmt> returns = methodDecl.findAll(ReturnStmt.class);
         if (returns.size() != 2) return;
@@ -267,6 +268,13 @@ class LoopReturnPatternAnalyzer {
             postconditions.add("\\result == (\\exists int k; 0 <= k && k < " + apg.arrayName
                     + ".length; " + apg.arrayName + "[k] " + opString(apg.matchOp)
                     + " " + apg.targetExpr + ")");
+            // Matching invariant: at iteration i, no earlier element has matched
+            // (otherwise the early-return-true would have fired). The negated guard
+            // operator is what holds for indices already iterated.
+            BinaryExpr.Operator negated = negateRelOp(apg.matchOp);
+            if (negated != null) {
+                emitLinearSearchInvariant(insideLoop, apg, negated, spec);
+            }
             return;
         }
         if (isBooleanLiteral(matchExpr, false) && isBooleanLiteral(sentinelExpr, true)) {
@@ -387,6 +395,24 @@ class LoopReturnPatternAnalyzer {
                 + arrayName + "[k])");
         postconditions.add("(\\forall int k; " + low + " <= k && k < " + high + "; \\result <= "
                 + arrayName + "[k])");
+    }
+
+    /**
+     * Emits the universal-so-far invariant needed by the boolean linear-search
+     * pattern. The {@code insideLoopReturn} is the early-return statement; we walk
+     * up to the enclosing for-loop and bind the loop counter into a {@code \forall}.
+     */
+    private void emitLinearSearchInvariant(ReturnStmt insideLoopReturn, ArrayPredicateGuard apg,
+                                            BinaryExpr.Operator negatedOp, MethodSpecification spec) {
+        if (spec == null) return;
+        Optional<ForStmt> forOpt = insideLoopReturn.findAncestor(ForStmt.class);
+        if (forOpt.isEmpty()) return;
+        ForStmt fs = forOpt.get();
+        String counter = extractForCounterName(fs);
+        if (counter == null) return;
+        int line = fs.getBegin().map(p -> p.line).orElse(0);
+        spec.addLoopInvariant("(\\forall int k; 0 <= k && k < " + counter + "; "
+                + apg.arrayName + "[k] " + opString(negatedOp) + " " + apg.targetExpr + ")", line);
     }
 
     /**
