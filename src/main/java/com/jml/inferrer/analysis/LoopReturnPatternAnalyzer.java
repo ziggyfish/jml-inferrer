@@ -285,6 +285,9 @@ class LoopReturnPatternAnalyzer {
             postconditions.add("\\result == (\\forall int k; 0 <= k && k < " + apg.arrayName
                     + ".length; " + apg.arrayName + "[k] " + opString(universalOp)
                     + " " + apg.targetExpr + ")");
+            // Matching invariant: at iteration i, every prefix element already
+            // satisfies the universal property (otherwise we'd have early-returned false).
+            emitLinearSearchInvariant(insideLoop, apg, universalOp, spec);
         }
     }
 
