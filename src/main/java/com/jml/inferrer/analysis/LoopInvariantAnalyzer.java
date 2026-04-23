@@ -212,24 +212,64 @@ class LoopInvariantAnalyzer {
                                 int initVal = init.asIntegerLiteralExpr().asInt();
                                 invariants.add(varName + " >= " + initVal);
                             } else {
-                                invariants.add(varName + " >= 0");
+                                // For non-literal initializers (e.g. `i = start`), only the
+                                // initializer expression itself is sound — and only as a
+                                // lower bound when the loop INCREMENTS, or upper bound when
+                                // it DECREMENTS. Earlier hard-coded `>= 0` was unsound when
+                                // the initializer could be negative.
+                                MethodDeclaration encMethod = forStmt
+                                        .findAncestor(MethodDeclaration.class).orElse(null);
+                                if (encMethod != null
+                                        && isPreStateExpressible(init.toString(), encMethod)) {
+                                    int[] stepBox = new int[]{0};
+                                    forStmt.getUpdate().forEach(u -> {
+                                        int s = getStepSize(u, varName);
+                                        if (s != 0) stepBox[0] = s;
+                                    });
+                                    if (stepBox[0] > 0) {
+                                        invariants.add(varName + " >= " + init.toString());
+                                    } else if (stepBox[0] < 0) {
+                                        invariants.add(varName + " <= " + init.toString());
+                                    }
+                                }
                             }
                         });
+
+                        // Compute the step size for this counter — needed both for a
+                        // modulo invariant and for widening the exit-state upper bound when
+                        // the step is > 1 (e.g., `i += 2` can overshoot `n` by 1).
+                        int[] stepSizeBox = new int[]{0};
+                        forStmt.getUpdate().forEach(updateExpr -> {
+                            int ss = getStepSize(updateExpr, varName);
+                            if (ss != 0) stepSizeBox[0] = ss;
+                        });
+                        final int stepSize = stepSizeBox[0];
 
                         forStmt.getCompare().ifPresent(compare -> {
                             if (compare instanceof BinaryExpr) {
                                 BinaryExpr binExpr = (BinaryExpr) compare;
                                 if (binExpr.getLeft().toString().equals(varName)) {
-                                    invariants.add(varName + " " + getWeakenedOperatorForInvariant(binExpr.getOperator()) + " " + binExpr.getRight());
+                                    String op = getWeakenedOperatorForInvariant(binExpr.getOperator());
+                                    String rhs = binExpr.getRight().toString();
+                                    // For step > 1 and op = `<=`, the counter can overshoot the
+                                    // boundary by up to step-1 at loop exit. Widen the bound.
+                                    if (stepSize > 1 && op.equals("<=")) {
+                                        rhs = "(" + rhs + " + " + (stepSize - 1) + ")";
+                                    }
+                                    invariants.add(varName + " " + op + " " + rhs);
+                                    // Also emit a precondition ensuring the invariant holds at
+                                    // loop entry (when init is a literal). `for(int i=0; i<n)`
+                                    // emits `i<=n` invariant; caller must pass n>=0.
+                                    emitCounterBoundPrecondition(forStmt, varName, op, rhs);
                                 }
                             }
                         });
 
                         forStmt.getUpdate().forEach(updateExpr -> {
-                            int stepSize = getStepSize(updateExpr, varName);
-                            if (stepSize > 1) {
-                                invariants.add(varName + " % " + stepSize + " == 0");
-                            } else if (stepSize < 0) {
+                            int stepSizeLocal = getStepSize(updateExpr, varName);
+                            if (stepSizeLocal > 1) {
+                                invariants.add(varName + " % " + stepSizeLocal + " == 0");
+                            } else if (stepSizeLocal < 0) {
                                 forStmt.getCompare().ifPresent(compare -> {
                                     if (compare instanceof BinaryExpr) {
                                         BinaryExpr binExpr = (BinaryExpr) compare;
@@ -264,11 +304,18 @@ class LoopInvariantAnalyzer {
                 }
             }
 
+            // Decreasing-bounded locals (declared outside, decremented inside) get
+            // `local <= init` as a sound invariant. Covers `int right = arr.length - 1`
+            // patterns common in two-pointer traversals.
+            findMonotonicDecreasingBoundedCounters(forStmt, forStmt.getBody()).forEach((name, init) ->
+                    invariants.add(name + " <= " + init));
+
             analyzeAccumulators(forStmt.getBody(), invariants, counterNames);
             analyzeArraySegments(forStmt, invariants, counterNames);
             analyzeQuantifiedInvariants(forStmt, invariants, counterNames);
             analyzeVariableRelationships(forStmt.getBody(), invariants);
             analyzeLoopBodyForInvariants(forStmt.getBody(), invariants);
+            SumInductionAnalyzer.analyze(forStmt, counterNames, invariants);
         }
 
         private int getStepSize(Expression updateExpr, String varName) {
@@ -287,6 +334,14 @@ class LoopInvariantAnalyzer {
                 AssignExpr assignExpr = (AssignExpr) updateExpr;
                 if (assignExpr.getTarget().toString().equals(varName)) {
                     Expression value = assignExpr.getValue();
+                    AssignExpr.Operator op = assignExpr.getOperator();
+                    // Compound: `i += K` / `i -= K` (value is the literal directly)
+                    if (op == AssignExpr.Operator.PLUS) {
+                        try { return getIntValue(value); } catch (Exception e) { return 1; }
+                    } else if (op == AssignExpr.Operator.MINUS) {
+                        try { return -getIntValue(value); } catch (Exception e) { return -1; }
+                    }
+                    // Plain: `i = i + K` / `i = i - K` (value is BinaryExpr)
                     if (value instanceof BinaryExpr) {
                         BinaryExpr binExpr = (BinaryExpr) value;
                         if (binExpr.getLeft().toString().equals(varName)) {
@@ -337,6 +392,10 @@ class LoopInvariantAnalyzer {
 
         private void analyzeAccumulators(Statement body, Set<String> invariants, List<String> counterNames) {
             body.findAll(AssignExpr.class).forEach(assign -> {
+                // Skip assignments that live inside a nested loop — the nested loop will
+                // analyse them on its own visit, and mentioning its counters at this
+                // outer-loop level would be a scope error.
+                if (isInsideNestedLoopOf(assign, body)) return;
                 if (assign.getTarget() instanceof NameExpr) {
                     String varName = assign.getTarget().toString();
 
@@ -346,16 +405,10 @@ class LoopInvariantAnalyzer {
                         if (value instanceof BinaryExpr) {
                             BinaryExpr binExpr = (BinaryExpr) value;
 
-                            if (binExpr.getLeft().toString().equals(varName) &&
-                                binExpr.getOperator() == BinaryExpr.Operator.PLUS) {
-                                invariants.add(varName + " >= 0");
-
-                                if (!counterNames.isEmpty()) {
-                                    String counter = counterNames.get(0);
-                                    invariants.add(varName + " <= " + counter + " * Integer.MAX_VALUE");
-                                }
-                            }
-
+                            // `v = v + literal_1` (count-by-one accumulator) — the only
+                            // shape we can reliably bound. Other compound-add patterns get
+                            // attempted by findMonotonicNonNegativeCounters with a stricter
+                            // RHS check, so they don't need to fire here.
                             if (binExpr.getOperator() == BinaryExpr.Operator.PLUS &&
                                 binExpr.getRight().isIntegerLiteralExpr() &&
                                 binExpr.getRight().asIntegerLiteralExpr().asInt() == 1) {
@@ -370,6 +423,41 @@ class LoopInvariantAnalyzer {
                     }
                 }
             });
+            // Handle `v++` / `++v` pattern — same as `v = v + 1` for invariant purposes.
+            // Skip increments that live inside a nested loop: those are the nested loop's
+            // business (it will analyse them when visited) and at this outer-loop level
+            // the nested counter isn't in scope.
+            body.findAll(UnaryExpr.class).forEach(unary -> {
+                if (unary.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT
+                        && unary.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT) return;
+                if (!(unary.getExpression() instanceof NameExpr ne)) return;
+                if (isInsideNestedLoopOf(unary, body)) return;
+                String varName = ne.getNameAsString();
+                if (counterNames.contains(varName)) return;
+                if (counterNames.isEmpty()) return;
+                String counter = counterNames.get(0);
+                invariants.add(varName + " >= 0");
+                invariants.add(varName + " <= " + counter);
+            });
+        }
+
+        /**
+         * Returns true when {@code node} sits inside a loop that's nested within the
+         * given outer loop body — i.e., there's a ForStmt/WhileStmt/DoStmt between
+         * {@code node} and {@code outerBody}.
+         */
+        private boolean isInsideNestedLoopOf(com.github.javaparser.ast.Node node, Statement outerBody) {
+            com.github.javaparser.ast.Node cur = node;
+            while (cur.getParentNode().isPresent()) {
+                com.github.javaparser.ast.Node parent = cur.getParentNode().get();
+                if (parent == outerBody) return false;
+                if (parent instanceof ForStmt || parent instanceof WhileStmt
+                        || parent instanceof DoStmt || parent instanceof ForEachStmt) {
+                    return true;
+                }
+                cur = parent;
+            }
+            return false;
         }
 
         private void analyzeArraySegments(ForStmt forStmt, Set<String> invariants, List<String> counterNames) {
@@ -460,6 +548,87 @@ class LoopInvariantAnalyzer {
                     }
                 });
             });
+
+            // Universal-so-far pattern: `if (arr[i] <op> const) return <literal>;` inside a
+            // for-loop means every already-seen element satisfies the negation of <op>.
+            // Emit `(\forall int k; 0 <= k < i; arr[k] !op const)` so OpenJML can prove
+            // the matching `\result == \forall …` postcondition at loop exit.
+            Set<String> innerLoopCounters = collectInnerLoopCounters(forStmt);
+            body.findAll(IfStmt.class).forEach(ifStmt -> {
+                if (!alwaysReturnsOrThrows(ifStmt.getThenStmt())) return;
+                if (!(ifStmt.getCondition() instanceof BinaryExpr bcond)) return;
+                if (!isRelationalOp(bcond.getOperator())) return;
+                if (!(bcond.getLeft() instanceof ArrayAccessExpr aae)) return;
+                if (!aae.getIndex().toString().equals(counter)) return;
+                String arrName = aae.getName().toString();
+                String rhs = bcond.getRight().toString();
+                // Skip if the RHS references an inner-loop variable — the resulting
+                // invariant would bind `k` in a scope where the inner counter isn't
+                // visible (or shadows the wrong thing).
+                for (String innerCounter : innerLoopCounters) {
+                    if (rhs.matches(".*\\b" + java.util.regex.Pattern.quote(innerCounter) + "\\b.*")) return;
+                }
+                BinaryExpr.Operator negated = negateRelationalOperator(bcond.getOperator());
+                if (negated == null) return;
+                String opStr = relOpString(negated);
+                invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
+                        arrName + "[k] " + opStr + " " + rhs + ")");
+            });
+        }
+
+        private Set<String> collectInnerLoopCounters(ForStmt outer) {
+            Set<String> inner = new LinkedHashSet<>();
+            for (ForStmt nested : outer.getBody().findAll(ForStmt.class)) {
+                if (nested == outer) continue;
+                nested.getInitialization().forEach(init -> {
+                    if (init instanceof VariableDeclarationExpr vde) {
+                        vde.getVariables().forEach(v -> inner.add(v.getNameAsString()));
+                    }
+                });
+            }
+            return inner;
+        }
+
+        private boolean isRelationalOp(BinaryExpr.Operator op) {
+            return op == BinaryExpr.Operator.LESS || op == BinaryExpr.Operator.LESS_EQUALS
+                    || op == BinaryExpr.Operator.GREATER || op == BinaryExpr.Operator.GREATER_EQUALS
+                    || op == BinaryExpr.Operator.EQUALS || op == BinaryExpr.Operator.NOT_EQUALS;
+        }
+
+        private BinaryExpr.Operator negateRelationalOperator(BinaryExpr.Operator op) {
+            return switch (op) {
+                case LESS -> BinaryExpr.Operator.GREATER_EQUALS;
+                case LESS_EQUALS -> BinaryExpr.Operator.GREATER;
+                case GREATER -> BinaryExpr.Operator.LESS_EQUALS;
+                case GREATER_EQUALS -> BinaryExpr.Operator.LESS;
+                case EQUALS -> BinaryExpr.Operator.NOT_EQUALS;
+                case NOT_EQUALS -> BinaryExpr.Operator.EQUALS;
+                default -> null;
+            };
+        }
+
+        private String relOpString(BinaryExpr.Operator op) {
+            return switch (op) {
+                case LESS -> "<";
+                case LESS_EQUALS -> "<=";
+                case GREATER -> ">";
+                case GREATER_EQUALS -> ">=";
+                case EQUALS -> "==";
+                case NOT_EQUALS -> "!=";
+                default -> "";
+            };
+        }
+
+        private boolean alwaysReturnsOrThrows(Statement stmt) {
+            if (stmt instanceof com.github.javaparser.ast.stmt.ReturnStmt) return true;
+            if (stmt instanceof com.github.javaparser.ast.stmt.ThrowStmt) return true;
+            if (stmt instanceof com.github.javaparser.ast.stmt.BlockStmt block) {
+                for (Statement s : block.getStatements()) {
+                    if (s instanceof com.github.javaparser.ast.stmt.ReturnStmt
+                            || s instanceof com.github.javaparser.ast.stmt.ThrowStmt) return true;
+                }
+            }
+            return false;
         }
 
         private void analyzeVariableRelationships(Statement body, Set<String> invariants) {
@@ -496,7 +665,18 @@ class LoopInvariantAnalyzer {
                     String left = binExpr.getLeft().toString();
                     String right = binExpr.getRight().toString();
                     if (counterNames.contains(left)) {
-                        invariants.add(left + " " + getWeakenedOperatorForInvariant(binExpr.getOperator()) + " " + right);
+                        String weakened = getWeakenedOperatorForInvariant(binExpr.getOperator());
+                        // The invariant `counter <op> bound` only holds at loop entry when
+                        // the counter's initial value already satisfies the bound. We can only
+                        // soundly add it if the bound is pre-state-expressible (so we can also
+                        // emit a matching precondition). Otherwise the invariant could be false
+                        // at loop entry — e.g. `while (left < right)` with `right = arr.length - 1`
+                        // fails when arr.length == 0.
+                        boolean preconditionEmitted =
+                                emitCounterBoundPrecondition(whileStmt, left, weakened, right);
+                        if (preconditionEmitted) {
+                            invariants.add(left + " " + weakened + " " + right);
+                        }
                         invariants.add(left + " >= 0");
                     } else if (counterNames.contains(right)) {
                         invariants.add(right + " >= 0");
@@ -513,6 +693,12 @@ class LoopInvariantAnalyzer {
             for (String counter : findMonotonicNonNegativeCounters(whileStmt, body)) {
                 invariants.add(counter + " >= 0");
             }
+
+            // For counters that start at a pre-state-expressible value and are only
+            // decremented in the body, emit `counter <= init` — holds inductively because
+            // decrement preserves the upper bound.
+            findMonotonicDecreasingBoundedCounters(whileStmt, body).forEach((name, init) ->
+                    invariants.add(name + " <= " + init));
 
             analyzeAccumulators(body, invariants, counterNames);
             analyzeVariableRelationships(body, invariants);
@@ -545,6 +731,130 @@ class LoopInvariantAnalyzer {
          * Soundness gate: any other write (including plain {@code =}, {@code -=},
          * {@code *=}, etc.) disqualifies the counter.
          */
+        /**
+         * Emits {@code requires initial OP bound} on the method spec when the counter has
+         * a literal initializer AND the bound is expressible in pre-state (a parameter,
+         * field, literal, or `param.length`). Without the pre-state check we'd emit
+         * invariants that reference local variables, which OpenJML rejects.
+         */
+        private boolean emitCounterBoundPrecondition(com.github.javaparser.ast.Node loopNode,
+                                                   String counter, String weakenedOp, String bound) {
+            if (spec == null) return false;
+            if (!weakenedOp.equals("<=") && !weakenedOp.equals(">=")) return false;
+            Optional<MethodDeclaration> methodOpt = loopNode.findAncestor(MethodDeclaration.class);
+            if (methodOpt.isEmpty()) return false;
+            MethodDeclaration method = methodOpt.get();
+            if (!isPreStateExpressible(bound, method)) return false;
+            for (com.github.javaparser.ast.body.VariableDeclarator vd
+                    : method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                if (!vd.getNameAsString().equals(counter) || vd.getInitializer().isEmpty()) continue;
+                Expression init = vd.getInitializer().get();
+                String initStr;
+                if (init.isIntegerLiteralExpr()) {
+                    initStr = String.valueOf(init.asIntegerLiteralExpr().asInt());
+                } else if (init.isNameExpr() && isPreStateExpressible(init.toString(), method)) {
+                    initStr = init.toString();
+                } else {
+                    continue;
+                }
+                spec.addPrecondition(initStr + " " + weakenedOp + " " + bound,
+                        MethodSpecification.ConfidenceLevel.MEDIUM);
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Returns true if {@code expr} only references parameters, fields, literals, and
+         * the {@code .length} property of arrays.
+         */
+        private boolean isPreStateExpressible(String expr, MethodDeclaration method) {
+            Set<String> paramNames = new java.util.HashSet<>();
+            method.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+            Set<String> fieldNames = method.findAncestor(
+                    com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .map(cls -> cls.getFields().stream()
+                            .flatMap(f -> f.getVariables().stream())
+                            .map(v -> v.getNameAsString())
+                            .collect(java.util.stream.Collectors.toSet()))
+                    .orElseGet(java.util.HashSet::new);
+
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\\b([a-zA-Z_$][a-zA-Z_$0-9]*)\\b").matcher(expr);
+            while (m.find()) {
+                String tok = m.group(1);
+                int idx = m.end();
+                boolean followedByParen = idx < expr.length() && expr.charAt(idx) == '(';
+                boolean afterDot = m.start() > 0 && expr.charAt(m.start() - 1) == '.';
+                if (followedByParen || afterDot) continue;
+                if (tok.equals("this") || tok.equals("true") || tok.equals("false")
+                        || tok.equals("null") || tok.equals("Integer") || tok.equals("Long")) continue;
+                if (paramNames.contains(tok) || fieldNames.contains(tok)) continue;
+                return false;
+            }
+            return true;
+        }
+
+        /**
+         * Returns a map of local variables that (a) are declared with an initializer
+         * expression referencing only parameters, fields, and literals, and (b) are only
+         * ever modified (anywhere in the enclosing method) by `--` or `-= positive-literal`
+         * inside this loop's body. For such variables, `var <= initExpr` is a sound loop
+         * invariant — the upper bound can't be violated by decrement.
+         */
+        private Map<String, String> findMonotonicDecreasingBoundedCounters(
+                com.github.javaparser.ast.Node loopNode, Statement body) {
+            Map<String, String> result = new LinkedHashMap<>();
+            Optional<MethodDeclaration> methodOpt = loopNode.findAncestor(MethodDeclaration.class);
+            if (methodOpt.isEmpty()) return result;
+            MethodDeclaration method = methodOpt.get();
+
+            // Candidate names: anything with a -- or -= in the body.
+            Set<String> bodyCounters = new LinkedHashSet<>();
+            body.findAll(UnaryExpr.class).forEach(u -> {
+                if (u.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT
+                        || u.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT) {
+                    if (u.getExpression() instanceof NameExpr ne) bodyCounters.add(ne.getNameAsString());
+                }
+            });
+            body.findAll(AssignExpr.class).forEach(a -> {
+                if (a.getOperator() == AssignExpr.Operator.MINUS
+                        && a.getTarget() instanceof NameExpr ne) {
+                    bodyCounters.add(ne.getNameAsString());
+                }
+            });
+
+            outer:
+            for (String name : bodyCounters) {
+                Expression init = null;
+                for (com.github.javaparser.ast.body.VariableDeclarator vd
+                        : method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                    if (vd.getNameAsString().equals(name) && vd.getInitializer().isPresent()) {
+                        init = vd.getInitializer().get();
+                    }
+                }
+                if (init == null) continue;
+                if (!isPreStateExpressible(init.toString(), method)) continue;
+
+                // All writes to `name` in the method must be inside this loop body and
+                // of the monotonic-decreasing kind.
+                for (AssignExpr a : method.findAll(AssignExpr.class)) {
+                    if (!(a.getTarget() instanceof NameExpr targ) || !targ.getNameAsString().equals(name)) continue;
+                    if (!isInsideStatement(a, body)) continue outer;
+                    if (a.getOperator() != AssignExpr.Operator.MINUS) continue outer;
+                    if (!isKnownNonNegativeRhs(a.getValue())) continue outer;
+                }
+                for (UnaryExpr u : method.findAll(UnaryExpr.class)) {
+                    if (!(u.getExpression() instanceof NameExpr ne) || !ne.getNameAsString().equals(name)) continue;
+                    if (!isInsideStatement(u, body)) continue outer;
+                    if (u.getOperator() != UnaryExpr.Operator.POSTFIX_DECREMENT
+                            && u.getOperator() != UnaryExpr.Operator.PREFIX_DECREMENT) continue outer;
+                }
+                result.put(name, init.toString());
+            }
+            return result;
+        }
+
         private List<String> findMonotonicNonNegativeCounters(com.github.javaparser.ast.Node loopNode, Statement body) {
             List<String> result = new ArrayList<>();
 
@@ -670,18 +980,10 @@ class LoopInvariantAnalyzer {
         }
 
         private void analyzeLoopBodyForInvariants(Statement body, Set<String> invariants) {
-            body.findAll(AssignExpr.class).stream()
-                .filter(assign -> assign.getTarget() instanceof NameExpr)
-                .forEach(assign -> {
-                    String varName = assign.getTarget().toString();
-                    if (assign.getValue() instanceof BinaryExpr) {
-                        BinaryExpr binExpr = (BinaryExpr) assign.getValue();
-                        if (binExpr.getOperator() == BinaryExpr.Operator.PLUS ||
-                            binExpr.getOperator() == BinaryExpr.Operator.MULTIPLY) {
-                            invariants.add(varName + " >= 0");
-                        }
-                    }
-                });
+            // Previously emitted `var >= 0` for any compound add/multiply, but that's
+            // unsound: `sum += a[i] * b[i]` leaves sum negative when any product is.
+            // The monotonic-non-negative counter detector (findMonotonicNonNegativeCounters)
+            // covers the safe cases via a stricter whitelist on the RHS.
         }
 
         private String getOperatorSymbol(BinaryExpr.Operator operator) {

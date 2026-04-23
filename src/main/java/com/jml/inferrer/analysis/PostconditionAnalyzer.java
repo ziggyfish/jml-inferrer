@@ -60,7 +60,7 @@ class PostconditionAnalyzer {
 
             // Pattern-based loop-return ensures (sum, product, max/min, conditional counter,
             // linear search). Runs for any non-void return type.
-            loopReturnPatternAnalyzer.analyze(methodDecl, postconditions);
+            loopReturnPatternAnalyzer.analyze(methodDecl, postconditions, spec);
 
             // String return analysis
             if (returnType.equals("String")) {
@@ -338,9 +338,13 @@ class PostconditionAnalyzer {
     void promoteLoopInvariantsToPostconditions(MethodDeclaration methodDecl, MethodSpecification spec) {
         if (methodDecl.getBody().isEmpty()) return;
 
-        // Build a map of loop counter → exit value from all for-loops
+        // Build a map of loop counter → exit value from all for-loops. Skip loops whose
+        // bodies have early `return` or `throw` statements — the counter may not reach
+        // the natural exit value, so promoting `\forall k; 0 <= k < exit; …` would
+        // produce a postcondition that's false on early-exit paths.
         Map<String, String> counterExitValues = new LinkedHashMap<>();
         methodDecl.getBody().get().findAll(ForStmt.class).forEach(forStmt -> {
+            if (loopHasEarlyExit(forStmt)) return;
             forStmt.getInitialization().stream()
                 .filter(e -> e instanceof VariableDeclarationExpr)
                 .forEach(e -> ((VariableDeclarationExpr) e).getVariables().forEach(var -> {
@@ -367,6 +371,21 @@ class PostconditionAnalyzer {
 
         if (counterExitValues.isEmpty()) return;
 
+        // Identify a local variable that's consistently returned — used to substitute
+        // its name for `\result` in promoted postconditions.
+        String returnedLocal = findReturnedLocalName(methodDecl);
+
+        // Set of all loop counter names — after substitution, the promoted postcondition
+        // must not reference any of them because their meaning isn't defined outside the
+        // loop. Nested-loop invariants often mention the outer counter.
+        Set<String> allCounters = new LinkedHashSet<>(counterExitValues.keySet());
+        methodDecl.getBody().get().findAll(ForStmt.class).forEach(fs ->
+                fs.getInitialization().forEach(init -> {
+                    if (init instanceof VariableDeclarationExpr vde) {
+                        vde.getVariables().forEach(v -> allCounters.add(v.getNameAsString()));
+                    }
+                }));
+
         // Pattern to find counter variable in forall bound: 0 <= k < COUNTER
         for (String invariant : spec.getLoopInvariants()) {
             if (!invariant.contains("\\forall")) continue;
@@ -380,10 +399,71 @@ class PostconditionAnalyzer {
                 Matcher m = p.matcher(invariant);
                 if (m.find()) {
                     String postcond = m.replaceAll("< " + exitValue);
+                    if (returnedLocal != null) {
+                        postcond = postcond.replaceAll(
+                                "\\b" + Pattern.quote(returnedLocal) + "\\b", "\\\\result");
+                    }
+                    // Skip if the promoted postcondition still references ANY loop
+                    // counter (including the one we just substituted — invariants often
+                    // use the counter in multiple positions: `< i` AND `arr[i][k]`).
+                    if (referencesAnyCounter(postcond, allCounters, null)) continue;
                     spec.addPostcondition(postcond,
                             MethodSpecification.ConfidenceLevel.MEDIUM);
                 }
             }
         }
+    }
+
+    private boolean referencesAnyCounter(String text, Set<String> allCounters, String excludedCounter) {
+        for (String c : allCounters) {
+            if (excludedCounter != null && c.equals(excludedCounter)) continue;
+            // Match `c` as a standalone identifier (word boundaries, not after `.`)
+            // Also skip occurrences where the counter is the outer loop bind variable
+            // `\forall int c;` — that's a legitimate declaration, not a reference.
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![.\\w])(?<!int\\s)" + java.util.regex.Pattern.quote(c) + "(?![\\w])");
+            if (p.matcher(text).find()) return true;
+        }
+        return false;
+    }
+
+    private boolean loopHasEarlyExit(ForStmt forStmt) {
+        for (ReturnStmt ret : forStmt.getBody().findAll(ReturnStmt.class)) {
+            if (ret.findAncestor(ForStmt.class).orElse(null) == forStmt) return true;
+        }
+        for (com.github.javaparser.ast.stmt.ThrowStmt t
+                : forStmt.getBody().findAll(com.github.javaparser.ast.stmt.ThrowStmt.class)) {
+            if (t.findAncestor(ForStmt.class).orElse(null) == forStmt) return true;
+        }
+        for (com.github.javaparser.ast.stmt.BreakStmt b
+                : forStmt.getBody().findAll(com.github.javaparser.ast.stmt.BreakStmt.class)) {
+            if (b.findAncestor(ForStmt.class).orElse(null) == forStmt) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns the name of the single local variable that the method returns (e.g., the
+     * idiom {@code int[] result = new int[n]; ...; return result;}), or {@code null}
+     * if no such consistent local exists. Used so promoted postconditions can replace
+     * the local name with {@code \result}.
+     */
+    private String findReturnedLocalName(MethodDeclaration methodDecl) {
+        if (methodDecl.getBody().isEmpty()) return null;
+        Set<String> localNames = new LinkedHashSet<>();
+        methodDecl.findAll(VariableDeclarationExpr.class).forEach(vde ->
+                vde.getVariables().forEach(v -> localNames.add(v.getNameAsString())));
+
+        Set<String> returnedLocals = new LinkedHashSet<>();
+        methodDecl.findAll(ReturnStmt.class).forEach(ret ->
+                ret.getExpression().ifPresent(e -> {
+                    if (e instanceof NameExpr ne && localNames.contains(ne.getNameAsString())) {
+                        returnedLocals.add(ne.getNameAsString());
+                    }
+                }));
+        if (returnedLocals.size() == 1) {
+            return returnedLocals.iterator().next();
+        }
+        return null;
     }
 }

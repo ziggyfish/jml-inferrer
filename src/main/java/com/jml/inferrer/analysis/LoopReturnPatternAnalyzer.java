@@ -36,6 +36,10 @@ import java.util.*;
 class LoopReturnPatternAnalyzer {
 
     void analyze(MethodDeclaration methodDecl, Set<String> postconditions) {
+        analyze(methodDecl, postconditions, null);
+    }
+
+    void analyze(MethodDeclaration methodDecl, Set<String> postconditions, MethodSpecification spec) {
         if (methodDecl.getBody().isEmpty()) return;
 
         // Linear-search patterns dispatch on the SHAPE of the returns, not on a single
@@ -99,10 +103,12 @@ class LoopReturnPatternAnalyzer {
             String high = range[1];
             if (cmpOp == BinaryExpr.Operator.GREATER || cmpOp == BinaryExpr.Operator.GREATER_EQUALS) {
                 emitMaxEnsures(postconditions, aei.arrayName, low, high);
+                emitMaxMinInvariants(loop, varName, aei.arrayName, low, ">=", spec);
                 return;
             }
             if (cmpOp == BinaryExpr.Operator.LESS || cmpOp == BinaryExpr.Operator.LESS_EQUALS) {
                 emitMinEnsures(postconditions, aei.arrayName, low, high);
+                emitMaxMinInvariants(loop, varName, aei.arrayName, low, "<=", spec);
                 return;
             }
         }
@@ -361,6 +367,44 @@ class LoopReturnPatternAnalyzer {
                 + arrayName + "[k])");
         postconditions.add("(\\forall int k; " + low + " <= k && k < " + high + "; \\result <= "
                 + arrayName + "[k])");
+    }
+
+    /**
+     * Emits the running max/min loop invariants needed to discharge the matching ensures
+     * clauses. For a max loop (op = "&gt;="), invariants are:
+     * <pre>
+     *   (\forall int k; low &lt;= k &amp;&amp; k &lt; counter; varName &gt;= arr[k])
+     *   (\exists int k; low &lt;= k &amp;&amp; k &lt; counter; varName == arr[k])
+     * </pre>
+     * The counter is the for-loop variable; absent a usable for-loop, no invariant is
+     * emitted (the postcondition will then almost certainly fail to verify, but the
+     * loop pattern was probably non-standard anyway).
+     */
+    private void emitMaxMinInvariants(Statement loop, String varName, String arrayName,
+                                       String low, String op, MethodSpecification spec) {
+        if (spec == null) return;
+        if (!(loop instanceof ForStmt fs)) return;
+        String counter = extractForCounterName(fs);
+        if (counter == null) return;
+        int line = fs.getBegin().map(p -> p.line).orElse(0);
+        String forall = "(\\forall int k; " + low + " <= k && k < " + counter + "; "
+                + varName + " " + op + " " + arrayName + "[k])";
+        String exists = "(\\exists int k; " + low + " <= k && k < " + counter + "; "
+                + varName + " == " + arrayName + "[k])";
+        spec.addLoopInvariant(forall, line);
+        spec.addLoopInvariant(exists, line);
+    }
+
+    /**
+     * Returns the single declared loop-variable name from a for-loop's initialiser, or null
+     * when the init isn't a single-variable declaration.
+     */
+    private String extractForCounterName(ForStmt fs) {
+        if (fs.getInitialization().size() != 1) return null;
+        Expression init = fs.getInitialization().get(0);
+        if (!(init instanceof VariableDeclarationExpr vde)) return null;
+        if (vde.getVariables().size() != 1) return null;
+        return vde.getVariables().get(0).getNameAsString();
     }
 
     /**
