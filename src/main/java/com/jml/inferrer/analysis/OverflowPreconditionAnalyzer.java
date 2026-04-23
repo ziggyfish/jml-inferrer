@@ -218,9 +218,93 @@ class OverflowPreconditionAnalyzer {
         if (opSym == null) return;
 
         String bigint = toBigintStr(binary);
-        if (bigint == null) return;
+        if (bigint != null) {
+            emitBigintBoundsRaw(emitted, bigint);
+            return;
+        }
+        // Fallback: arithmetic involving a loop-indexed array element. Emit a universal
+        // precondition over the loop range so OpenJML can discharge the overflow check
+        // for every element. Handles the common `arr[i] * K`, `arr[i] + K`, `K - arr[i]`,
+        // etc. shapes inside `for (i = LO; i < arr.length; i++)` loops.
+        emitForallBinaryOverflow(binary, emitted);
+    }
 
-        emitBigintBoundsRaw(emitted, bigint);
+    /**
+     * For {@code arr[loopVar] op OTHER} (or {@code OTHER op arr[loopVar]}) inside a
+     * literal-bounded for-loop, emit a universal precondition that every element of
+     * {@code arr} combined with OTHER stays inside int range.
+     */
+    private void emitForallBinaryOverflow(BinaryExpr binary, Set<String> emitted) {
+        String opSym = composableBinaryOpSymbol(binary.getOperator());
+        if (opSym == null) return;
+
+        // One side must be a loop-indexed array element, the other a pre-state-
+        // expressible int form (to live under the quantifier binding).
+        ArrayAccessExpr arrSide = null;
+        Expression otherSide = null;
+        boolean arrIsLeft = false;
+        if (binary.getLeft() instanceof ArrayAccessExpr aa && isLoopIndexedArrayAccess(aa)) {
+            arrSide = aa;
+            otherSide = binary.getRight();
+            arrIsLeft = true;
+        } else if (binary.getRight() instanceof ArrayAccessExpr aa && isLoopIndexedArrayAccess(aa)) {
+            arrSide = aa;
+            otherSide = binary.getLeft();
+        }
+        if (arrSide == null) return;
+
+        String arrayName = getIntArrayBaseName(arrSide);
+        if (arrayName == null) return;
+        String otherBigint = toBigintStr(otherSide);
+        if (otherBigint == null) return;
+
+        ForRange r = extractForRange(binary, arrSide, arrayName);
+        if (r == null) return;
+
+        String arrElem = "(\\bigint) " + arrayName + "[k]";
+        String combined = arrIsLeft
+                ? "(" + arrElem + " " + opSym + " " + otherBigint + ")"
+                : "(" + otherBigint + " " + opSym + " " + arrElem + ")";
+        emitted.add("(\\forall int k; " + r.lo + " <= k && k < " + r.high + "; "
+                + combined + " >= Integer.MIN_VALUE)");
+        emitted.add("(\\forall int k; " + r.lo + " <= k && k < " + r.high + "; "
+                + combined + " <= Integer.MAX_VALUE)");
+    }
+
+    private boolean isLoopIndexedArrayAccess(ArrayAccessExpr aa) {
+        if (!(aa.getIndex() instanceof NameExpr idx)) return false;
+        return loopVars.contains(idx.getNameAsString());
+    }
+
+    private record ForRange(String lo, String high) {}
+
+    private ForRange extractForRange(com.github.javaparser.ast.Node origin,
+                                      ArrayAccessExpr arrSide, String arrayName) {
+        if (!(arrSide.getIndex() instanceof NameExpr idxNe)) return null;
+        String idx = idxNe.getNameAsString();
+        Optional<com.github.javaparser.ast.stmt.ForStmt> forOpt =
+                origin.findAncestor(com.github.javaparser.ast.stmt.ForStmt.class);
+        if (forOpt.isEmpty()) return null;
+        com.github.javaparser.ast.stmt.ForStmt fs = forOpt.get();
+        if (fs.getInitialization().size() != 1) return null;
+        if (!(fs.getInitialization().get(0) instanceof VariableDeclarationExpr vde)) return null;
+        if (vde.getVariables().size() != 1) return null;
+        if (!vde.getVariables().get(0).getNameAsString().equals(idx)) return null;
+        Expression initExpr = vde.getVariables().get(0).getInitializer().orElse(null);
+        if (initExpr == null || !initExpr.isIntegerLiteralExpr()) return null;
+        int lo = initExpr.asIntegerLiteralExpr().asInt();
+        if (lo < 0) return null;
+
+        if (fs.getCompare().isEmpty()) return null;
+        if (!(fs.getCompare().get() instanceof BinaryExpr cmp)) return null;
+        if (!(cmp.getLeft() instanceof NameExpr cmpLeft)
+                || !cmpLeft.getNameAsString().equals(idx)) return null;
+        if (cmp.getOperator() != BinaryExpr.Operator.LESS) return null;
+        if (!(cmp.getRight() instanceof FieldAccessExpr fae)
+                || !fae.getNameAsString().equals("length")
+                || !(fae.getScope() instanceof NameExpr aNe)
+                || !aNe.getNameAsString().equals(arrayName)) return null;
+        return new ForRange(Integer.toString(lo), arrayName + ".length");
     }
 
     /**
