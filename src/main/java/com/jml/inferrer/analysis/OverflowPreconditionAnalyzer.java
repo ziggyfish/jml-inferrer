@@ -406,6 +406,22 @@ class OverflowPreconditionAnalyzer {
             return "(\\bigint) " + e.toString();
         }
 
+        // `param.length()` — String.length / CharSequence.length is a non-negative int.
+        // Similar for `param.size()` on collections.
+        if (e instanceof MethodCallExpr mce) {
+            String name = mce.getNameAsString();
+            if (!mce.getArguments().isEmpty()) return null;
+            if (!name.equals("length") && !name.equals("size")) return null;
+            if (mce.getScope().isEmpty()) return null;
+            Expression scope = mce.getScope().get();
+            if (!(scope instanceof NameExpr scopeNe)) return null;
+            String scopeName = scopeNe.getNameAsString();
+            if (paramNames.contains(scopeName) || fieldNames.contains(scopeName)) {
+                return "(\\bigint) " + scopeName + "." + name + "()";
+            }
+            return null;
+        }
+
         return null;
     }
 
