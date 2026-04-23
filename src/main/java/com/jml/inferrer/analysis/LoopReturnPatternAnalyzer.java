@@ -158,6 +158,19 @@ class LoopReturnPatternAnalyzer {
                     postconditions.add("\\result == (\\exists int k; 0 <= k && k < "
                             + iterableName + ".length; " + apg.arrayName + "[k] "
                             + opString(apg.matchOp) + " " + apg.targetExpr + ")");
+                    // Matching invariant — without it the postcondition fails to verify
+                    // because the prover has no link between `found` and the prefix
+                    // [0, i). Sound at every iteration: found is true iff a matching
+                    // element has already been seen.
+                    if (loop instanceof ForStmt fs && spec != null) {
+                        String counter = extractForCounterName(fs);
+                        if (counter != null) {
+                            int line = fs.getBegin().map(p -> p.line).orElse(0);
+                            spec.addLoopInvariant(varName + " == (\\exists int k; 0 <= k && k < "
+                                    + counter + "; " + apg.arrayName + "[k] "
+                                    + opString(apg.matchOp) + " " + apg.targetExpr + ")", line);
+                        }
+                    }
                 }
             }
             return;

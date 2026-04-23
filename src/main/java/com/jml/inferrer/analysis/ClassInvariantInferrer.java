@@ -88,10 +88,18 @@ public class ClassInvariantInferrer {
      * Check if a field is always non-null throughout the class.
      */
     private boolean checkFieldAlwaysNonNull(ClassOrInterfaceDeclaration classDecl, String fieldName) {
-        // Check all constructors initialize it to non-null
+        // A class with no explicit constructors relies on the default constructor, which
+        // leaves reference fields at null. In that case the invariant `field != null`
+        // is immediately violated after `new T()`, so we must not infer it — even if a
+        // field initializer looks non-null (the initializer also runs, but then further
+        // methods may set null, and a `private` field isn't protected from external nulling
+        // anyway). Require explicit constructors that all assign the field.
+        if (classDecl.getConstructors().isEmpty()) {
+            return false;
+        }
+
         boolean initializedInConstructors = classDecl.getConstructors().stream()
                 .allMatch(constructor -> {
-                    // Check if field is assigned non-null value
                     return constructor.findAll(AssignExpr.class).stream()
                             .anyMatch(assign -> {
                                 if (assign.getTarget() instanceof FieldAccessExpr) {
@@ -148,10 +156,42 @@ public class ClassInvariantInferrer {
             for (MethodDeclaration method : classDecl.getMethods()) {
                 for (AssignExpr assign : method.findAll(AssignExpr.class)) {
                     if (isFieldAssignment(assign, fieldName)) {
-                        if (!isNonNegativeValue(assign.getValue())) {
+                        // Plain assignment: value must be a non-negative literal.
+                        // Compound assignment: only `+=` of a non-negative value preserves
+                        // non-negativity; everything else (-=, *=, /=, %=, ...) can break it.
+                        AssignExpr.Operator op = assign.getOperator();
+                        if (op == AssignExpr.Operator.ASSIGN) {
+                            if (!isNonNegativeValue(assign.getValue())) {
+                                alwaysNonNegative = false;
+                                break;
+                            }
+                        } else if (op == AssignExpr.Operator.PLUS) {
+                            if (!isNonNegativeValue(assign.getValue())) {
+                                alwaysNonNegative = false;
+                                break;
+                            }
+                        } else {
                             alwaysNonNegative = false;
                             break;
                         }
+                    }
+                }
+                if (!alwaysNonNegative) break;
+                // Decrements (`f--`, `--f`) can drive the field below 0, so any decrement
+                // disqualifies the >= 0 invariant. Only check field-targeted unary ops.
+                for (UnaryExpr unary : method.findAll(UnaryExpr.class)) {
+                    UnaryExpr.Operator op = unary.getOperator();
+                    boolean isDecrement = op == UnaryExpr.Operator.PREFIX_DECREMENT
+                            || op == UnaryExpr.Operator.POSTFIX_DECREMENT;
+                    if (!isDecrement) continue;
+                    Expression inner = unary.getExpression();
+                    if (inner instanceof FieldAccessExpr fae && fae.getNameAsString().equals(fieldName)) {
+                        alwaysNonNegative = false;
+                        break;
+                    }
+                    if (inner instanceof NameExpr ne && ne.getNameAsString().equals(fieldName)) {
+                        alwaysNonNegative = false;
+                        break;
                     }
                 }
                 if (!alwaysNonNegative) break;

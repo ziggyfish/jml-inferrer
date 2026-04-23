@@ -131,8 +131,63 @@ class OverflowPreconditionAnalyzer {
         if (unary.getOperator() != UnaryExpr.Operator.MINUS) return;
         Expression operand = unary.getExpression();
         String intForm = toIntStr(operand);
-        if (intForm == null) return;
-        emitted.add(intForm + " != Integer.MIN_VALUE");
+        if (intForm != null) {
+            emitted.add(intForm + " != Integer.MIN_VALUE");
+            return;
+        }
+        // The straight-line case failed (e.g. operand uses a loop variable). If the
+        // operand is `arr[loopVar]` inside a for-loop iterating over arr, emit a
+        // universal precondition over the loop range so OpenJML can discharge the
+        // negation overflow check on every element.
+        emitForallElementPrecondition(unary, operand, emitted, "!= Integer.MIN_VALUE");
+    }
+
+    /**
+     * If {@code operand} is {@code arr[loopVar]} where the enclosing for-loop iterates
+     * {@code for (int loopVar = LO; loopVar <op> arr.length; loopVar++)} (or similar
+     * literal-bounded shape), emit
+     * {@code (\forall int k; LO <= k && k < arr.length; arr[k] PROP)}.
+     */
+    private void emitForallElementPrecondition(com.github.javaparser.ast.Node origin,
+                                                Expression operand, Set<String> emitted,
+                                                String predicateRhs) {
+        if (!(operand instanceof ArrayAccessExpr aae)) return;
+        String arrayName = getIntArrayBaseName(aae);
+        if (arrayName == null) return;
+        if (!(aae.getIndex() instanceof NameExpr idxNe)) return;
+        String idx = idxNe.getNameAsString();
+        if (!loopVars.contains(idx)) return;
+
+        Optional<com.github.javaparser.ast.stmt.ForStmt> forOpt =
+                origin.findAncestor(com.github.javaparser.ast.stmt.ForStmt.class);
+        if (forOpt.isEmpty()) return;
+        com.github.javaparser.ast.stmt.ForStmt fs = forOpt.get();
+        if (fs.getInitialization().size() != 1) return;
+        if (!(fs.getInitialization().get(0) instanceof VariableDeclarationExpr vde)) return;
+        if (vde.getVariables().size() != 1) return;
+        if (!vde.getVariables().get(0).getNameAsString().equals(idx)) return;
+        Expression initExpr = vde.getVariables().get(0).getInitializer().orElse(null);
+        if (initExpr == null || !initExpr.isIntegerLiteralExpr()) return;
+        int lo = initExpr.asIntegerLiteralExpr().asInt();
+        if (lo < 0) return;
+
+        // Upper bound: must be `idx <op> arr.length` to keep the quantifier sound.
+        Expression cmpExpr = fs.getCompare().orElse(null);
+        if (!(cmpExpr instanceof BinaryExpr cmp)) return;
+        if (!(cmp.getLeft() instanceof NameExpr cmpLeft)
+                || !cmpLeft.getNameAsString().equals(idx)) return;
+        String upper;
+        if (cmp.getRight() instanceof FieldAccessExpr fae
+                && fae.getNameAsString().equals("length")
+                && fae.getScope() instanceof NameExpr aNe
+                && aNe.getNameAsString().equals(arrayName)) {
+            upper = arrayName + ".length";
+        } else {
+            return;
+        }
+
+        emitted.add("(\\forall int k; " + lo + " <= k && k < " + upper + "; "
+                + arrayName + "[k] " + predicateRhs + ")");
     }
 
     private void handleUnaryIncrement(UnaryExpr unary, Set<String> emitted) {
@@ -172,6 +227,11 @@ class OverflowPreconditionAnalyzer {
      * For {@code a / b} or {@code a % b}, emit {@code b != 0} when {@code b} is
      * pre-state-expressible (parameter, field, literal). Without this, OpenJML
      * raises {@code PossiblyDivideByZero} on every integer division.
+     *
+     * <p>For division specifically, also emit the {@code Integer.MIN_VALUE / -1}
+     * overflow guard. Without it OpenJML raises an
+     * {@code ArithmeticOperationRange overflow in int divide} obligation on
+     * every guarded integer division.</p>
      */
     private void handleDivisionByZero(BinaryExpr binary, Set<String> emitted) {
         BinaryExpr.Operator op = binary.getOperator();
@@ -179,6 +239,11 @@ class OverflowPreconditionAnalyzer {
         String rhs = toIntStr(binary.getRight());
         if (rhs == null) return;
         emitted.add(rhs + " != 0");
+        if (op == BinaryExpr.Operator.DIVIDE) {
+            String lhs = toIntStr(binary.getLeft());
+            if (lhs == null) return;
+            emitted.add(lhs + " != Integer.MIN_VALUE || " + rhs + " != -1");
+        }
     }
 
     private void emitBigintBoundsRaw(Set<String> emitted, String bigintExpr) {

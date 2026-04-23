@@ -55,6 +55,16 @@ class PreconditionAnalyzer {
         methodDecl.accept(nullCheckVisitor, null);
         preconditions.addAll(nullCheckVisitor.getNullChecks());
 
+        // Instance-field null preconditions. When the method dereferences `this.field`
+        // (via field.foo, field[i], or as an array-creation dimension), emit
+        // `requires this.field != null` so OpenJML's nullable-by-default analysis has
+        // a chance to prove the access.
+        analyzeInstanceFieldNullPreconditions(methodDecl, preconditions, collector);
+
+        // Cross-array bound preconditions for the `for(i=0; i<a.length; i++) b[i] = a[i]`
+        // pattern: the access `b[i]` is in-bounds only when `b.length >= a.length`.
+        analyzeCrossArrayLoopBounds(methodDecl, preconditions, collector);
+
         // Analyze parameter relationships
         analyzeParameterRelationships(methodDecl, preconditions, collector);
 
@@ -183,14 +193,12 @@ class PreconditionAnalyzer {
                             // Generate proper bounds: idx >= 0 && idx < arr.length
                             preconditions.add(indexName + " >= 0");
                             preconditions.add(indexName + " < " + paramName + ".length");
-                        } else {
-                            // Non-parameter variable (e.g. loop var) — just need non-empty
-                            preconditions.add(paramName + ".length > 0");
                         }
-                    } else {
-                        // Complex index expression — just need non-empty
-                        preconditions.add(paramName + ".length > 0");
+                        // Non-parameter index (loop var, local) — let the loop's own
+                        // invariant bound it. Don't emit `arr.length > 0` blindly:
+                        // empty-array loops don't iterate and don't access `arr[i]`.
                     }
+                    // Complex index expressions are also handled by loop invariants.
                 });
         }
 
@@ -261,6 +269,61 @@ class PreconditionAnalyzer {
 
         if (hasGet) {
             preconditions.add(paramName + ".size() > 0");
+        }
+    }
+
+    private void analyzeInstanceFieldNullPreconditions(MethodDeclaration methodDecl,
+                                                        Set<String> preconditions, ASTCollector collector) {
+        // Gather reference-type instance field names from the enclosing class.
+        Set<String> refFieldNames = methodDecl.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .filter(f -> !f.getCommonType().isPrimitiveType())
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(com.github.javaparser.ast.body.VariableDeclarator::getNameAsString)
+                        .collect(java.util.stream.Collectors.toSet()))
+                .orElseGet(java.util.HashSet::new);
+        if (refFieldNames.isEmpty()) return;
+
+        Set<String> dereferenced = new java.util.LinkedHashSet<>();
+        // Field access: `this.data.length` → `data` is dereferenced
+        collector.fieldAccessExprs.forEach(fa -> {
+            if (fa.getScope() instanceof FieldAccessExpr inner
+                    && inner.getScope().toString().equals("this")
+                    && refFieldNames.contains(inner.getNameAsString())) {
+                dereferenced.add(inner.getNameAsString());
+            } else if (fa.getScope() instanceof NameExpr ne
+                    && refFieldNames.contains(ne.getNameAsString())) {
+                dereferenced.add(ne.getNameAsString());
+            }
+        });
+        // Array access: `data[i]`, `this.data[i]`, `data[r][c]`
+        collector.arrayAccessExprs.forEach(aa -> {
+            Expression base = aa.getName();
+            while (base instanceof ArrayAccessExpr inner) base = inner.getName();
+            if (base instanceof FieldAccessExpr fa
+                    && fa.getScope().toString().equals("this")
+                    && refFieldNames.contains(fa.getNameAsString())) {
+                dereferenced.add(fa.getNameAsString());
+            } else if (base instanceof NameExpr ne
+                    && refFieldNames.contains(ne.getNameAsString())) {
+                dereferenced.add(ne.getNameAsString());
+            }
+        });
+        // Method call on field: `this.list.add(x)`
+        collector.methodCallExprs.forEach(call -> call.getScope().ifPresent(scope -> {
+            if (scope instanceof FieldAccessExpr fa
+                    && fa.getScope().toString().equals("this")
+                    && refFieldNames.contains(fa.getNameAsString())) {
+                dereferenced.add(fa.getNameAsString());
+            } else if (scope instanceof NameExpr ne
+                    && refFieldNames.contains(ne.getNameAsString())) {
+                dereferenced.add(ne.getNameAsString());
+            }
+        }));
+
+        for (String field : dereferenced) {
+            preconditions.add("this." + field + " != null");
         }
     }
 
@@ -349,6 +412,76 @@ class PreconditionAnalyzer {
             case NOT_EQUALS: return "==";
             default: return null;
         }
+    }
+
+    /**
+     * For loops of the shape {@code for (int i = LO; i <op> A.length; i++)} whose body
+     * contains an access {@code B[i]} where {@code A != B}, both arrays parameters, emit
+     * {@code B.length >= A.length} (or the analogous bound for {@code <=}). Without this
+     * the access raises {@code PossiblyTooLargeIndex} on copy / merge / dot-product loops.
+     *
+     * <p>Only fires when both arrays are top-level method parameters and the loop's lower
+     * bound is a non-negative literal (so the lower-end accesses are already covered by
+     * {@code i >= 0}).</p>
+     */
+    private void analyzeCrossArrayLoopBounds(MethodDeclaration methodDecl,
+                                              Set<String> preconditions, ASTCollector collector) {
+        Set<String> arrayParams = new java.util.LinkedHashSet<>();
+        for (Parameter p : methodDecl.getParameters()) {
+            if (p.getType().asString().contains("[]")) {
+                arrayParams.add(p.getNameAsString());
+            }
+        }
+        if (arrayParams.size() < 2) return;
+
+        for (com.github.javaparser.ast.stmt.ForStmt fs
+                : methodDecl.findAll(com.github.javaparser.ast.stmt.ForStmt.class)) {
+            if (fs.getInitialization().size() != 1) continue;
+            Expression init = fs.getInitialization().get(0);
+            if (!(init instanceof VariableDeclarationExpr vde)) continue;
+            if (vde.getVariables().size() != 1) continue;
+            String counter = vde.getVariables().get(0).getNameAsString();
+            Optional<Expression> initExprOpt = vde.getVariables().get(0).getInitializer();
+            if (initExprOpt.isEmpty()) continue;
+            Expression initExpr = initExprOpt.get();
+            if (!initExpr.isIntegerLiteralExpr()) continue;
+            if (initExpr.asIntegerLiteralExpr().asInt() < 0) continue;
+
+            if (fs.getCompare().isEmpty()) continue;
+            if (!(fs.getCompare().get() instanceof BinaryExpr cmp)) continue;
+            if (!(cmp.getLeft() instanceof NameExpr ne)
+                    || !ne.getNameAsString().equals(counter)) continue;
+            String upperParam = extractArrayLengthParam(cmp.getRight(), arrayParams);
+            if (upperParam == null) continue;
+
+            String op;
+            if (cmp.getOperator() == BinaryExpr.Operator.LESS) op = ">=";
+            else if (cmp.getOperator() == BinaryExpr.Operator.LESS_EQUALS) op = ">";
+            else continue;
+
+            for (ArrayAccessExpr aa : fs.getBody().findAll(ArrayAccessExpr.class)) {
+                if (!(aa.getName() instanceof NameExpr arrNe)) continue;
+                String accessedArray = arrNe.getNameAsString();
+                if (!arrayParams.contains(accessedArray)) continue;
+                if (accessedArray.equals(upperParam)) continue;
+                if (!(aa.getIndex() instanceof NameExpr idxNe)) continue;
+                if (!idxNe.getNameAsString().equals(counter)) continue;
+                preconditions.add(accessedArray + ".length " + op + " " + upperParam + ".length");
+            }
+        }
+    }
+
+    /**
+     * If {@code expr} is {@code arrayParam.length} for some param in the given set,
+     * returns the parameter name; otherwise null.
+     */
+    private String extractArrayLengthParam(Expression expr, Set<String> arrayParams) {
+        if (expr instanceof FieldAccessExpr fae && fae.getNameAsString().equals("length")
+                && fae.getScope() instanceof NameExpr ne
+                && arrayParams.contains(ne.getNameAsString())) {
+            return ne.getNameAsString();
+        }
+        return null;
     }
 
     private void analyzeArrayLengthConstraints(MethodDeclaration methodDecl, String paramName,
