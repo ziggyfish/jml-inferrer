@@ -239,6 +239,11 @@ class LoopInvariantAnalyzer {
                                     } else if (step < 0) {
                                         invariants.add(varName + " <= " + init.toString());
                                     }
+                                } else if (step >= 0 && isStructurallyNonNegative(init, forStmt)) {
+                                    // The init isn't pre-state-expressible (e.g. `j = i + 1`
+                                    // where `i` is an outer loop var) but is structurally
+                                    // non-negative — `>= 0` remains a sound, useful bound.
+                                    invariants.add(varName + " >= 0");
                                 }
                             }
                         });
@@ -776,6 +781,61 @@ class LoopInvariantAnalyzer {
          * Returns true if {@code expr} only references parameters, fields, literals, and
          * the {@code .length} property of arrays.
          */
+        /**
+         * Returns true when {@code expr} can be statically shown to evaluate to a
+         * non-negative integer. Currently recognises:
+         * <ul>
+         *   <li>Non-negative integer literals (including zero).</li>
+         *   <li>{@code arr.length} — array lengths are always {@code >= 0}.</li>
+         *   <li>A name reference to a loop variable in an enclosing for-loop whose
+         *       initializer is itself structurally non-negative.</li>
+         *   <li>A sum of two structurally non-negative expressions.</li>
+         * </ul>
+         * Used as a safety net when an initializer isn't pre-state-expressible but is
+         * obviously {@code >= 0} (e.g., {@code j = i + 1} in a nested loop).
+         */
+        private boolean isStructurallyNonNegative(Expression expr,
+                                                   com.github.javaparser.ast.Node fromNode) {
+            if (expr instanceof EnclosedExpr en) return isStructurallyNonNegative(en.getInner(), fromNode);
+            if (expr.isIntegerLiteralExpr()) {
+                return expr.asIntegerLiteralExpr().asInt() >= 0;
+            }
+            if (expr instanceof FieldAccessExpr fae && fae.getNameAsString().equals("length")) {
+                return true;
+            }
+            if (expr instanceof NameExpr ne) {
+                String name = ne.getNameAsString();
+                // Walk outward looking for a for-loop whose init declares this name and
+                // whose own init is structurally non-negative.
+                com.github.javaparser.ast.Node cur = fromNode.getParentNode().orElse(null);
+                while (cur != null) {
+                    if (cur instanceof ForStmt outer) {
+                        for (Expression initExpr : outer.getInitialization()) {
+                            if (initExpr instanceof VariableDeclarationExpr vde) {
+                                for (com.github.javaparser.ast.body.VariableDeclarator vd
+                                        : vde.getVariables()) {
+                                    if (vd.getNameAsString().equals(name)
+                                            && vd.getInitializer().isPresent()
+                                            && isStructurallyNonNegative(
+                                                    vd.getInitializer().get(), outer)) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    cur = cur.getParentNode().orElse(null);
+                }
+                return false;
+            }
+            if (expr instanceof BinaryExpr be
+                    && be.getOperator() == BinaryExpr.Operator.PLUS) {
+                return isStructurallyNonNegative(be.getLeft(), fromNode)
+                        && isStructurallyNonNegative(be.getRight(), fromNode);
+            }
+            return false;
+        }
+
         private boolean isPreStateExpressible(String expr, MethodDeclaration method) {
             Set<String> paramNames = new java.util.HashSet<>();
             method.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
