@@ -121,14 +121,12 @@ class StringAnalyzer {
             }
         }
 
-        // Check for string literal returns (length inference only; non-null
-        // is already handled at the method level by analyzeStringReturnProperties)
-        if (expr instanceof StringLiteralExpr) {
-            String value = ((StringLiteralExpr) expr).asString();
-            if (value.isEmpty()) {
-                postconditions.add("\\result.isEmpty()");
-            }
-        }
+        // Per-return-path string-literal analysis is unsafe here: this helper is
+        // invoked once per ReturnStmt, but postconditions are emitted *unguarded*
+        // at method level. Emitting `\result.isEmpty()` because one return is `""`
+        // wrongly constrains every other return path. The method-level
+        // `analyzeStringReturnProperties` (all-returns-are-string-literals case)
+        // already handles the sound case where every return produces the same length.
     }
 
     void analyzeStringMethodCall(String methodName, String scopeStr,
