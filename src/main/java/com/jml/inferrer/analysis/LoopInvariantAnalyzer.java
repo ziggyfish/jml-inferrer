@@ -208,27 +208,35 @@ class LoopInvariantAnalyzer {
                         var.getInitializer().ifPresent(initValues::add);
 
                         var.getInitializer().ifPresent(init -> {
+                            int[] stepBox = new int[]{0};
+                            forStmt.getUpdate().forEach(u -> {
+                                int s = getStepSize(u, varName);
+                                if (s != 0) stepBox[0] = s;
+                            });
+                            int step = stepBox[0];
+
                             if (init.isIntegerLiteralExpr()) {
                                 int initVal = init.asIntegerLiteralExpr().asInt();
-                                invariants.add(varName + " >= " + initVal);
+                                // Bound direction depends on step: incrementing loops
+                                // preserve `var >= init`; decrementing loops preserve
+                                // `var <= init`.
+                                if (step >= 0) {
+                                    invariants.add(varName + " >= " + initVal);
+                                } else {
+                                    invariants.add(varName + " <= " + initVal);
+                                }
                             } else {
                                 // For non-literal initializers (e.g. `i = start`), only the
                                 // initializer expression itself is sound — and only as a
                                 // lower bound when the loop INCREMENTS, or upper bound when
-                                // it DECREMENTS. Earlier hard-coded `>= 0` was unsound when
-                                // the initializer could be negative.
+                                // it DECREMENTS.
                                 MethodDeclaration encMethod = forStmt
                                         .findAncestor(MethodDeclaration.class).orElse(null);
                                 if (encMethod != null
                                         && isPreStateExpressible(init.toString(), encMethod)) {
-                                    int[] stepBox = new int[]{0};
-                                    forStmt.getUpdate().forEach(u -> {
-                                        int s = getStepSize(u, varName);
-                                        if (s != 0) stepBox[0] = s;
-                                    });
-                                    if (stepBox[0] > 0) {
+                                    if (step > 0) {
                                         invariants.add(varName + " >= " + init.toString());
-                                    } else if (stepBox[0] < 0) {
+                                    } else if (step < 0) {
                                         invariants.add(varName + " <= " + init.toString());
                                     }
                                 }

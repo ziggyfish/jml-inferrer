@@ -132,6 +132,13 @@ class LoopReturnPatternAnalyzer {
             if (iterableName != null) {
                 postconditions.add("\\result >= 0");
                 postconditions.add("\\result < " + iterableName + ".length");
+                // Matching invariants — needed both to discharge the postcondition AND
+                // to prove the in-loop access `arr[varName]` stays in bounds.
+                if (loop instanceof ForStmt fs && spec != null) {
+                    int line = fs.getBegin().map(p -> p.line).orElse(0);
+                    spec.addLoopInvariant(varName + " >= 0", line);
+                    spec.addLoopInvariant(varName + " < " + iterableName + ".length", line);
+                }
             }
             return;
         }
