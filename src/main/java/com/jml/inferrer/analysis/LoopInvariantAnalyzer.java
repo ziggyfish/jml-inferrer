@@ -545,22 +545,11 @@ class LoopInvariantAnalyzer {
                 }
             });
 
-            body.findAll(IfStmt.class).forEach(ifStmt -> {
-                ifStmt.getThenStmt().findAll(UnaryExpr.class).forEach(unaryExpr -> {
-                    if (unaryExpr.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT ||
-                        unaryExpr.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT) {
-
-                        String countVar = unaryExpr.getExpression().toString();
-                        if (!counterNames.contains(countVar)) {
-                            String condition = ifStmt.getCondition().toString();
-                            String replacedCondition = condition.replaceAll(
-                                    "\\b" + java.util.regex.Pattern.quote(counter) + "\\b", "k");
-                            invariants.add("(\\num_of int k; 0 <= k < " + counter + "; " +
-                                          replacedCondition + ") == " + countVar);
-                        }
-                    }
-                });
-            });
+            // Conditional-counter `if (pred) counter++` is handled by
+            // SumInductionAnalyzer with a more general low-bound.  Emitting a
+            // second `\num_of` clause here just duplicates the same invariant in
+            // slightly different syntax (e.g. `0 <= k < i` vs `0 <= k && k < i`),
+            // which clutters every spec without adding information.
 
             // Universal-so-far pattern: `if (arr[i] <op> const) return <literal>;` inside a
             // for-loop means every already-seen element satisfies the negation of <op>.
