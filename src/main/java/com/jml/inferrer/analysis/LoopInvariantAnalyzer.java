@@ -778,6 +778,14 @@ class LoopInvariantAnalyzer {
 
             List<String> counterNames = detectCountersInBody(body);
 
+            // Counters that are only ever INCREMENTED in the body — safe to declare
+            // `counter >= 0` when the guard mentions them on the left. A decrementing
+            // counter (e.g. `while (j >= 0) j--;`) reaches -1 at back-edge, so emitting
+            // `j >= 0` as an invariant is unsound. Only monotonic-non-negative counters
+            // (via the same detector used elsewhere) pass the gate.
+            Set<String> monotonicNonNegative = new LinkedHashSet<>(
+                    findMonotonicNonNegativeCounters(whileStmt, body));
+
             // Decompose `cond1 && cond2 && ...` into individual conjuncts so each numeric
             // condition gets a chance to contribute its own invariant.
             for (Expression conjunct : flattenAndConjuncts(condition)) {
@@ -798,9 +806,13 @@ class LoopInvariantAnalyzer {
                         if (preconditionEmitted) {
                             invariants.add(left + " " + weakened + " " + right);
                         }
-                        invariants.add(left + " >= 0");
+                        if (monotonicNonNegative.contains(left)) {
+                            invariants.add(left + " >= 0");
+                        }
                     } else if (counterNames.contains(right)) {
-                        invariants.add(right + " >= 0");
+                        if (monotonicNonNegative.contains(right)) {
+                            invariants.add(right + " >= 0");
+                        }
                     }
                 } else if (conjunct instanceof MethodCallExpr call) {
                     call.getScope().ifPresent(scope -> invariants.add(scope + " != null"));
