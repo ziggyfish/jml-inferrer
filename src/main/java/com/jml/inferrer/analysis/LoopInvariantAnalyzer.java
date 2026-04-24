@@ -1071,7 +1071,14 @@ class LoopInvariantAnalyzer {
                     }
                 }
                 if (init == null) continue;
-                if (!isPreStateExpressible(init.toString(), method)) continue;
+                // Loop invariants can reference locals, so we don't require init to be
+                // pre-state-expressible. What we DO require is that the init expression's
+                // identifiers all exist at the method level (parameters, fields, locals
+                // declared above this loop) — otherwise JML won't resolve them.
+                Set<String> paramNames = new LinkedHashSet<>();
+                method.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+                if (!new SymbolicExecutor().isMethodScopeSafe(
+                        init.toString(), method, paramNames)) continue;
 
                 // All writes to `name` in the method must be inside this loop body and
                 // of the monotonic-decreasing kind.
