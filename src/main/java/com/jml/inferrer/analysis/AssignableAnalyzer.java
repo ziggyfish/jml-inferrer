@@ -47,7 +47,10 @@ class AssignableAnalyzer {
                 } else if (expr instanceof ArrayAccessExpr aae) {
                     String baseName = extractArrayBase(aae, methodDecl);
                     if (baseName != null) {
-                        assignedLocations.add(baseName + "[*]");
+                        int depth = arrayAccessDepth(aae);
+                        StringBuilder suffix = new StringBuilder();
+                        for (int d = 0; d < depth; d++) suffix.append("[*]");
+                        assignedLocations.add(baseName + suffix);
                     }
                 }
             }
@@ -75,9 +78,18 @@ class AssignableAnalyzer {
                     assignedLocations.add("this." + varName);
                 }
             } else if (target instanceof ArrayAccessExpr) {
-                String baseName = extractArrayBase((ArrayAccessExpr) target, methodDecl);
+                ArrayAccessExpr aae = (ArrayAccessExpr) target;
+                String baseName = extractArrayBase(aae, methodDecl);
                 if (baseName != null) {
-                    assignedLocations.add(baseName + "[*]");
+                    // For 2D writes `data[row][col] = value`, emit `data[*][*]` so the
+                    // assignable clause actually covers the inner-array element being
+                    // written. The plain `data[*]` form only lets the outer array's
+                    // slots be rebound (to null / fresh arrays), which isn't what
+                    // happens here.
+                    int depth = arrayAccessDepth(aae);
+                    StringBuilder suffix = new StringBuilder();
+                    for (int d = 0; d < depth; d++) suffix.append("[*]");
+                    assignedLocations.add(baseName + suffix);
                 }
             }
         });
@@ -94,6 +106,20 @@ class AssignableAnalyzer {
      * write target, or {@code null} if the array is not a field or parameter we can name.
      * Handles {@code data[i]}, {@code this.data[i]}, and nested arrays like {@code data[i][j]}.
      */
+    /**
+     * Counts the number of nested [] levels in an array access.
+     * `arr[i]` → 1, `arr[i][j]` → 2, `arr[i][j][k]` → 3.
+     */
+    private static int arrayAccessDepth(ArrayAccessExpr access) {
+        int depth = 1;
+        Expression name = access.getName();
+        while (name instanceof ArrayAccessExpr inner) {
+            depth++;
+            name = inner.getName();
+        }
+        return depth;
+    }
+
     static String extractArrayBase(ArrayAccessExpr access, MethodDeclaration methodDecl) {
         Expression name = access.getName();
         if (name instanceof ArrayAccessExpr inner) {
