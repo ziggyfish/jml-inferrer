@@ -62,3 +62,7 @@ experiment/test_project/
 # Docker experiment output and cloned repos
 experiment-results/
 .clone-cache/
+
+# Autonomous verification suite output (extracted per-run specs + full logs)
+verification-runs/
+inferred-specs.log
