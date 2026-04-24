@@ -448,10 +448,19 @@ class LoopInvariantAnalyzer {
                                     && binExpr.getLeft() instanceof NameExpr lne
                                     && lne.getNameAsString().equals(varName)) {
 
+                                // `varName >= 0` is sound whenever the counter starts
+                                // non-negative (initialised to 0 in the method body) AND
+                                // only increments — holds regardless of persistence across
+                                // an outer loop. `varName <= innerCounter` is NOT sound
+                                // when the counter persists because at outer iteration 2
+                                // the inner counter resets to 0 but varName already holds
+                                // a positive value.
+                                if (startsAtZeroLocal(body, varName)) {
+                                    invariants.add(varName + " >= 0");
+                                }
                                 if (!counterNames.isEmpty()
                                         && !persistsAcrossEnclosingLoop(body, varName)) {
                                     String counter = counterNames.get(0);
-                                    invariants.add(varName + " >= 0");
                                     invariants.add(varName + " <= " + counter);
                                 }
                             }
@@ -470,12 +479,59 @@ class LoopInvariantAnalyzer {
                 if (isInsideNestedLoopOf(unary, body)) return;
                 String varName = ne.getNameAsString();
                 if (counterNames.contains(varName)) return;
+                // Emit `>= 0` even for persisting counters, but only `<= counter` if
+                // the counter doesn't persist (otherwise it breaks at outer-iter 2+).
+                if (startsAtZeroLocal(body, varName)) {
+                    invariants.add(varName + " >= 0");
+                }
                 if (counterNames.isEmpty()) return;
                 if (persistsAcrossEnclosingLoop(body, varName)) return;
                 String counter = counterNames.get(0);
                 invariants.add(varName + " >= 0");
                 invariants.add(varName + " <= " + counter);
             });
+        }
+
+        /**
+         * True when {@code varName} is declared somewhere in the enclosing method
+         * with a non-negative integer-literal initializer AND the method never assigns
+         * it anything other than increment-by-literal or `= 0`. That's the shape for
+         * which `varName >= 0` is a sound loop invariant.
+         */
+        private boolean startsAtZeroLocal(Statement body, String varName) {
+            Optional<MethodDeclaration> methodOpt = body.findAncestor(MethodDeclaration.class);
+            if (methodOpt.isEmpty()) return false;
+            MethodDeclaration method = methodOpt.get();
+
+            boolean foundInit = false;
+            for (com.github.javaparser.ast.body.VariableDeclarator vd
+                    : method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                if (!vd.getNameAsString().equals(varName)) continue;
+                if (vd.getInitializer().isEmpty()) continue;
+                Expression init = vd.getInitializer().get();
+                if (init.isIntegerLiteralExpr() && init.asIntegerLiteralExpr().asInt() >= 0) {
+                    foundInit = true;
+                } else {
+                    return false;
+                }
+            }
+            if (!foundInit) return false;
+
+            // All reassignments must either be `= non-neg literal` or compound PLUS by a
+            // non-negative literal. Any other shape (MINUS, multiply by negative, etc.)
+            // could make varName go negative.
+            for (AssignExpr ae : method.findAll(AssignExpr.class)) {
+                if (!(ae.getTarget() instanceof NameExpr ne) || !ne.getNameAsString().equals(varName)) continue;
+                Expression v = ae.getValue();
+                if (ae.getOperator() == AssignExpr.Operator.ASSIGN) {
+                    if (v.isIntegerLiteralExpr() && v.asIntegerLiteralExpr().asInt() >= 0) continue;
+                    return false;
+                }
+                if (ae.getOperator() == AssignExpr.Operator.PLUS
+                        && v.isIntegerLiteralExpr() && v.asIntegerLiteralExpr().asInt() >= 0) continue;
+                return false;
+            }
+            return true;
         }
 
         /**
