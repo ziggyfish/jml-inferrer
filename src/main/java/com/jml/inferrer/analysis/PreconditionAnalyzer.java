@@ -72,6 +72,11 @@ class PreconditionAnalyzer {
         // Without `start >= 0` and `end <= arr.length` the access is unproveable.
         analyzeRangeLoopArrayBounds(methodDecl, preconditions, collector);
 
+        // Field-index-into-field-array: `this.data[this.size] = v` needs
+        // `this.size < this.data.length` as a precondition. Symmetric to
+        // analyzeFieldArrayIndexConstraints but the index is a field, not a param.
+        analyzeFieldIndexFieldArrayBounds(methodDecl, preconditions, collector);
+
         // Analyze parameter relationships
         analyzeParameterRelationships(methodDecl, preconditions, collector);
 
@@ -220,6 +225,42 @@ class PreconditionAnalyzer {
      * Symmetric to {@link #analyzeArrayParameterConstraints} but handles the case where
      * the array lives on {@code this}, not in the parameter list.
      */
+    /**
+     * `this.data[this.size] = value` (or any `this.fieldArray[this.fieldIdx]` access)
+     * requires a precondition bounding {@code fieldIdx} within {@code fieldArray.length}.
+     * The index field must be distinct from the array field and numeric; both must be
+     * instance fields of the enclosing class. When the write modifies {@code fieldIdx}
+     * (e.g. {@code size++}), the original index value still applies to the array
+     * write that happened FIRST in the body.
+     */
+    private void analyzeFieldIndexFieldArrayBounds(MethodDeclaration methodDecl,
+                                                    Set<String> preconditions, ASTCollector collector) {
+        for (var access : collector.arrayAccessExprs) {
+            Expression index = access.getIndex();
+            String idxField = fieldName(index, methodDecl);
+            if (idxField == null) continue;
+
+            Expression name = access.getName();
+            while (name instanceof ArrayAccessExpr inner) name = inner.getName();
+            String arrField = fieldName(name, methodDecl);
+            if (arrField == null || arrField.equals(idxField)) continue;
+
+            preconditions.add("this." + idxField + " >= 0");
+            preconditions.add("this." + idxField + " < this." + arrField + ".length");
+        }
+    }
+
+    /** Extract the backing instance-field name from {@code this.field}, {@code field}, or null. */
+    private String fieldName(Expression expr, MethodDeclaration methodDecl) {
+        if (expr instanceof FieldAccessExpr fa && fa.getScope().toString().equals("this")) {
+            return fa.getNameAsString();
+        }
+        if (expr instanceof NameExpr ne && AnalysisUtils.isFieldReference(methodDecl, ne.getNameAsString())) {
+            return ne.getNameAsString();
+        }
+        return null;
+    }
+
     private void analyzeFieldArrayIndexConstraints(MethodDeclaration methodDecl, String paramName,
                                                     Set<String> preconditions, ASTCollector collector) {
         for (var access : collector.arrayAccessExprs) {
