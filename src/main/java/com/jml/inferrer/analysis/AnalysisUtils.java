@@ -86,10 +86,22 @@ class AnalysisUtils {
 
     /**
      * Builds a result equality postcondition. Uses {@code .equals()} for string literals
-     * (since JML {@code ==} is reference equality), and {@code ==} for everything else.
+     * and string-concatenation expressions (since JML {@code ==} is reference equality
+     * and {@code a + b} produces a fresh {@code String} object), and {@code ==} for
+     * everything else.
      */
     static String buildResultEquality(String resolvedExpr) {
-        if (isStringLiteral(resolvedExpr)) {
+        return buildResultEquality(resolvedExpr, false);
+    }
+
+    /**
+     * Same as {@link #buildResultEquality(String)} but forces {@code .equals()} when
+     * the caller knows the return type is {@code String}. Needed for
+     * {@code return a + b;} where both operands are {@code String} parameters and
+     * the expression has no literal for the heuristic to latch onto.
+     */
+    static String buildResultEquality(String resolvedExpr, boolean forceStringEquals) {
+        if (forceStringEquals || isStringLiteral(resolvedExpr) || containsStringLiteral(resolvedExpr)) {
             return "\\result.equals(" + resolvedExpr + ")";
         }
         // Parenthesize expressions containing comparison/equality/logical operators OR a
@@ -103,6 +115,31 @@ class AnalysisUtils {
             return "\\result == (" + resolvedExpr + ")";
         }
         return "\\result == " + resolvedExpr;
+    }
+
+    /**
+     * Heuristic: returns true when the expression mentions a {@code String} literal.
+     * A {@code +} whose operands include a string literal is necessarily string
+     * concatenation, and the resulting object is distinct from any operand, so
+     * reference equality ({@code ==}) is the wrong comparison. {@code .equals()}
+     * is correct for the value-equality the inferrer intends.
+     */
+    private static boolean containsStringLiteral(String expr) {
+        // Look for a quoted string literal that isn't escaped. Simple check: the
+        // string contains a `"` that starts a literal, followed by a closing `"`.
+        int i = 0;
+        while (i < expr.length()) {
+            if (expr.charAt(i) == '"') {
+                int j = i + 1;
+                while (j < expr.length() && expr.charAt(j) != '"') {
+                    if (expr.charAt(j) == '\\' && j + 1 < expr.length()) j += 2;
+                    else j++;
+                }
+                if (j < expr.length()) return true;
+            }
+            i++;
+        }
+        return false;
     }
 
     /**

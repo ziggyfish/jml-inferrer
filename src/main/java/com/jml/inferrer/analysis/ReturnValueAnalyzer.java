@@ -439,6 +439,11 @@ class ReturnValueAnalyzer {
 
         if (results.isEmpty()) return;
 
+        // When the method returns String, any `\result == expr` is reference equality
+        // in JML — wrong for string-concat results (`a + b` produces a fresh object).
+        // Force `.equals()` in that case.
+        boolean isStringReturn = "String".equals(methodDecl.getType().asString());
+
         // Check if all results resolve to the same expression — emit single unconditional spec
         String firstExpr = results.get(0).resolvedExpr;
         boolean allSame = results.stream().allMatch(r -> r.resolvedExpr.equals(firstExpr));
@@ -448,7 +453,7 @@ class ReturnValueAnalyzer {
             if (AnalysisUtils.isTrivialResult(firstExpr)) return;
             if (firstExpr.length() > 100) return;
             if (!symbolicExecutor.isMethodScopeSafe(firstExpr, methodDecl, paramNames)) return;
-            postconditions.add(AnalysisUtils.buildResultEquality(firstExpr));
+            postconditions.add(AnalysisUtils.buildResultEquality(firstExpr, isStringReturn));
             return;
         }
 
@@ -462,7 +467,7 @@ class ReturnValueAnalyzer {
             if (!AnalysisUtils.isTrivialResult(sr.resolvedExpr)
                     && sr.resolvedExpr.length() <= 100
                     && symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) {
-                postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr));
+                postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
                 return;
             }
         }
@@ -473,7 +478,7 @@ class ReturnValueAnalyzer {
                 if (AnalysisUtils.isTrivialResult(sr.resolvedExpr)) continue;
                 if (sr.resolvedExpr.length() > 100) continue;
                 if (!symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) continue;
-                postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr));
+                postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
             } else {
                 // Conditional — single identifiers are meaningful here
                 // (e.g., "a >= b ==> \result == a"), only filter ternary/new expressions
@@ -481,10 +486,17 @@ class ReturnValueAnalyzer {
                 if (sr.resolvedExpr.contains("new ")) continue;
                 if (sr.resolvedExpr.length() > 100) continue;
                 if (!symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) continue;
+                // Don't emit `cond ==> \result == true|false` — the path condition is
+                // usually incomplete (the symbolic executor doesn't model loop bodies),
+                // so promising a boolean result on a partial path generates contradictions
+                // with the loop-derived spec.
+                String trimmedExpr = sr.resolvedExpr.trim();
+                if (trimmedExpr.equals("true") || trimmedExpr.equals("false")) continue;
                 String simplifiedCond = AnalysisUtils.simplifyPathCondition(sr.pathCondition);
                 if (simplifiedCond.length() > 80) continue;
                 if (!symbolicExecutor.isMethodScopeSafe(simplifiedCond, methodDecl, paramNames)) continue;
-                postconditions.add(simplifiedCond + " ==> " + AnalysisUtils.buildResultEquality(sr.resolvedExpr));
+                postconditions.add(simplifiedCond + " ==> "
+                        + AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
             }
         }
     }
