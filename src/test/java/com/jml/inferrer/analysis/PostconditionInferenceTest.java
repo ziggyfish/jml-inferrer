@@ -427,11 +427,14 @@ class PostconditionInferenceTest extends InferrerTestBase {
         //   @Requires("a != null")
         //   @Requires("b != null")
         //   @Ensures("\\result != null")
-        //   @Ensures("\\result.length() == a.length() + b.length()")
+        //   @Ensures("(\\bigint)\\result.length() == (\\bigint)a.length() + (\\bigint)b.length()")
         //   String combine(String a, String b) { ... }
+        // Length sum is expressed in bigint so it doesn't falsely overflow
+        // when the individual lengths approach Integer.MAX_VALUE.
         assertTrue(spec.getPostconditions().stream()
-                .anyMatch(p -> p.contains("a.length() + b.length()")),
-                "Expected length sum");
+                .anyMatch(p -> p.contains("a.length()") && p.contains("b.length()")
+                        && p.contains("\\result.length()")),
+                "Expected length sum postcondition");
     }
 
     @Test

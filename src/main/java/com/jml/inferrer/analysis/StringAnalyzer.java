@@ -108,14 +108,21 @@ class StringAnalyzer {
                     boolean leftIsParam = isStringParameter(leftName, methodDecl);
                     boolean rightIsParam = isStringParameter(rightName, methodDecl);
 
+                    // Length equalities are expressed in bigint so the sum can't
+                    // overflow int even when the individual lengths approach
+                    // Integer.MAX_VALUE. `(\bigint)\result.length() == (\bigint)a.length() + (\bigint)b.length()`
+                    // stays provable regardless of sum size.
                     if (leftIsParam && rightIsParam) {
-                        postconditions.add("\\result.length() == " + leftName + ".length() + " + rightName + ".length()");
+                        postconditions.add("(\\bigint) \\result.length() == (\\bigint) "
+                                + leftName + ".length() + (\\bigint) " + rightName + ".length()");
                     } else if (leftIsParam && binExpr.getRight() instanceof StringLiteralExpr) {
                         int literalLen = ((StringLiteralExpr) binExpr.getRight()).asString().length();
-                        postconditions.add("\\result.length() == " + leftName + ".length() + " + literalLen);
+                        postconditions.add("(\\bigint) \\result.length() == (\\bigint) "
+                                + leftName + ".length() + " + literalLen);
                     } else if (rightIsParam && binExpr.getLeft() instanceof StringLiteralExpr) {
                         int literalLen = ((StringLiteralExpr) binExpr.getLeft()).asString().length();
-                        postconditions.add("\\result.length() == " + literalLen + " + " + rightName + ".length()");
+                        postconditions.add("(\\bigint) \\result.length() == " + literalLen
+                                + " + (\\bigint) " + rightName + ".length()");
                     }
                 }
             }
