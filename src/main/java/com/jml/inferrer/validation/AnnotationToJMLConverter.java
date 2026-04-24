@@ -80,9 +80,16 @@ public class AnnotationToJMLConverter {
         // pass to inject /*@ spec_public @*/ before non-public fields so OpenJML allows
         // public-method specs to mention them.
         Set<String> specReferencedFields = new java.util.LinkedHashSet<>();
+        Set<String> specReferencedMethods = new java.util.LinkedHashSet<>();
 
-        // Process class-level annotations
+        // Process class-level annotations. Class invariants (//@ public invariant ...)
+        // must appear INSIDE the class body — emitting them at the annotation position
+        // above `public class Foo { ... }` produces a JML parse error. We collect them
+        // here and emit the inside-body replacements LAST so they land ABOVE any
+        // spec_public annotations injected before the first field.
+        Map<ClassOrInterfaceDeclaration, List<String>> classInvariantsByClass = new java.util.LinkedHashMap<>();
         for (ClassOrInterfaceDeclaration classDecl : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+            List<String> pendingClassInvariants = new ArrayList<>();
             for (AnnotationExpr ann : new ArrayList<>(classDecl.getAnnotations())) {
                 String name = getSimpleName(ann.getNameAsString());
 
@@ -92,16 +99,20 @@ public class AnnotationToJMLConverter {
                     if (jmlComment != null && ann.getBegin().isPresent()) {
                         int startLine = ann.getBegin().get().line;
                         int endLine = ann.getEnd().get().line;
-                        String indent = getIndent(source, startLine);
-                        replacements.add(new Replacement(startLine, endLine, indent + jmlComment));
+                        replacements.add(new Replacement(startLine, endLine, null));
+                        pendingClassInvariants.add(jmlComment);
+                        collectClassFieldReferences(extractAnnotationValue(ann), classDecl, specReferencedFields);
                     }
                 } else if (NON_JML_ANNOTATIONS.contains(name)) {
                     if (ann.getBegin().isPresent()) {
                         int startLine = ann.getBegin().get().line;
                         int endLine = ann.getEnd().get().line;
-                        replacements.add(new Replacement(startLine, endLine, null)); // Remove
+                        replacements.add(new Replacement(startLine, endLine, null));
                     }
                 }
+            }
+            if (!pendingClassInvariants.isEmpty()) {
+                classInvariantsByClass.put(classDecl, pendingClassInvariants);
             }
         }
 
@@ -113,6 +124,11 @@ public class AnnotationToJMLConverter {
             Map<Integer, List<String>> invariantsByLoop = new java.util.LinkedHashMap<>();
             boolean isPure = false;
             List<int[]> annotationLineRanges = new ArrayList<>();
+            // Collect assignable values so we can merge multiple `@Assignable` annotations
+            // into a single `assignable a, b, c;` clause. JML treats each `assignable` on
+            // its own line as a separate spec case, so emitting `this.r` and `this.g`
+            // separately makes each case forbid the other's write.
+            List<String> assignableValues = new ArrayList<>();
 
             for (AnnotationExpr ann : new ArrayList<>(methodDecl.getAnnotations())) {
                 String name = getSimpleName(ann.getNameAsString());
@@ -125,6 +141,11 @@ public class AnnotationToJMLConverter {
                             int loopLine = extractLoopLineMember(ann);
                             invariantsByLoop.computeIfAbsent(loopLine, k -> new ArrayList<>())
                                     .add(normalizeJMLExpression(value));
+                        } else if (name.equals("Assignable")) {
+                            String normalized = normalizeJMLExpression(value);
+                            if (!assignableValues.contains(normalized)) {
+                                assignableValues.add(normalized);
+                            }
                         } else {
                             String jmlClause = convertMethodAnnotation(name, value);
                             if (jmlClause != null) {
@@ -135,6 +156,7 @@ public class AnnotationToJMLConverter {
                         // class-level `spec_public` injection below can find them.
                         if (methodDecl.isPublic()) {
                             collectFieldReferences(value, methodDecl, specReferencedFields);
+                            collectMethodReferences(value, methodDecl, specReferencedMethods);
                         }
                     }
                     if (ann.getBegin().isPresent()) {
@@ -164,6 +186,12 @@ public class AnnotationToJMLConverter {
                 }
             }
 
+            // Merge all assignable values into a single clause so JML sees one frame
+            // condition, not N per-case frames.
+            if (!assignableValues.isEmpty()) {
+                specComments.add("assignable " + String.join(", ", assignableValues) + ";");
+            }
+
             if (!specComments.isEmpty() || isPure || !invariantsByLoop.isEmpty()) {
                 // Build JML spec block to insert before method declaration
                 String indent = "";
@@ -171,12 +199,15 @@ public class AnnotationToJMLConverter {
                     indent = getIndent(source, methodDecl.getBegin().get().line);
                 }
 
+                // Order: spec lines first, then `/*@ pure @*/` on its own line immediately
+                // before the method declaration. OpenJML rejects `/*@ pure @*/` appearing
+                // above lightweight spec cases — `pure` must read as a method modifier.
                 StringBuilder jmlBlock = new StringBuilder();
-                if (isPure) {
-                    jmlBlock.append(indent).append("/*@ pure @*/\n");
-                }
                 for (String spec : specComments) {
                     jmlBlock.append(indent).append("//@ ").append(spec).append("\n");
+                }
+                if (isPure) {
+                    jmlBlock.append(indent).append("/*@ pure @*/\n");
                 }
 
                 // Mark annotation lines for removal
@@ -231,25 +262,131 @@ public class AnnotationToJMLConverter {
             return null;
         }
 
-        // For each non-public field referenced by an inferred public-method spec, inject
-        // /*@ spec_public @*/ before the field declaration. Without this, OpenJML rejects
-        // ensures/assignable clauses on public methods that name the field.
+        // Note: field-level non-JML annotations (e.g. @Nullable, @NonNull) are stripped
+        // by the final regex scrub rather than by line-based removal — they frequently
+        // share a line with the field declaration, and removing a whole line would take
+        // the declaration with them.
+
+        // Collect non-public fields that need /*@ spec_public @*/ so a post-pass can
+        // splice the marker INLINE on the field declaration line. A standalone marker
+        // line above the field is rejected by OpenJML as a floating modifier.
+        Set<String> fieldsNeedingSpecPublic = new java.util.LinkedHashSet<>();
         for (com.github.javaparser.ast.body.FieldDeclaration field
                 : cu.findAll(com.github.javaparser.ast.body.FieldDeclaration.class)) {
             if (field.isPublic()) continue;
-            boolean referenced = field.getVariables().stream()
-                    .anyMatch(v -> specReferencedFields.contains(v.getNameAsString()));
-            if (!referenced) continue;
-            if (field.getBegin().isEmpty()) continue;
-            int line = field.getBegin().get().line;
-            String indent = getIndent(source, line);
-            replacements.add(new Replacement(line, line, indent + "/*@ spec_public @*/\n", true));
+            for (var v : field.getVariables()) {
+                if (specReferencedFields.contains(v.getNameAsString())) {
+                    fieldsNeedingSpecPublic.add(v.getNameAsString());
+                }
+            }
+        }
+
+        // Collect non-public methods referenced by any public-method spec.
+        Set<String> methodsNeedingSpecPublic = new java.util.LinkedHashSet<>();
+        for (MethodDeclaration md : cu.findAll(MethodDeclaration.class)) {
+            if (md.isPublic()) continue;
+            if (specReferencedMethods.contains(md.getNameAsString())) {
+                methodsNeedingSpecPublic.add(md.getNameAsString());
+            }
+        }
+
+        // Emit class invariants last. Because applyReplacements processes same-line
+        // inserts in reverse-of-insertion order, adding these AFTER spec_public places
+        // them ABOVE the spec_public line, inside the class body — the correct shape:
+        //     //@ public invariant value >= 0;
+        //     /*@ spec_public @*/
+        //     int value;
+        for (Map.Entry<ClassOrInterfaceDeclaration, List<String>> entry : classInvariantsByClass.entrySet()) {
+            ClassOrInterfaceDeclaration classDecl = entry.getKey();
+            List<String> invariants = entry.getValue();
+            if (classDecl.getBegin().isEmpty()) continue;
+            int insertLine;
+            String bodyIndent;
+            if (!classDecl.getMembers().isEmpty()
+                    && classDecl.getMembers().get(0).getBegin().isPresent()) {
+                int firstMemberLine = classDecl.getMembers().get(0).getBegin().get().line;
+                insertLine = firstMemberLine;
+                bodyIndent = getIndent(source, firstMemberLine);
+            } else {
+                insertLine = classDecl.getBegin().get().line + 1;
+                bodyIndent = "    ";
+            }
+            StringBuilder invBlock = new StringBuilder();
+            for (String inv : invariants) {
+                invBlock.append(bodyIndent).append(inv).append("\n");
+            }
+            replacements.add(new Replacement(insertLine, insertLine, invBlock.toString(), true));
         }
 
         // Also remove import lines for our annotation package
         String result = applyReplacements(source, replacements);
         result = removeAnnotationImports(result);
+        // Scrub any residual inferrer annotations that shared a line with a declaration
+        // (line-based removal can't reach those). Handles both marker and normal forms.
+        result = result.replaceAll(
+                "@com\\.jml\\.inferrer\\.annotations\\.\\w+(?:\\s*\\([^)]*\\))?\\s*", "");
+        // Splice /*@ spec_public @*/ INLINE before each qualifying field declaration.
+        // OpenJML rejects the marker on its own line; it must read as a modifier on
+        // the immediately-adjacent declaration.
+        for (String fieldName : fieldsNeedingSpecPublic) {
+            result = injectInlineSpecPublic(result, fieldName);
+        }
+        for (String methodName : methodsNeedingSpecPublic) {
+            result = injectInlineMethodSpecPublic(result, methodName);
+        }
         return result;
+    }
+
+    /**
+     * Adds {@code /*@ spec_public @*\/} inline on the declaration line of a non-public
+     * method whose name is referenced by a public method's spec.
+     */
+    private String injectInlineMethodSpecPublic(String source, String methodName) {
+        String escaped = Pattern.quote(methodName);
+        Pattern pat = Pattern.compile(
+                "(?m)^(\\s*)((?:(?:private|protected|static|final|synchronized|native|abstract|default)\\s+)+)"
+                        + "((?:int|long|short|byte|char|boolean|float|double|void|String"
+                        + "|[A-Z]\\w*(?:\\s*<[^<>]+>)?)\\s*(?:\\[\\s*\\])*)"
+                        + "\\s+" + escaped + "\\s*\\(");
+        Matcher m = pat.matcher(source);
+        if (!m.find()) return source;
+
+        String beforeMatch = source.substring(0, m.start());
+        int lineStart = Math.max(0, beforeMatch.lastIndexOf('\n') + 1);
+        if (source.substring(lineStart, m.start()).contains("/*@ spec_public @*/")) {
+            return source;
+        }
+        String rebuilt = m.group(1) + "/*@ spec_public @*/ " + m.group(2) + m.group(3)
+                + " " + methodName + "(";
+        return source.substring(0, m.start()) + rebuilt + source.substring(m.end());
+    }
+
+    /**
+     * Finds the declaration line for {@code fieldName} in the source text and prepends
+     * a {@code /*@ spec_public @*\/} modifier inline (after any existing indentation).
+     * Conservative pattern — matches a type token (primitive, capitalised identifier,
+     * or bracketed array form) followed by the field name.
+     */
+    private String injectInlineSpecPublic(String source, String fieldName) {
+        String escaped = Pattern.quote(fieldName);
+        Pattern pat = Pattern.compile(
+                "(?m)^(\\s*)((?:(?:public|protected|private|static|final|transient|volatile)\\s+)*)"
+                        + "((?:int|long|short|byte|char|boolean|float|double|String"
+                        + "|[A-Z]\\w*(?:\\s*<[^<>]+>)?)\\s*(?:\\[\\s*\\])*)"
+                        + "\\s+" + escaped + "\\s*[,=;]");
+        Matcher m = pat.matcher(source);
+        if (!m.find()) return source;
+
+        // Skip if this specific declaration already has spec_public inline (re-run safety).
+        String beforeMatch = source.substring(0, m.start());
+        int lineStart = Math.max(0, beforeMatch.lastIndexOf('\n') + 1);
+        if (source.substring(lineStart, m.start()).contains("/*@ spec_public @*/")) {
+            return source;
+        }
+
+        String rebuilt = m.group(1) + "/*@ spec_public @*/ " + m.group(2) + m.group(3)
+                + " " + fieldName + source.charAt(m.end() - 1);
+        return source.substring(0, m.start()) + rebuilt + source.substring(m.end());
     }
 
     /**
@@ -264,8 +401,15 @@ public class AnnotationToJMLConverter {
         Optional<ClassOrInterfaceDeclaration> classOpt = methodDecl
                 .findAncestor(ClassOrInterfaceDeclaration.class);
         if (classOpt.isEmpty()) return;
+        collectClassFieldReferences(specValue, classOpt.get(), into);
+    }
+
+    private void collectClassFieldReferences(String specValue,
+                                              ClassOrInterfaceDeclaration classDecl,
+                                              Set<String> into) {
+        if (specValue == null) return;
         Set<String> fieldNames = new java.util.HashSet<>();
-        classOpt.get().getFields().forEach(fd -> fd.getVariables()
+        classDecl.getFields().forEach(fd -> fd.getVariables()
                 .forEach(v -> fieldNames.add(v.getNameAsString())));
         if (fieldNames.isEmpty()) return;
 
@@ -273,6 +417,31 @@ public class AnnotationToJMLConverter {
         while (m.find()) {
             String tok = m.group(1);
             if (fieldNames.contains(tok)) into.add(tok);
+        }
+    }
+
+    /**
+     * Scans {@code specValue} for identifiers matching private/package methods of the
+     * enclosing class. These need {@code /*@ spec_public @*\/} so a public-method spec
+     * can legally reference them.
+     */
+    private void collectMethodReferences(String specValue,
+                                          MethodDeclaration methodDecl,
+                                          Set<String> into) {
+        if (specValue == null) return;
+        Optional<ClassOrInterfaceDeclaration> classOpt = methodDecl
+                .findAncestor(ClassOrInterfaceDeclaration.class);
+        if (classOpt.isEmpty()) return;
+        Set<String> nonPublicMethodNames = new java.util.HashSet<>();
+        classOpt.get().getMethods().forEach(md -> {
+            if (!md.isPublic()) nonPublicMethodNames.add(md.getNameAsString());
+        });
+        if (nonPublicMethodNames.isEmpty()) return;
+
+        Matcher m = Pattern.compile("\\b([a-zA-Z_$][a-zA-Z_$0-9]*)\\s*\\(").matcher(specValue);
+        while (m.find()) {
+            String tok = m.group(1);
+            if (nonPublicMethodNames.contains(tok)) into.add(tok);
         }
     }
 
@@ -309,19 +478,55 @@ public class AnnotationToJMLConverter {
     }
 
     /**
-     * Converts @Signals("ExcType when condition") to
-     * //@ signals (ExcType e) condition;
+     * Converts the inferrer's exception descriptions (some natural-language) to
+     * well-formed JML {@code signals} clauses. Returns {@code null} for shapes
+     * the converter can't confidently translate — the caller drops those.
      */
     private String convertSignals(String value) {
-        // Format: "ExcType when condition"
+        if (value == null) return null;
+        value = value.trim();
+
+        if (value.startsWith("propagates ")) {
+            return "signals (" + value.substring("propagates ".length()).trim() + " e) true;";
+        }
+        if (value.startsWith("wraps ") && value.contains(" in ")) {
+            String exc = value.substring("wraps ".length(), value.indexOf(" in ")).trim();
+            return "signals (" + exc + " e) false;";
+        }
+        if (value.startsWith("on ") && value.contains(" returns ")) {
+            String exc = value.substring("on ".length(), value.indexOf(" returns ")).trim();
+            return "signals (" + exc + " e) false;";
+        }
+        if (value.startsWith("handles ")) {
+            String exc = value.substring("handles ".length())
+                    .replaceFirst("\\s*\\(.*\\)$", "").trim();
+            return "signals (" + exc + " e) false;";
+        }
+        if (value.startsWith("suppresses ")) {
+            return "signals (" + value.substring("suppresses ".length()).trim() + " e) false;";
+        }
+        if (value.startsWith("recovers from ")) {
+            String exc = value.substring("recovers from ".length())
+                    .replaceFirst("\\s+and\\s+retries$", "").trim();
+            return "signals (" + exc + " e) false;";
+        }
+        if (value.startsWith("falls back on ")) {
+            return "signals (" + value.substring("falls back on ".length()).trim() + " e) false;";
+        }
+
         int whenIndex = value.indexOf(" when ");
         if (whenIndex > 0) {
             String excType = value.substring(0, whenIndex).trim();
             String condition = value.substring(whenIndex + 6).trim();
             return "signals (" + excType + " e) " + condition + ";";
         }
-        // Fallback: treat entire value as exception type
-        return "signals (" + value.trim() + " e) true;";
+
+        // Bare exception type name (Capitalized identifier).
+        if (value.matches("(?:[\\w.]+\\.)?[A-Z]\\w*")) {
+            return "signals (" + value + " e) true;";
+        }
+
+        return null;
     }
 
     /**
@@ -330,43 +535,38 @@ public class AnnotationToJMLConverter {
     String normalizeJMLExpression(String expr) {
         String result = expr;
 
-        // Remove surrounding quotes if present
+        // Remove surrounding quotes if present (defensive — extractAnnotationValue
+        // should already have stripped them for StringLiteralExpr inputs).
         if (result.startsWith("\"") && result.endsWith("\"")) {
             result = result.substring(1, result.length() - 1);
         }
-
-        // Unescape backslashes from annotation string values
-        result = result.replace("\\\\", "\\");
-
-        // Normalize \forall range shorthand if needed
-        // e.g., "\forall int i; 0 <= i < arr.length; arr[i] >= 0"
-        // This is already valid OpenJML syntax, so we just clean it up
 
         return result.trim();
     }
 
     private String extractAnnotationValue(AnnotationExpr ann) {
+        com.github.javaparser.ast.expr.Expression valueExpr = null;
         if (ann.isSingleMemberAnnotationExpr()) {
-            String value = ann.asSingleMemberAnnotationExpr()
-                    .getMemberValue().toString();
-            // Remove surrounding quotes
-            if (value.startsWith("\"") && value.endsWith("\"")) {
-                value = value.substring(1, value.length() - 1);
-            }
-            return value;
-        }
-        if (ann.isNormalAnnotationExpr()) {
+            valueExpr = ann.asSingleMemberAnnotationExpr().getMemberValue();
+        } else if (ann.isNormalAnnotationExpr()) {
             for (MemberValuePair pair : ann.asNormalAnnotationExpr().getPairs()) {
                 if (pair.getNameAsString().equals("value")) {
-                    String value = pair.getValue().toString();
-                    if (value.startsWith("\"") && value.endsWith("\"")) {
-                        value = value.substring(1, value.length() - 1);
-                    }
-                    return value;
+                    valueExpr = pair.getValue();
+                    break;
                 }
             }
         }
-        return null;
+        if (valueExpr == null) return null;
+        // For string literals, return the actual unescaped string value — not the
+        // source-form toString() which keeps Java escape sequences (\", \\, \n).
+        if (valueExpr.isStringLiteralExpr()) {
+            return valueExpr.asStringLiteralExpr().asString();
+        }
+        String value = valueExpr.toString();
+        if (value.startsWith("\"") && value.endsWith("\"")) {
+            value = value.substring(1, value.length() - 1);
+        }
+        return value;
     }
 
     private String getSimpleName(String annotationName) {
