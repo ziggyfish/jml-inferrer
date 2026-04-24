@@ -101,7 +101,13 @@ class AnalysisUtils {
      * the expression has no literal for the heuristic to latch onto.
      */
     static String buildResultEquality(String resolvedExpr, boolean forceStringEquals) {
-        if (forceStringEquals || isStringLiteral(resolvedExpr) || containsStringLiteral(resolvedExpr)) {
+        // Only switch to `.equals()` when we know the result is a String:
+        // either the caller forces it (return type is String), or the entire
+        // resolved expression IS a string literal. Catching `containsStringLiteral`
+        // elsewhere was too aggressive — it fired on booleans like
+        // `s.equals("hello")` whose \result is boolean, producing the bogus
+        // `\result.equals(s.equals("hello"))` postcondition.
+        if (forceStringEquals || isStringLiteral(resolvedExpr)) {
             return "\\result.equals(" + resolvedExpr + ")";
         }
         // Parenthesize expressions containing comparison/equality/logical operators OR a
