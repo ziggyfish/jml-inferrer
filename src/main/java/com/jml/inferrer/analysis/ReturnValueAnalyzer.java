@@ -81,9 +81,11 @@ class ReturnValueAnalyzer {
                     allReturnsPositive = false;
                     allReturnsGreaterThanOne = false;
                 } else if (binExpr.getOperator() == BinaryExpr.Operator.PLUS &&
-                           involvesRecursiveCall(binExpr, methodDecl)) {
-                    // Recursive addition (e.g., fib(n-1) + fib(n-2)):
-                    // if the recursive call preserves non-negativity, sum is also non-negative
+                           bothOperandsSyntacticallyNonNegative(binExpr, methodDecl)) {
+                    // Recursive addition (e.g., fib(n-1) + fib(n-2)) — BOTH operands
+                    // must preserve non-negativity. `arr[index] + recur(...)` doesn't
+                    // qualify: arr[index] has unknown sign, so the sum can be negative
+                    // (and overflow compounds with int arithmetic).
                     allReturnsPositive = false;
                     allReturnsGreaterThanOne = false;
                 } else {
@@ -603,6 +605,51 @@ class ReturnValueAnalyzer {
         String methodName = methodDecl.getNameAsString();
         return containsRecursiveCall(binExpr.getLeft(), methodName) ||
                containsRecursiveCall(binExpr.getRight(), methodName);
+    }
+
+    /**
+     * True when BOTH operands of the sum can be syntactically argued non-negative:
+     * a non-negative literal, a .length()/.size()/.count() call, a self-multiplication
+     * on a float/double method, or a recursive call to the enclosing method (which we
+     * optimistically assume preserves non-negativity — the prover will re-check this).
+     * The purpose is to block `\result >= 0` when one side is e.g. `arr[index]` whose
+     * sign is unknown at the spec level.
+     */
+    boolean bothOperandsSyntacticallyNonNegative(BinaryExpr binExpr, MethodDeclaration methodDecl) {
+        return isSyntacticallyNonNegative(binExpr.getLeft(), methodDecl)
+                && isSyntacticallyNonNegative(binExpr.getRight(), methodDecl);
+    }
+
+    boolean isSyntacticallyNonNegative(Expression expr, MethodDeclaration methodDecl) {
+        if (expr instanceof IntegerLiteralExpr lit) {
+            return lit.asInt() >= 0;
+        }
+        if (expr instanceof DoubleLiteralExpr dlit) {
+            return dlit.asDouble() >= 0;
+        }
+        if (expr instanceof MethodCallExpr call) {
+            String name = call.getNameAsString();
+            if (name.equals(methodDecl.getNameAsString())) {
+                return true; // recursive call — assume it preserves non-negativity
+            }
+            if (name.equals("length") || name.equals("size") || name.equals("count")) {
+                return true;
+            }
+            if (name.equals("abs") && AnalysisUtils.isFloatingPointReturn(methodDecl)) {
+                return true;
+            }
+        }
+        if (expr instanceof BinaryExpr b) {
+            if (b.getOperator() == BinaryExpr.Operator.PLUS
+                    || b.getOperator() == BinaryExpr.Operator.MULTIPLY) {
+                return isSyntacticallyNonNegative(b.getLeft(), methodDecl)
+                        && isSyntacticallyNonNegative(b.getRight(), methodDecl);
+            }
+        }
+        if (expr instanceof EnclosedExpr encl) {
+            return isSyntacticallyNonNegative(encl.getInner(), methodDecl);
+        }
+        return false;
     }
 
     boolean containsRecursiveCall(Expression expr, String methodName) {
