@@ -479,6 +479,15 @@ class ReturnValueAnalyzer {
             }
         }
 
+        // If any loop in the method contains a return, the symbolic executor walks
+        // PAST the loop to statements that follow without accounting for whether
+        // the loop returned early. That makes the path condition of any post-loop
+        // return strictly weaker than the truth (it's missing the "loop didn't
+        // return" clause). Emitting `cond ==> \result == X` in that setting is
+        // unsound — the OR-form postconditions from LoopReturnPatternAnalyzer
+        // already capture both the early-return and fallthrough-return cases.
+        boolean hasLoopWithReturn = methodHasLoopWithReturn(methodDecl);
+
         for (SymbolicExecutor.SymbolicReturn sr : results) {
             if (sr.pathCondition == null) {
                 // Unconditional — filter trivial results (single identifier, literal, etc.)
@@ -487,6 +496,7 @@ class ReturnValueAnalyzer {
                 if (!symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) continue;
                 postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
             } else {
+                if (hasLoopWithReturn) continue;
                 // Conditional — single identifiers are meaningful here
                 // (e.g., "a >= b ==> \result == a"), only filter ternary/new expressions
                 if (sr.resolvedExpr.contains("?") && sr.resolvedExpr.contains(":")) continue;
@@ -506,6 +516,22 @@ class ReturnValueAnalyzer {
                         + AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
             }
         }
+    }
+
+    /** True when any loop in the method body contains a return statement. */
+    private boolean methodHasLoopWithReturn(MethodDeclaration methodDecl) {
+        if (methodDecl.getBody().isEmpty()) return false;
+        for (Statement s : methodDecl.getBody().get().findAll(Statement.class)) {
+            if (!(s instanceof ForStmt) && !(s instanceof WhileStmt)
+                    && !(s instanceof ForEachStmt) && !(s instanceof DoStmt)) continue;
+            Statement body;
+            if (s instanceof ForStmt fs) body = fs.getBody();
+            else if (s instanceof WhileStmt ws) body = ws.getBody();
+            else if (s instanceof ForEachStmt fes) body = fes.getBody();
+            else body = ((DoStmt) s).getBody();
+            if (!body.findAll(ReturnStmt.class).isEmpty()) return true;
+        }
+        return false;
     }
 
     void analyzeConditionalReturns(MethodDeclaration methodDecl, Set<String> postconditions,
