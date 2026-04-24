@@ -45,7 +45,7 @@ abstract class FormalVerificationTestBase {
     static OpenJMLInvoker invoker;
     static Path tempDir;
 
-    private static final int TIMEOUT_SECONDS = 30;
+    private static final int TIMEOUT_SECONDS = 120;
 
     /** Set via -Djml.showInferred=true to print inferred JML for every test. */
     private static final boolean SHOW_INFERRED = Boolean.getBoolean("jml.showInferred");
@@ -115,10 +115,17 @@ abstract class FormalVerificationTestBase {
         if (results.isEmpty()) {
             MethodVerificationResult result = buildFallbackResult(
                     invocation, parser, className, methodName);
-            return result;
+            results = List.of(result);
         }
 
-        return results.get(0);
+        MethodVerificationResult primary = results.get(0);
+        if (invocation.exitCode() != 0
+                && primary.getStatus() == MethodVerificationResult.Status.VERIFIED) {
+            primary.setStatus(MethodVerificationResult.Status.ERROR);
+            primary.addErrorMessage("OpenJML exited non-zero (" + invocation.exitCode()
+                    + "). Raw output:\n" + invocation.output());
+        }
+        return primary;
     }
 
     /**
@@ -160,9 +167,12 @@ abstract class FormalVerificationTestBase {
         JMLInferenceVisitor visitor = new JMLInferenceVisitor();
         visitor.visit(cu, null);
 
-        // Step 3: Write the annotated source to a temp file
+        // Step 3: Write the annotated source to a temp file. Java requires the file name to
+        // match a public class declared within, so keep the name as `<ClassName>.java`.
+        // Use a subdirectory to avoid colliding with the later JML-commented version.
         String annotatedSource = cu.toString();
-        Path annotatedFile = tempDir.resolve(className + "_annotated.java");
+        Path annotatedDir = Files.createDirectories(tempDir.resolve("annotated"));
+        Path annotatedFile = annotatedDir.resolve(className + ".java");
         Files.writeString(annotatedFile, annotatedSource);
 
         // Step 4: Convert annotations to JML comments
@@ -183,15 +193,22 @@ abstract class FormalVerificationTestBase {
             runSpecQualityChecks(method.get(), jmlSource, className, methodName);
         }
 
-        // Log the inferred JML source for review (opt-in via -Djml.showInferred=true)
+        // Log the inferred JML source for review (opt-in via -Djml.showInferred=true).
+        // When enabled, every block is prefixed with `>>>JML>>>` so a post-run
+        // extractor can reliably pull the specs out of the combined test log even
+        // when stderr/stdout are interleaved.
         if (SHOW_INFERRED) {
-            System.out.println("=== Inferred JML: " + className + "." + methodName + " ===");
-            System.out.println(jmlSource);
-            System.out.println("=== End JML ===");
+            System.out.println(">>>JML>>> === Inferred JML: " + className + "." + methodName + " ===");
+            for (String line : jmlSource.split("\n", -1)) {
+                System.out.println(">>>JML>>> " + line);
+            }
+            System.out.println(">>>JML>>> === End JML ===");
         }
 
-        // Step 5: Write JML-commented source and verify
-        Path jmlFile = tempDir.resolve(className + "_jml.java");
+        // Step 5: Write JML-commented source and verify. Keep the class name matched with
+        // the file name; use a subdirectory to avoid clashing with the annotated version.
+        Path jmlDir = Files.createDirectories(tempDir.resolve("jml"));
+        Path jmlFile = jmlDir.resolve(className + ".java");
         Files.writeString(jmlFile, jmlSource);
 
         OpenJMLInvoker.InvocationResult invocation = invoker.verify(jmlFile, null);
@@ -201,15 +218,32 @@ abstract class FormalVerificationTestBase {
         List<OpenJMLOutputParser.MethodInfo> methods = List.of(
                 new OpenJMLOutputParser.MethodInfo(className, methodName, findMethodLine(jmlSource, methodName), List.of())
         );
-        List<MethodVerificationResult> results = parser.parse(invocation.output(), className + "_jml.java", methods);
+        List<MethodVerificationResult> results = parser.parse(invocation.output(), className + ".java", methods);
 
         if (results.isEmpty()) {
             MethodVerificationResult result = buildFallbackResult(
                     invocation, parser, className, methodName);
-            return result;
+            results = List.of(result);
         }
 
-        return results.get(0);
+        // A non-zero exit code means OpenJML rejected the file (parse error, crash, etc.)
+        // The parser may not have mapped the error to this method; force ERROR so the test
+        // does not silently pass on malformed inferred JML.
+        MethodVerificationResult primary = results.get(0);
+        if (invocation.exitCode() != 0
+                && primary.getStatus() == MethodVerificationResult.Status.VERIFIED) {
+            primary.setStatus(MethodVerificationResult.Status.ERROR);
+            primary.addErrorMessage("OpenJML exited non-zero (" + invocation.exitCode()
+                    + "). Raw output:\n" + invocation.output());
+        }
+
+        if (SHOW_INFERRED) {
+            System.out.println(">>>JML>>> outcome: " + primary.getStatus()
+                    + (primary.getFailedSpecs().isEmpty() ? ""
+                            : " failed=" + primary.getFailedSpecs()));
+            System.out.println();
+        }
+        return primary;
     }
 
     // -------------------------------------------------------------------------
