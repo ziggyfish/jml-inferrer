@@ -875,6 +875,16 @@ class LoopInvariantAnalyzer {
                     initStr = String.valueOf(init.asIntegerLiteralExpr().asInt());
                 } else if (init.isNameExpr() && isPreStateExpressible(init.toString(), method)) {
                     initStr = init.toString();
+                } else if (isPreStateExpressible(init.toString(), method)) {
+                    // Compound initializers like `start + 1` or `arr.length - 1` are fine
+                    // as precondition operands as long as every identifier inside them
+                    // is pre-state-expressible. Without this, for-loops like
+                    //   for (int i = start + 1; i < end; i++)
+                    // lose their `i <= end` invariant — the precondition `start + 1 <= end`
+                    // is perfectly representable and logically equivalent to the usual
+                    // caller-supplied `start < end`, so the invariant should be safe to
+                    // emit.
+                    initStr = init.toString();
                 } else {
                     continue;
                 }
