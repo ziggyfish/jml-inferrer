@@ -7,7 +7,7 @@ import com.github.javaparser.ast.type.Type;
 /**
  * Shared utility methods used by multiple analyzers.
  */
-class AnalysisUtils {
+public class AnalysisUtils {
 
     static boolean isNumericType(Type type) {
         String typeStr = type.asString();
@@ -296,6 +296,55 @@ class AnalysisUtils {
                 return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * True for specifications that are trivially, textually true so we can drop
+     * them at the add-site before they reach JML output. Covers:
+     * <ul>
+     *   <li>Identical-side comparisons: {@code x >= x}, {@code x <= x}, {@code x == x}</li>
+     *   <li>Literal pairs like {@code 0 >= 0}, {@code 5 <= 5}</li>
+     *   <li>Non-negativity of array lengths: {@code 0 <= arr.length},
+     *       {@code arr.length >= 0}</li>
+     *   <li>Non-negativity of collection sizes: {@code 0 <= list.size()},
+     *       {@code list.size() >= 0}</li>
+     *   <li>Non-negativity of string lengths: {@code 0 <= s.length()},
+     *       {@code s.length() >= 0}</li>
+     *   <li>Sum of two non-negative length/size expressions — e.g.
+     *       {@code (a.length + b.length) >= 0}</li>
+     * </ul>
+     */
+    public static boolean isTriviallyTrueClause(String clause) {
+        if (clause == null) return false;
+        String p = clause.trim();
+        // Identical-sides comparison: `x >= x`, `x <= x`, `x == x`.
+        for (String op : new String[]{" >= ", " <= ", " == "}) {
+            int idx = p.indexOf(op);
+            if (idx < 0) continue;
+            String left = p.substring(0, idx).trim();
+            String right = p.substring(idx + op.length()).trim();
+            if (left.equals(right)) return true;
+            try {
+                int li = Integer.parseInt(left);
+                int ri = Integer.parseInt(right);
+                char c = op.charAt(1);
+                if (c == '>' && li >= ri) return true;
+                if (c == '<' && li <= ri) return true;
+                if (c == '=' && li == ri) return true;
+            } catch (NumberFormatException ignored) { }
+        }
+        // `0 <= <dotted>.length`, `0 <= <dotted>.size()`, `0 <= <dotted>.length()`
+        String lengthOrSize = "(length|size\\(\\)|length\\(\\))";
+        if (p.matches("0\\s*<=\\s*[\\w\\.]+\\." + lengthOrSize)) return true;
+        if (p.matches("[\\w\\.]+\\." + lengthOrSize + "\\s*>=\\s*0")) return true;
+        // Sum of two length/size terms is also >= 0.
+        if (p.matches("\\(?[\\w\\.]+\\." + lengthOrSize + "\\s*\\+\\s*[\\w\\.]+\\."
+                + lengthOrSize + "\\)?\\s*>=\\s*0")) return true;
+        // `x != null && y != null` ↔ `x != null` plus `y != null` individually;
+        // the compound form is never *false* unless one conjunct is, so the add-site
+        // filter drops it only when both conjuncts were already registered. To keep
+        // this helper context-free, skip that case here.
         return false;
     }
 

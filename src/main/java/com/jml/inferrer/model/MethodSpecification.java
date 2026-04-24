@@ -61,12 +61,14 @@ public class MethodSpecification {
     }
 
     public void addPrecondition(String precondition) {
+        if (com.jml.inferrer.analysis.AnalysisUtils.isTriviallyTrueClause(precondition)) return;
         if (!this.preconditions.contains(precondition)) {
             this.preconditions.add(precondition);
         }
     }
 
     public void addPrecondition(String precondition, ConfidenceLevel confidence) {
+        if (com.jml.inferrer.analysis.AnalysisUtils.isTriviallyTrueClause(precondition)) return;
         if (!this.preconditions.contains(precondition)) {
             this.preconditions.add(precondition);
         }
@@ -101,6 +103,7 @@ public class MethodSpecification {
      * directly above the right loop. {@code loopLine == 0} means "first loop" (legacy).
      */
     public void addLoopInvariant(String loopInvariant, int loopLine) {
+        if (com.jml.inferrer.analysis.AnalysisUtils.isTriviallyTrueClause(loopInvariant)) return;
         if (!this.loopInvariants.contains(loopInvariant)) {
             this.loopInvariants.add(loopInvariant);
             this.loopInvariantLine.put(loopInvariant, loopLine);
