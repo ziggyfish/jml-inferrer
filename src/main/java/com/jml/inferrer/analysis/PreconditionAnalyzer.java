@@ -497,7 +497,9 @@ class PreconditionAnalyzer {
             }
         });
         for (String rowAccess : twoDRowAccesses) {
-            preconditions.add(rowAccess + " != null");
+            // twoDRowAccesses entries are already full precondition clauses
+            // (the guarded implication includes `!= null` at the end).
+            preconditions.add(rowAccess);
         }
         // Method call on field: `this.list.add(x)`
         collector.methodCallExprs.forEach(call -> call.getScope().ifPresent(scope -> {
