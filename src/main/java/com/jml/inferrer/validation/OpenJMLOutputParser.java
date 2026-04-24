@@ -90,10 +90,32 @@ public class OpenJMLOutputParser {
                 continue;
             }
 
-            // Check for verify: lines (alternate success format)
+            // Check for verify: lines. With `--arithmetic-failure=hard` and strict mode,
+            // OpenJML emits verification failures prefixed `verify:` rather than `warning:`.
+            // Recognise failure messages (prover cannot establish, feasibility, etc.) and
+            // route them through the same attribution path as warnings.
             Matcher verifyMatcher = VERIFY_PATTERN.matcher(line);
             if (verifyMatcher.find()) {
-                // "verify:" lines that don't match VERIFIED_PATTERN are informational
+                String vmessage = verifyMatcher.group(3);
+                boolean isFailure = vmessage != null && (
+                        vmessage.contains("cannot establish")
+                        || vmessage.contains("cannot be established")
+                        || vmessage.contains("Validity is unknown")
+                        || vmessage.contains("Feasibility is unknown")
+                        || vmessage.contains("Aborted"));
+                if (isFailure) {
+                    int lineNum = Integer.parseInt(verifyMatcher.group(2));
+                    String matchedMethod = resolveMethodByLine(lineNum, methods);
+                    if (matchedMethod == null && !methods.isEmpty()) {
+                        // Fallback: attribute to the first method we're checking, since
+                        // the failure is still about THIS file we asked OpenJML about.
+                        matchedMethod = methods.get(0).methodName();
+                    }
+                    if (matchedMethod != null) {
+                        warningsByMethod.computeIfAbsent(matchedMethod, k -> new ArrayList<>())
+                                .add(vmessage);
+                    }
+                }
                 continue;
             }
 
