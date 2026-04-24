@@ -129,26 +129,36 @@ class SwitchBitwiseAnalyzer {
         });
     }
 
+    /**
+     * True when {@code binExpr} is itself the top-level expression of the enclosing
+     * return statement (i.e., {@code return binExpr;}). When it's a subexpression of
+     * a larger return (e.g. {@code return (a << 16) | (low & 0xFFFF);} and binExpr
+     * is the inner {@code low & 0xFFFF}), the bounds we derive for binExpr don't
+     * apply to the whole result — they'd produce unsound postconditions.
+     */
+    private boolean isTopLevelReturnExpression(BinaryExpr binExpr) {
+        ReturnStmt rs = binExpr.findAncestor(ReturnStmt.class).orElse(null);
+        if (rs == null) return false;
+        return rs.getExpression().map(e -> e == binExpr).orElse(false);
+    }
+
     private void analyzeBitwiseAnd(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {
         Expression left = binExpr.getLeft();
         Expression right = binExpr.getRight();
 
         if (right instanceof IntegerLiteralExpr) {
             int mask = ((IntegerLiteralExpr) right).asInt();
-            if (mask >= 0) {
-                binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
-                    spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
-                    spec.addPostcondition("\\result <= " + mask, MethodSpecification.ConfidenceLevel.HIGH);
-                });
+            if (mask >= 0 && isTopLevelReturnExpression(binExpr)) {
+                spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
+                spec.addPostcondition("\\result <= " + mask, MethodSpecification.ConfidenceLevel.HIGH);
             }
         }
 
         if (right instanceof IntegerLiteralExpr &&
-            ((IntegerLiteralExpr) right).asInt() == 1) {
-            binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
-                spec.addPostcondition("\\result == 0 || \\result == 1",
-                        MethodSpecification.ConfidenceLevel.HIGH);
-            });
+            ((IntegerLiteralExpr) right).asInt() == 1 &&
+            isTopLevelReturnExpression(binExpr)) {
+            spec.addPostcondition("\\result == 0 || \\result == 1",
+                    MethodSpecification.ConfidenceLevel.HIGH);
         }
     }
 
@@ -158,19 +168,16 @@ class SwitchBitwiseAnalyzer {
 
         if (right instanceof IntegerLiteralExpr) {
             int value = ((IntegerLiteralExpr) right).asInt();
-            if (value >= 0) {
-                binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
-                    spec.addPostcondition("\\result >= " + value, MethodSpecification.ConfidenceLevel.MEDIUM);
-                });
+            if (value >= 0 && isTopLevelReturnExpression(binExpr)) {
+                spec.addPostcondition("\\result >= " + value, MethodSpecification.ConfidenceLevel.MEDIUM);
             }
         }
     }
 
     private void analyzeBitwiseXor(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {
-        if (binExpr.getLeft().toString().equals(binExpr.getRight().toString())) {
-            binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
-                spec.addPostcondition("\\result == 0", MethodSpecification.ConfidenceLevel.HIGH);
-            });
+        if (binExpr.getLeft().toString().equals(binExpr.getRight().toString())
+                && isTopLevelReturnExpression(binExpr)) {
+            spec.addPostcondition("\\result == 0", MethodSpecification.ConfidenceLevel.HIGH);
         }
     }
 
@@ -178,15 +185,10 @@ class SwitchBitwiseAnalyzer {
         Expression right = binExpr.getRight();
 
         if (right instanceof IntegerLiteralExpr) {
-            int shiftAmount = ((IntegerLiteralExpr) right).asInt();
-            long multiplier = 1L << shiftAmount;
-
-            binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
-                String leftStr = binExpr.getLeft().toString();
-                if (AnalysisUtils.isNonNegativeExpression(binExpr.getLeft(), methodDecl)) {
-                    spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
-                }
-            });
+            if (isTopLevelReturnExpression(binExpr)
+                    && AnalysisUtils.isNonNegativeExpression(binExpr.getLeft(), methodDecl)) {
+                spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
+            }
         }
     }
 
@@ -234,22 +236,19 @@ class SwitchBitwiseAnalyzer {
     }
 
     private void analyzeRightShift(BinaryExpr binExpr, MethodDeclaration methodDecl, MethodSpecification spec) {
+        if (!isTopLevelReturnExpression(binExpr)) return;
         boolean isUnsigned = binExpr.getOperator() == BinaryExpr.Operator.UNSIGNED_RIGHT_SHIFT;
 
-        binExpr.findAncestor(ReturnStmt.class).ifPresent(returnStmt -> {
-            if (isUnsigned) {
-                spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
-            }
+        if (isUnsigned) {
+            spec.addPostcondition("\\result >= 0", MethodSpecification.ConfidenceLevel.HIGH);
+        }
 
-            Expression right = binExpr.getRight();
-            if (right instanceof IntegerLiteralExpr) {
-                int shiftAmount = ((IntegerLiteralExpr) right).asInt();
-
-                String leftStr = binExpr.getLeft().toString();
-                if (AnalysisUtils.isNonNegativeExpression(binExpr.getLeft(), methodDecl)) {
-                    spec.addPostcondition("\\result <= " + leftStr, MethodSpecification.ConfidenceLevel.MEDIUM);
-                }
+        Expression right = binExpr.getRight();
+        if (right instanceof IntegerLiteralExpr) {
+            String leftStr = binExpr.getLeft().toString();
+            if (AnalysisUtils.isNonNegativeExpression(binExpr.getLeft(), methodDecl)) {
+                spec.addPostcondition("\\result <= " + leftStr, MethodSpecification.ConfidenceLevel.MEDIUM);
             }
-        });
+        }
     }
 }
