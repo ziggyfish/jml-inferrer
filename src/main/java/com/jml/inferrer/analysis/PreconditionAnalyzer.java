@@ -246,8 +246,25 @@ class PreconditionAnalyzer {
             // Simple shape: `data[idxField]`.
             String idxField = fieldName(index, methodDecl);
             if (idxField != null && !idxField.equals(arrField)) {
-                preconditions.add("this." + idxField + " >= 0");
-                preconditions.add("this." + idxField + " < this." + arrField + ".length");
+                // StackPopPrecondition pattern: `this.size--; return this.data[this.size];`
+                // The access reads the POST-decrement value, so the bound `size >= 0` is
+                // insufficient — post value could be -1. Detect a decrement of idxField
+                // before this access and emit the stricter bound instead.
+                int decDelta = countDecrementsBefore(methodDecl, idxField, access);
+                int incDelta = countIncrementsBefore(methodDecl, idxField, access);
+                int netShift = decDelta - incDelta; // positive => post = pre - netShift
+                if (netShift > 0) {
+                    preconditions.add("this." + idxField + " >= " + netShift);
+                    preconditions.add("this." + idxField + " <= this." + arrField + ".length - "
+                            + (netShift - 1));
+                } else if (netShift < 0) {
+                    preconditions.add("this." + idxField + " >= " + netShift);
+                    preconditions.add("this." + idxField + " < this." + arrField + ".length + "
+                            + (-netShift));
+                } else {
+                    preconditions.add("this." + idxField + " >= 0");
+                    preconditions.add("this." + idxField + " < this." + arrField + ".length");
+                }
                 continue;
             }
 
@@ -269,6 +286,52 @@ class PreconditionAnalyzer {
                 }
             }
         }
+    }
+
+    /** Count `field--` / `field -= 1` that appear BEFORE {@code beforeNode} in source. */
+    private int countDecrementsBefore(MethodDeclaration methodDecl, String fieldName,
+                                       com.github.javaparser.ast.Node beforeNode) {
+        if (methodDecl.getBody().isEmpty()) return 0;
+        int before = positionLine(beforeNode) * 10000 + positionCol(beforeNode);
+        int count = 0;
+        for (UnaryExpr ue : methodDecl.getBody().get().findAll(UnaryExpr.class)) {
+            if (ue.getOperator() != UnaryExpr.Operator.PREFIX_DECREMENT
+                    && ue.getOperator() != UnaryExpr.Operator.POSTFIX_DECREMENT) continue;
+            if (!matchesField(ue.getExpression(), fieldName)) continue;
+            if (positionLine(ue) * 10000 + positionCol(ue) < before) count++;
+        }
+        return count;
+    }
+
+    /** Count `field++` / `field += 1` that appear BEFORE {@code beforeNode} in source. */
+    private int countIncrementsBefore(MethodDeclaration methodDecl, String fieldName,
+                                       com.github.javaparser.ast.Node beforeNode) {
+        if (methodDecl.getBody().isEmpty()) return 0;
+        int before = positionLine(beforeNode) * 10000 + positionCol(beforeNode);
+        int count = 0;
+        for (UnaryExpr ue : methodDecl.getBody().get().findAll(UnaryExpr.class)) {
+            if (ue.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT
+                    && ue.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT) continue;
+            if (!matchesField(ue.getExpression(), fieldName)) continue;
+            if (positionLine(ue) * 10000 + positionCol(ue) < before) count++;
+        }
+        return count;
+    }
+
+    private boolean matchesField(Expression expr, String fieldName) {
+        if (expr instanceof NameExpr ne) return ne.getNameAsString().equals(fieldName);
+        if (expr instanceof FieldAccessExpr fa) {
+            return fa.getScope().toString().equals("this") && fa.getNameAsString().equals(fieldName);
+        }
+        return false;
+    }
+
+    private int positionLine(com.github.javaparser.ast.Node node) {
+        return node.getBegin().map(p -> p.line).orElse(Integer.MAX_VALUE);
+    }
+
+    private int positionCol(com.github.javaparser.ast.Node node) {
+        return node.getBegin().map(p -> p.column).orElse(Integer.MAX_VALUE);
     }
 
     /** Extract the backing instance-field name from {@code this.field}, {@code field}, or null. */
