@@ -253,17 +253,18 @@ class PreconditionAnalyzer {
                 int decDelta = countDecrementsBefore(methodDecl, idxField, access);
                 int incDelta = countIncrementsBefore(methodDecl, idxField, access);
                 int netShift = decDelta - incDelta; // positive => post = pre - netShift
-                if (netShift > 0) {
-                    preconditions.add("this." + idxField + " >= " + netShift);
-                    preconditions.add("this." + idxField + " <= this." + arrField + ".length - "
-                            + (netShift - 1));
-                } else if (netShift < 0) {
-                    preconditions.add("this." + idxField + " >= " + netShift);
-                    preconditions.add("this." + idxField + " < this." + arrField + ".length + "
-                            + (-netShift));
-                } else {
+                // General form: post = pre - netShift. Safe access needs
+                //   netShift <= pre < length + netShift
+                // which, turned into a JML clause, is
+                //   (pre >= netShift) AND (pre < length + netShift).
+                String shiftStr = (netShift >= 0 ? "+ " : "- ") + Math.abs(netShift);
+                if (netShift == 0) {
                     preconditions.add("this." + idxField + " >= 0");
                     preconditions.add("this." + idxField + " < this." + arrField + ".length");
+                } else {
+                    preconditions.add("this." + idxField + " >= " + netShift);
+                    preconditions.add("this." + idxField + " < this." + arrField + ".length "
+                            + shiftStr);
                 }
                 continue;
             }
