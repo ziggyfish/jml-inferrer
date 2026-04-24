@@ -543,7 +543,7 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "BinarySearchLoop", "search"));
+        assertVerified(inferAndVerify(source, "BinarySearchLoop", "search"));
     }
 
     @Test
@@ -568,7 +568,7 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "ReverseArrayLoop", "reverse"));
+        assertVerified(inferAndVerify(source, "ReverseArrayLoop", "reverse"));
     }
 
     @Test
@@ -597,7 +597,7 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "SelectionSortInnerLoop", "sort"));
+        assertVerified(inferAndVerify(source, "SelectionSortInnerLoop", "sort"));
     }
 
     @Test
@@ -628,7 +628,7 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "PartitionLoop", "partition"));
+        assertVerified(inferAndVerify(source, "PartitionLoop", "partition"));
     }
 
     @Test
@@ -651,7 +651,7 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "CopyRangeLoop", "copyRange"));
+        assertVerified(inferAndVerify(source, "CopyRangeLoop", "copyRange"));
     }
 
     @Test
@@ -672,7 +672,7 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "GCDLoop", "gcd"));
+        assertVerified(inferAndVerify(source, "GCDLoop", "gcd"));
     }
 
     @Test
@@ -680,13 +680,8 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
     void factorialLoop() throws IOException {
         String source = """
                 public class FactorialLoop {
-                    //@ requires n >= 0;
-                    //@ requires n <= 12;
-                    //@ ensures \\result >= 1;
                     public int factorial(int n) {
                         int result = 1;
-                        //@ loop_invariant i >= 1 && i <= n + 1;
-                        //@ loop_invariant result >= 1;
                         for (int i = 1; i <= n; i++) {
                             result *= i;
                         }
@@ -694,7 +689,7 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "FactorialLoop", "factorial"));
+        assertVerified(inferAndVerify(source, "FactorialLoop", "factorial"));
     }
 
     @Test
@@ -702,10 +697,8 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
     void powerLoop() throws IOException {
         String source = """
                 public class PowerLoop {
-                    //@ requires exp >= 0;
                     public int power(int base, int exp) {
                         int result = 1;
-                        //@ loop_invariant i >= 0 && i <= exp;
                         for (int i = 0; i < exp; i++) {
                             result *= base;
                         }
@@ -713,7 +706,7 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "PowerLoop", "power"));
+        assertVerified(inferAndVerify(source, "PowerLoop", "power"));
     }
 
     @Test
@@ -721,17 +714,8 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
     void mergeLoop() throws IOException {
         String source = """
                 public class MergeLoop {
-                    //@ requires a != null;
-                    //@ requires b != null;
-                    //@ requires out != null;
-                    //@ requires out.length >= a.length + b.length;
-                    //@ assignable out[*];
                     public void merge(int[] a, int[] b, int[] out) {
                         int i = 0, j = 0, k = 0;
-                        //@ loop_invariant i >= 0 && i <= a.length;
-                        //@ loop_invariant j >= 0 && j <= b.length;
-                        //@ loop_invariant k == i + j;
-                        //@ loop_invariant k >= 0 && k <= out.length;
                         while (i < a.length && j < b.length) {
                             if (a[i] <= b[j]) {
                                 out[k++] = a[i++];
@@ -739,18 +723,12 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
                                 out[k++] = b[j++];
                             }
                         }
-                        //@ loop_invariant i >= 0 && i <= a.length;
-                        //@ loop_invariant k >= 0 && k <= out.length;
-                        //@ loop_invariant k == i + j;
                         while (i < a.length) out[k++] = a[i++];
-                        //@ loop_invariant j >= 0 && j <= b.length;
-                        //@ loop_invariant k >= 0 && k <= out.length;
-                        //@ loop_invariant k == i + j;
                         while (j < b.length) out[k++] = b[j++];
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "MergeLoop", "merge"));
+        assertVerified(inferAndVerify(source, "MergeLoop", "merge"));
     }
 
     @Test
@@ -758,17 +736,13 @@ class LoopInvariantVerificationTest extends FormalVerificationTestBase {
     void prefixSum() throws IOException {
         String source = """
                 public class PrefixSum {
-                    //@ requires arr != null;
-                    //@ requires arr.length > 0;
-                    //@ assignable arr[*];
                     public void prefixSum(int[] arr) {
-                        //@ loop_invariant i >= 1 && i <= arr.length;
                         for (int i = 1; i < arr.length; i++) {
                             arr[i] = arr[i] + arr[i - 1];
                         }
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "PrefixSum", "prefixSum"));
+        assertVerified(inferAndVerify(source, "PrefixSum", "prefixSum"));
     }
 }

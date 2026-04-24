@@ -440,17 +440,14 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableArrayNegate() throws IOException {
         String source = """
                 public class AssignableArrayNegate {
-                    //@ requires arr != null;
-                    //@ assignable arr[*];
                     public void negate(int[] arr) {
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             arr[i] = -arr[i];
                         }
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AssignableArrayNegate", "negate"));
+        assertVerified(inferAndVerify(source, "AssignableArrayNegate", "negate"));
     }
 
     @Test
@@ -468,7 +465,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AssignableSingleArrayElement", "setAt"));
+        assertVerified(inferAndVerify(source, "AssignableSingleArrayElement", "setAt"));
     }
 
     // =========================================================================
@@ -492,7 +489,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AssignableFieldViaLoop", "drainToZero"));
+        assertVerified(inferAndVerify(source, "AssignableFieldViaLoop", "drainToZero"));
     }
 
     @Test
@@ -513,7 +510,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "PureWithLoop", "indexOf"));
+        assertVerified(inferAndVerify(source, "PureWithLoop", "indexOf"));
     }
 
     @Test
@@ -539,7 +536,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AssignableFieldAndArray", "addMany"));
+        assertVerified(inferAndVerify(source, "AssignableFieldAndArray", "addMany"));
     }
 
     @Test
@@ -564,7 +561,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AssignableEverythingReset", "reset"));
+        assertVerified(inferAndVerify(source, "AssignableEverythingReset", "reset"));
     }
 
     @Test
@@ -582,7 +579,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AssignableConditionalWrite", "submitScore"));
+        assertVerified(inferAndVerify(source, "AssignableConditionalWrite", "submitScore"));
     }
 
     @Test
@@ -603,6 +600,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AssignableArrayExtractReplace", "getAndSet"));
+        assertVerified(inferAndVerify(source, "AssignableArrayExtractReplace", "getAndSet"));
     }
 }

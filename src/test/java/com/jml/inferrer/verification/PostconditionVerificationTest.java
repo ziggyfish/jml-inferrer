@@ -393,7 +393,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "BooleanToInt", "toInt"));
+        assertVerified(inferAndVerify(source, "BooleanToInt", "toInt"));
     }
 
     @Test
@@ -408,7 +408,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "TernaryMax", "max"));
+        assertVerified(inferAndVerify(source, "TernaryMax", "max"));
     }
 
     @Test
@@ -416,13 +416,12 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void fibonacciStep() throws IOException {
         String source = """
                 public class FibonacciStep {
-                    //@ ensures \\result == a + b;
                     public int nextFib(int a, int b) {
                         return a + b;
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "FibonacciStep", "nextFib"));
+        assertVerified(inferAndVerify(source, "FibonacciStep", "nextFib"));
     }
 
     // =========================================================================
@@ -444,7 +443,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "ArrayContains", "contains"));
+        assertVerified(inferAndVerify(source, "ArrayContains", "contains"));
     }
 
     @Test
@@ -469,7 +468,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "CountInRange", "countInRange"));
+        assertVerified(inferAndVerify(source, "CountInRange", "countInRange"));
     }
 
     @Test
@@ -487,7 +486,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AllPositive", "allPositive"));
+        assertVerified(inferAndVerify(source, "AllPositive", "allPositive"));
     }
 
     // =========================================================================
@@ -513,7 +512,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "BoundedCounterIncrement", "increment"));
+        assertVerified(inferAndVerify(source, "BoundedCounterIncrement", "increment"));
     }
 
     @Test
@@ -529,7 +528,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "ToggleBoolean", "toggle"));
+        assertVerified(inferAndVerify(source, "ToggleBoolean", "toggle"));
     }
 
     @Test
@@ -545,7 +544,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "AccumulateField", "addToTotal"));
+        assertVerified(inferAndVerify(source, "AccumulateField", "addToTotal"));
     }
 
     @Test
@@ -561,7 +560,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "ScaleField", "scale"));
+        assertVerified(inferAndVerify(source, "ScaleField", "scale"));
     }
 
     // =========================================================================
@@ -573,7 +572,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void distanceSquared() throws IOException {
         String source = """
                 public class DistanceSquared {
-                    //@ ensures \\result >= 0;
                     public int distSq(int x1, int y1, int x2, int y2) {
                         int dx = x2 - x1;
                         int dy = y2 - y1;
@@ -581,7 +579,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "DistanceSquared", "distSq"));
+        assertVerified(inferAndVerify(source, "DistanceSquared", "distSq"));
     }
 
     @Test
@@ -589,15 +587,12 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void midpoint() throws IOException {
         String source = """
                 public class Midpoint {
-                    //@ requires a <= b;
-                    //@ ensures \\result >= a;
-                    //@ ensures \\result <= b;
                     public int midpoint(int a, int b) {
                         return a + (b - a) / 2;
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "Midpoint", "midpoint"));
+        assertVerified(inferAndVerify(source, "Midpoint", "midpoint"));
     }
 
     @Test
@@ -605,17 +600,12 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void safeIncrementArrayElement() throws IOException {
         String source = """
                 public class SafeIncrementArrayElement {
-                    //@ requires arr != null;
-                    //@ requires idx >= 0;
-                    //@ requires idx < arr.length;
-                    //@ assignable arr[idx];
-                    //@ ensures arr[idx] == \\old(arr[idx]) + 1;
                     public void incrementAt(int[] arr, int idx) {
                         arr[idx]++;
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "SafeIncrementArrayElement", "incrementAt"));
+        assertVerified(inferAndVerify(source, "SafeIncrementArrayElement", "incrementAt"));
     }
 
     @Test
@@ -636,7 +626,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "SwapArrayElements", "swap"));
+        assertVerified(inferAndVerify(source, "SwapArrayElements", "swap"));
     }
 
     @Test
@@ -657,7 +647,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "ArrayCopyPostcondition", "copyOf"));
+        assertVerified(inferAndVerify(source, "ArrayCopyPostcondition", "copyOf"));
     }
 
     @Test
@@ -679,7 +669,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "TripleFieldUpdate", "setColor"));
+        assertVerified(inferAndVerify(source, "TripleFieldUpdate", "setColor"));
     }
 
     @Test
@@ -697,7 +687,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "PositiveModuloPostcondition", "posMod"));
+        assertVerified(inferAndVerify(source, "PositiveModuloPostcondition", "posMod"));
     }
 
     @Test
@@ -719,7 +709,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "StackPushPostcondition", "push"));
+        assertVerified(inferAndVerify(source, "StackPushPostcondition", "push"));
     }
 
     @Test
@@ -738,6 +728,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(verifyMethod(source, "SaturatingAdd", "saturatingAdd"));
+        assertVerified(inferAndVerify(source, "SaturatingAdd", "saturatingAdd"));
     }
 }
