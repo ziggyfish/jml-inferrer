@@ -262,12 +262,28 @@ class LoopInvariantAnalyzer {
                             if (compare instanceof BinaryExpr) {
                                 BinaryExpr binExpr = (BinaryExpr) compare;
                                 if (binExpr.getLeft().toString().equals(varName)) {
-                                    String op = getWeakenedOperatorForInvariant(binExpr.getOperator());
+                                    BinaryExpr.Operator rawOp = binExpr.getOperator();
+                                    String op = getWeakenedOperatorForInvariant(rawOp);
                                     String rhs = binExpr.getRight().toString();
-                                    // For step > 1 and op = `<=`, the counter can overshoot the
-                                    // boundary by up to step-1 at loop exit. Widen the bound.
-                                    if (stepSize > 1 && op.equals("<=")) {
-                                        rhs = "(" + rhs + " + " + (stepSize - 1) + ")";
+                                    // For an increment loop the back-edge value of the counter
+                                    // overshoots the boundary by one final step. When the
+                                    // original comparator is `<` the weakening to `<=` already
+                                    // absorbs one step; when it is `<=` we must widen by one
+                                    // more step. For step > 1 either case can overshoot by up
+                                    // to (step - 1) or (step) respectively.
+                                    //
+                                    // `for(i = 1; i <= n; i++)` → back-edge i = n + 1, so the
+                                    // sound upper bound is `i <= n + 1`, not `i <= n`.
+                                    if (stepSize >= 1) {
+                                        int widen = 0;
+                                        if (rawOp == BinaryExpr.Operator.LESS) {
+                                            widen = stepSize - 1;
+                                        } else if (rawOp == BinaryExpr.Operator.LESS_EQUALS) {
+                                            widen = stepSize;
+                                        }
+                                        if (widen > 0) {
+                                            rhs = "(" + rhs + " + " + widen + ")";
+                                        }
                                     }
                                     invariants.add(varName + " " + op + " " + rhs);
                                     // Also emit a precondition ensuring the invariant holds at
