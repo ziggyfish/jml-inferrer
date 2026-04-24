@@ -285,11 +285,14 @@ class LoopInvariantAnalyzer {
                                             rhs = "(" + rhs + " + " + widen + ")";
                                         }
                                     }
-                                    invariants.add(varName + " " + op + " " + rhs);
-                                    // Also emit a precondition ensuring the invariant holds at
-                                    // loop entry (when init is a literal). `for(int i=0; i<n)`
-                                    // emits `i<=n` invariant; caller must pass n>=0.
-                                    emitCounterBoundPrecondition(forStmt, varName, op, rhs);
+                                    // Emit the precondition FIRST. If we couldn't anchor the
+                                    // invariant to a pre-state predicate (e.g. init is a local
+                                    // like `s.length()` that we can't express in `requires`),
+                                    // the invariant may fail at loop entry whenever the body
+                                    // doesn't execute — skip it in that case.
+                                    if (emitCounterBoundPrecondition(forStmt, varName, op, rhs)) {
+                                        invariants.add(varName + " " + op + " " + rhs);
+                                    }
                                 }
                             }
                         });
