@@ -75,6 +75,12 @@ final class SumInductionAnalyzer {
         if (target.equals(counter)) return;
         if (isInsideNestedLoop(ae, body)) return;
         if (isInsideIf(ae)) return; // guarded assignments handled by handleConditionalCounter
+        // If target is declared outside an enclosing outer loop, the accumulator
+        // persists across outer iterations and the single-loop invariant
+        // `target == (\sum k; lo..i; ...)` is unsound — it claims the partial
+        // sum is only over the current row/iteration, but target holds running
+        // totals across all prior rows. Skip emission in that case.
+        if (persistsAcrossEnclosingLoop(body, target)) return;
 
         AssignExpr.Operator op = ae.getOperator();
 
@@ -103,6 +109,32 @@ final class SumInductionAnalyzer {
             invariants.add(target + " == (" + quant + " int k; " + lo + " <= k && k < "
                     + counter + "; " + summandK + ")");
         }
+    }
+
+    /**
+     * True when {@code varName} is declared outside the loop that encloses the
+     * current loop's body — i.e., the accumulator persists across outer iterations
+     * and the current loop's single-variable summary is unsound.
+     */
+    private static boolean persistsAcrossEnclosingLoop(Statement body, String varName) {
+        Node currentLoop = body.getParentNode().orElse(null);
+        if (currentLoop == null) return false;
+        Node enclosing = currentLoop.getParentNode().orElse(null);
+        while (enclosing != null) {
+            if (enclosing instanceof ForStmt || enclosing instanceof WhileStmt
+                    || enclosing instanceof DoStmt || enclosing instanceof ForEachStmt) {
+                return !varDeclaredInside(enclosing, varName);
+            }
+            enclosing = enclosing.getParentNode().orElse(null);
+        }
+        return false;
+    }
+
+    private static boolean varDeclaredInside(Node scope, String varName) {
+        for (VariableDeclarator vd : scope.findAll(VariableDeclarator.class)) {
+            if (vd.getNameAsString().equals(varName)) return true;
+        }
+        return false;
     }
 
     /**

@@ -104,8 +104,8 @@ class SumInductionAnalyzerTest extends InferrerTestBase {
     }
 
     @Test
-    @DisplayName("Accumulator inside nested loop is emitted once (inner-level)")
-    void nestedLoopSingleEmission() {
+    @DisplayName("Accumulator persisting outside outer loop is NOT emitted")
+    void nestedLoopPersistenceSuppresses() {
         MethodSpecification spec = infer("""
             class T {
                 int sumMatrix(int[][] m) {
@@ -119,14 +119,15 @@ class SumInductionAnalyzerTest extends InferrerTestBase {
                 }
             }
             """, "sumMatrix");
-        // The accumulator lives inside the inner loop. The outer loop's
-        // isInsideNestedLoop check must suppress its emission there, and the
-        // inner loop's analyzer must emit it exactly once.
+        // `total` is declared outside both loops, so it persists across outer
+        // iterations. The inner loop's `total == (\sum k; 0 <= k < j; m[i][k])`
+        // would be unsound: at the start of outer iteration i=1 (j=0), total
+        // already holds row 0's sum, not 0. The analyzer must skip emission.
         long sumCount = spec.getLoopInvariants().stream()
                 .filter(inv -> inv.contains("total == (\\sum"))
                 .count();
-        assertTrue(sumCount == 1,
-                "Expected exactly one \\sum invariant (inner loop). Got: "
+        assertTrue(sumCount == 0,
+                "Expected no \\sum invariant for persisting accumulator. Got: "
                         + spec.getLoopInvariants());
     }
 }
