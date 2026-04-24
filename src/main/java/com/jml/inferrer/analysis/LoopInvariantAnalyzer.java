@@ -806,7 +806,16 @@ class LoopInvariantAnalyzer {
                         if (preconditionEmitted) {
                             invariants.add(left + " " + weakened + " " + right);
                         }
-                        if (monotonicNonNegative.contains(left)) {
+                        // `counter >= 0` is sound in two scenarios for a decrementing counter:
+                        //   (1) Monotonic-non-negative detector: start >= 0, only increment.
+                        //   (2) Strict guard `counter > 0` with decrement step 1: body entered
+                        //       when counter >= 1, after decrement counter >= 0.
+                        // Without the strict-guard case we'd lose sound invariants like
+                        // `this.count >= 0` for `while (this.count > 0) this.count--;`
+                        // (drainToZero pattern, preserved by the class invariant).
+                        boolean strictGtZero = binExpr.getOperator() == BinaryExpr.Operator.GREATER
+                                && right.equals("0");
+                        if (monotonicNonNegative.contains(left) || strictGtZero) {
                             invariants.add(left + " >= 0");
                         }
                     } else if (counterNames.contains(right)) {
