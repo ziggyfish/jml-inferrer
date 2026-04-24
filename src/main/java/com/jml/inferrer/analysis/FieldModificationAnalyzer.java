@@ -222,6 +222,15 @@ class FieldModificationAnalyzer {
                             .anyMatch(v -> v.getNameAsString().equals(name)))
                     .orElse(false);
             if (isField) {
+                // If the RHS field was modified earlier in the same method, its
+                // value at this assignment is POST-state, not pre-state. `\old(...)`
+                // would be wrong — emit the post-state reference `this.name` so
+                // the generated postcondition relates the two fields in their
+                // post-state (e.g. `lastNotifiedValue == this.count` when
+                // `count++; lastNotifiedValue = count;`).
+                if (isFieldModifiedInMethod(methodDecl, name)) {
+                    return "this." + fieldName + " == this." + name;
+                }
                 return "this." + fieldName + " == \\old(this." + name + ")";
             }
             return null;
@@ -230,7 +239,11 @@ class FieldModificationAnalyzer {
         } else if (value instanceof FieldAccessExpr) {
             FieldAccessExpr fa = (FieldAccessExpr) value;
             if (fa.getScope().toString().equals("this")) {
-                return "this." + fieldName + " == \\old(this." + fa.getNameAsString() + ")";
+                String refName = fa.getNameAsString();
+                if (isFieldModifiedInMethod(methodDecl, refName)) {
+                    return "this." + fieldName + " == this." + refName;
+                }
+                return "this." + fieldName + " == \\old(this." + refName + ")";
             }
             return "this." + fieldName + " == " + value;
         } else if (value instanceof UnaryExpr) {
@@ -526,6 +539,36 @@ class FieldModificationAnalyzer {
         return tok.equals("this") || tok.equals("null") || tok.equals("true")
                 || tok.equals("false") || tok.equals("new") || tok.equals("Math")
                 || tok.equals("Integer") || tok.equals("Long") || tok.equals("String");
+    }
+
+    /**
+     * True when the method body contains any statement that writes to the named
+     * instance field — compound or plain assignment, unary inc/dec — and therefore
+     * the field's value at any non-earliest point is POST-state (post prior writes)
+     * rather than pre-state.
+     */
+    private boolean isFieldModifiedInMethod(MethodDeclaration methodDecl, String fieldName) {
+        if (methodDecl.getBody().isEmpty()) return false;
+        for (AssignExpr ae : methodDecl.getBody().get().findAll(AssignExpr.class)) {
+            Expression target = ae.getTarget();
+            if (target instanceof NameExpr ne && ne.getNameAsString().equals(fieldName)) return true;
+            if (target instanceof FieldAccessExpr fa
+                    && fa.getScope().toString().equals("this")
+                    && fa.getNameAsString().equals(fieldName)) return true;
+        }
+        for (UnaryExpr ue : methodDecl.getBody().get().findAll(UnaryExpr.class)) {
+            UnaryExpr.Operator op = ue.getOperator();
+            if (op != UnaryExpr.Operator.PREFIX_INCREMENT
+                    && op != UnaryExpr.Operator.POSTFIX_INCREMENT
+                    && op != UnaryExpr.Operator.PREFIX_DECREMENT
+                    && op != UnaryExpr.Operator.POSTFIX_DECREMENT) continue;
+            Expression inner = ue.getExpression();
+            if (inner instanceof NameExpr ne && ne.getNameAsString().equals(fieldName)) return true;
+            if (inner instanceof FieldAccessExpr fa
+                    && fa.getScope().toString().equals("this")
+                    && fa.getNameAsString().equals(fieldName)) return true;
+        }
+        return false;
     }
 
     String wrapFieldRefsWithOld(String condition, MethodDeclaration methodDecl) {
