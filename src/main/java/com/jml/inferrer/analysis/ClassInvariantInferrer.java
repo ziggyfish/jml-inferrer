@@ -177,19 +177,21 @@ public class ClassInvariantInferrer {
                     }
                 }
                 if (!alwaysNonNegative) break;
-                // Decrements (`f--`, `--f`) can drive the field below 0, so any decrement
-                // disqualifies the >= 0 invariant. Only check field-targeted unary ops.
+                // Decrements (`f--`, `--f`) can drive the field below 0 — but only when
+                // unguarded. A decrement inside `if (f > 0) { f--; }` or
+                // `while (f > 0) { f--; }` preserves `f >= 0`. Disqualify only when an
+                // ungauarded decrement is present.
                 for (UnaryExpr unary : method.findAll(UnaryExpr.class)) {
                     UnaryExpr.Operator op = unary.getOperator();
                     boolean isDecrement = op == UnaryExpr.Operator.PREFIX_DECREMENT
                             || op == UnaryExpr.Operator.POSTFIX_DECREMENT;
                     if (!isDecrement) continue;
                     Expression inner = unary.getExpression();
-                    if (inner instanceof FieldAccessExpr fae && fae.getNameAsString().equals(fieldName)) {
-                        alwaysNonNegative = false;
-                        break;
-                    }
-                    if (inner instanceof NameExpr ne && ne.getNameAsString().equals(fieldName)) {
+                    boolean targetsField =
+                            (inner instanceof FieldAccessExpr fae && fae.getNameAsString().equals(fieldName))
+                            || (inner instanceof NameExpr ne && ne.getNameAsString().equals(fieldName));
+                    if (!targetsField) continue;
+                    if (!isGuardedByPositive(unary, fieldName)) {
                         alwaysNonNegative = false;
                         break;
                     }
@@ -201,6 +203,50 @@ public class ClassInvariantInferrer {
         if (alwaysNonNegative) {
             spec.addInvariant(fieldName + " >= 0");
         }
+    }
+
+    /**
+     * Returns true when the decrement at {@code unary} is guarded by a condition that
+     * ensures the field is strictly positive at the decrement point. Recognises
+     * {@code if (f > 0) ... f--;}, {@code while (f > 0) ... f--;}, and
+     * {@code if (f >= 1) ... f--;} shapes (matching either the bare field name or
+     * {@code this.field}).
+     */
+    private boolean isGuardedByPositive(UnaryExpr unary, String fieldName) {
+        com.github.javaparser.ast.Node cur = unary;
+        while (cur.getParentNode().isPresent()) {
+            com.github.javaparser.ast.Node parent = cur.getParentNode().get();
+            Expression cond = null;
+            if (parent instanceof com.github.javaparser.ast.stmt.IfStmt ifStmt) {
+                cond = ifStmt.getCondition();
+            } else if (parent instanceof com.github.javaparser.ast.stmt.WhileStmt whileStmt) {
+                cond = whileStmt.getCondition();
+            } else if (parent instanceof com.github.javaparser.ast.stmt.DoStmt doStmt) {
+                cond = doStmt.getCondition();
+            }
+            if (cond instanceof BinaryExpr bcond && fieldStrictlyPositive(bcond, fieldName)) {
+                return true;
+            }
+            cur = parent;
+        }
+        return false;
+    }
+
+    /**
+     * Recognises {@code field > 0}, {@code field >= 1}, {@code 0 < field}, {@code 1 <= field}
+     * and the {@code this.field} variants.
+     */
+    private boolean fieldStrictlyPositive(BinaryExpr be, String fieldName) {
+        BinaryExpr.Operator op = be.getOperator();
+        String left = be.getLeft().toString();
+        String right = be.getRight().toString();
+        boolean leftIsField = left.equals(fieldName) || left.equals("this." + fieldName);
+        boolean rightIsField = right.equals(fieldName) || right.equals("this." + fieldName);
+        if (leftIsField && right.equals("0") && op == BinaryExpr.Operator.GREATER) return true;
+        if (leftIsField && right.equals("1") && op == BinaryExpr.Operator.GREATER_EQUALS) return true;
+        if (rightIsField && left.equals("0") && op == BinaryExpr.Operator.LESS) return true;
+        if (rightIsField && left.equals("1") && op == BinaryExpr.Operator.LESS_EQUALS) return true;
+        return false;
     }
 
     private boolean isFieldAssignment(AssignExpr assign, String fieldName) {
