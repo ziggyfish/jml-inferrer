@@ -346,8 +346,32 @@ class PreconditionAnalyzer {
             }
         });
         // Array access: `data[i]`, `this.data[i]`, `data[r][c]`
+        Set<String> twoDRowAccesses = new LinkedHashSet<>();
         collector.arrayAccessExprs.forEach(aa -> {
             Expression base = aa.getName();
+            // For `data[row][col]` the outer aa's name is `data[row]` (itself an
+            // ArrayAccessExpr). Recognise this shape and, when `data` is a field and
+            // `row` is a parameter, record `this.data[row] != null` so subsequent
+            // access of the inner array is sound.
+            if (base instanceof ArrayAccessExpr innerAae) {
+                Expression innerBase = innerAae.getName();
+                while (innerBase instanceof ArrayAccessExpr inn) innerBase = inn.getName();
+                String fieldName = null;
+                if (innerBase instanceof FieldAccessExpr fa
+                        && fa.getScope().toString().equals("this")
+                        && refFieldNames.contains(fa.getNameAsString())) {
+                    fieldName = fa.getNameAsString();
+                } else if (innerBase instanceof NameExpr ne
+                        && refFieldNames.contains(ne.getNameAsString())) {
+                    fieldName = ne.getNameAsString();
+                }
+                if (fieldName != null && innerAae.getIndex() instanceof NameExpr idxNe
+                        && methodDecl.getParameters().stream()
+                                .anyMatch(p -> p.getNameAsString().equals(idxNe.getNameAsString()))) {
+                    twoDRowAccesses.add("this." + fieldName + "[" + idxNe.getNameAsString() + "]");
+                }
+            }
+
             while (base instanceof ArrayAccessExpr inner) base = inner.getName();
             if (base instanceof FieldAccessExpr fa
                     && fa.getScope().toString().equals("this")
@@ -358,6 +382,9 @@ class PreconditionAnalyzer {
                 dereferenced.add(ne.getNameAsString());
             }
         });
+        for (String rowAccess : twoDRowAccesses) {
+            preconditions.add(rowAccess + " != null");
+        }
         // Method call on field: `this.list.add(x)`
         collector.methodCallExprs.forEach(call -> call.getScope().ifPresent(scope -> {
             if (scope instanceof FieldAccessExpr fa
