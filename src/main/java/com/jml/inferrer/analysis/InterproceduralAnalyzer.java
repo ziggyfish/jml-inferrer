@@ -77,6 +77,33 @@ class InterproceduralAnalyzer {
         }
     }
 
+    /**
+     * Substitutes the canonical placeholder parameter names used in
+     * {@link StandardLibrarySpecs} (e.g. {@code a}, {@code b}, {@code index}) with the
+     * actual argument expressions at the call site. The names below match the set used
+     * when defining stdlib specs in that class.
+     */
+    private String substitutePlaceholderArgs(String spec, List<Expression> args) {
+        String result = spec;
+        if (args.size() >= 1) {
+            String q = java.util.regex.Matcher.quoteReplacement(args.get(0).toString());
+            result = result.replaceAll("\\ba\\b", q)
+                           .replaceAll("\\bindex\\b", q)
+                           .replaceAll("\\bbeginIndex\\b", q)
+                           .replaceAll("\\boriginal\\b", q)
+                           .replaceAll("\\blist\\b", q)
+                           .replaceAll("\\bstr\\b", q)
+                           .replaceAll("\\bobj\\b", q);
+        }
+        if (args.size() >= 2) {
+            String q = java.util.regex.Matcher.quoteReplacement(args.get(1).toString());
+            result = result.replaceAll("\\bb\\b", q)
+                           .replaceAll("\\bendIndex\\b", q)
+                           .replaceAll("\\bnewLength\\b", q);
+        }
+        return result;
+    }
+
     String propagateStdLibPrecondition(MethodCallExpr call, String precondition,
                                        MethodDeclaration callingMethod) {
         List<Expression> args = call.getArguments();
@@ -90,8 +117,10 @@ class InterproceduralAnalyzer {
 
         if (args.size() >= 2) {
             String secondArg = args.get(1).toString();
-            result = result.replaceAll("\\bendIndex\\b", java.util.regex.Matcher.quoteReplacement(secondArg))
-                           .replaceAll("\\bnewLength\\b", java.util.regex.Matcher.quoteReplacement(secondArg));
+            String quoted2 = java.util.regex.Matcher.quoteReplacement(secondArg);
+            result = result.replaceAll("\\bendIndex\\b", quoted2)
+                           .replaceAll("\\bnewLength\\b", quoted2)
+                           .replaceAll("\\bb\\b", quoted2);
         }
         if (args.size() >= 1) {
             String firstArg = args.get(0).toString();
@@ -102,7 +131,11 @@ class InterproceduralAnalyzer {
                            .replaceAll("\\blist\\b", quoted)
                            .replaceAll("\\bstr\\b", quoted)
                            .replaceAll("\\bobj\\b", quoted)
-                           .replaceAll("(?<=\\W|^)s(?=\\W|$)", quoted);
+                           .replaceAll("\\ba\\b", quoted);
+            // Note: a bare `s` substitution was previously here but it also matched the
+            // parameter `s` inside an argument like `s.length() - 1`, producing nonsense
+            // like `s.length() - 1.length() - 1`. If a stdlib spec needs to refer to the
+            // first arg by the name `s`, add `\\bs\\b` — but most don't.
         }
 
         call.getScope().ifPresent(scope -> {
@@ -111,6 +144,14 @@ class InterproceduralAnalyzer {
         if (call.getScope().isPresent()) {
             String scopeStr = call.getScope().get().toString();
             result = result.replace("this.", scopeStr + ".");
+        }
+
+        // Reject the propagated precondition if any identifier in it isn't pre-state-
+        // expressible (e.g., loop variable `i` from inside a method body). We'd produce
+        // a "cannot find symbol" parse error in OpenJML otherwise.
+        SymbolicExecutor scopeCheck = new SymbolicExecutor();
+        if (!scopeCheck.isMethodScopeSafe(result, callingMethod, paramNames)) {
+            return null;
         }
 
         for (Parameter p : callingParams) {
@@ -160,8 +201,10 @@ class InterproceduralAnalyzer {
 
                     if (!found) {
                         List<String> stdLibKeys = new ArrayList<>();
+                        String[] scopeRef = new String[]{null};
                         call.getScope().ifPresent(scope -> {
                             String scopeStr = scope.toString();
+                            scopeRef[0] = scopeStr;
                             String[] parts = scopeStr.split("\\.");
                             stdLibKeys.add(parts[parts.length - 1] + "." + methodName);
                         });
@@ -173,9 +216,28 @@ class InterproceduralAnalyzer {
                                 logger.debug("Found standard library spec for {}: {} postconditions", key,
                                         stdPostconditions.size());
                                 for (String stdPostcond : stdPostconditions) {
-                                    if (stdPostcond.contains("\\result")) {
-                                        postconditions.add(stdPostcond);
-                                    } else if (stdPostcond.contains("!= null") && !stdPostcond.contains("this.")) {
+                                    String rewritten = stdPostcond;
+                                    // Substitute placeholder parameter names (a, b, obj, ...) with the
+                                    // actual argument expressions at the call site. Standard library
+                                    // specs are written with canonical names like `a`, `b` that must
+                                    // resolve to the caller's scope.
+                                    rewritten = substitutePlaceholderArgs(rewritten, call.getArguments());
+                                    // `this` in a stdlib spec refers to the receiver of the call,
+                                    // not the enclosing class. For `s.trim()`, rewrite `this.length()`
+                                    // as `s.length()` so the spec resolves correctly.
+                                    if (scopeRef[0] != null && !scopeRef[0].equals("this")
+                                            && rewritten.contains("this.")) {
+                                        rewritten = rewritten.replace("this.", scopeRef[0] + ".");
+                                    }
+                                    Set<String> callerParams = new HashSet<>();
+                                    methodDecl.getParameters().forEach(p -> callerParams.add(p.getNameAsString()));
+                                    SymbolicExecutor scopeCheck = new SymbolicExecutor();
+                                    if (!scopeCheck.isMethodScopeSafe(rewritten, methodDecl, callerParams)) {
+                                        continue;
+                                    }
+                                    if (rewritten.contains("\\result")) {
+                                        postconditions.add(rewritten);
+                                    } else if (rewritten.contains("!= null") && !rewritten.contains("this.")) {
                                         postconditions.add("\\result != null");
                                     }
                                 }
@@ -206,6 +268,12 @@ class InterproceduralAnalyzer {
                 }
             }
         });
+
+        // For unqualified calls (square(a) inside the same class), the cache key
+        // is `EnclosingClass.methodName`. Find the enclosing class via the call's
+        // ancestry so we hit the cache that JMLInferenceVisitor populated.
+        call.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .ifPresent(cls -> signatures.add(cls.getNameAsString() + "." + methodName));
 
         signatures.add(methodName);
         signatures.add(methodName + "(" + argCount + ")");
