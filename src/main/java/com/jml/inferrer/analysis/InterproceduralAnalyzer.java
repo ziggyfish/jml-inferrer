@@ -83,6 +83,47 @@ class InterproceduralAnalyzer {
      * actual argument expressions at the call site. The names below match the set used
      * when defining stdlib specs in that class.
      */
+    /**
+     * Substitutes each name in {@code paramNames} with the corresponding stringified
+     * argument from {@code args}. Uses word-boundary regex so nested occurrences
+     * (e.g. {@code abs(a)} within a larger expression) don't double-substitute.
+     * JML keyword references like {@code \result} are left untouched.
+     */
+    private String substituteNamedParams(String spec, List<String> paramNames,
+                                          List<Expression> args) {
+        String result = spec;
+        for (int i = 0; i < paramNames.size() && i < args.size(); i++) {
+            String quoted = java.util.regex.Matcher.quoteReplacement(args.get(i).toString());
+            result = result.replaceAll("\\b" + java.util.regex.Pattern.quote(paramNames.get(i)) + "\\b",
+                    quoted);
+        }
+        return result;
+    }
+
+    /**
+     * Finds the callee's MethodDeclaration in the same CompilationUnit as
+     * {@code caller}, by method signature {@code signature}. Matches on name and
+     * enclosing class when the signature is of the form {@code ClassName.method},
+     * or just method name otherwise. Returns null if not found.
+     */
+    private MethodDeclaration findCalleeDecl(MethodDeclaration caller, String signature) {
+        if (caller.findCompilationUnit().isEmpty()) return null;
+        String[] parts = signature.split("\\.");
+        String methodName = parts[parts.length - 1];
+        String className = parts.length > 1 ? parts[parts.length - 2] : null;
+        for (MethodDeclaration md : caller.findCompilationUnit().get()
+                .findAll(MethodDeclaration.class)) {
+            if (!md.getNameAsString().equals(methodName)) continue;
+            if (className != null) {
+                var owner = md.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+                if (owner.isEmpty() || !owner.get().getNameAsString().equals(className)) continue;
+            }
+            return md;
+        }
+        return null;
+    }
+
     private String substitutePlaceholderArgs(String spec, List<Expression> args) {
         String result = spec;
         if (args.size() >= 1) {
@@ -187,10 +228,29 @@ class InterproceduralAnalyzer {
                             logger.debug("Found cached spec for {}: {} postconditions", signature,
                                     calledSpec.getPostconditions().size());
 
+                            // Look up the callee's parameter names so we can substitute them
+                            // with the actual call arguments. Without this the cached
+                            // postcondition `a >= b ==> \result == a` from the callee `max(a, b)`
+                            // gets propagated into `maxAbs(a, b) { return max(abs(a), abs(b)); }`
+                            // verbatim — but `a` in the caller is not `max`'s `a` (which is
+                            // actually `abs(caller_a)`). The result is a false postcondition.
+                            MethodDeclaration calleeDecl = findCalleeDecl(methodDecl, signature);
+                            List<String> calleeParamNames = new ArrayList<>();
+                            if (calleeDecl != null) {
+                                calleeDecl.getParameters().forEach(p ->
+                                        calleeParamNames.add(p.getNameAsString()));
+                            }
+
                             for (String calledPostcond : calledSpec.getPostconditions()) {
-                                if (calledPostcond.contains("\\result")) {
-                                    postconditions.add(calledPostcond);
-                                } else if (calledPostcond.contains("!= null") && !calledPostcond.contains("this.")) {
+                                String rewritten = calledPostcond;
+                                if (!calleeParamNames.isEmpty()
+                                        && call.getArguments().size() == calleeParamNames.size()) {
+                                    rewritten = substituteNamedParams(rewritten, calleeParamNames,
+                                            call.getArguments());
+                                }
+                                if (rewritten.contains("\\result")) {
+                                    postconditions.add(rewritten);
+                                } else if (rewritten.contains("!= null") && !rewritten.contains("this.")) {
                                     postconditions.add("\\result != null");
                                 }
                             }
