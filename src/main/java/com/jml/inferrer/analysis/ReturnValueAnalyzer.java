@@ -154,7 +154,12 @@ class ReturnValueAnalyzer {
                     String exprName = expr.toString();
                     if (methodDecl.getParameters().stream()
                             .anyMatch(p -> p.getNameAsString().equals(exprName))) {
-                        if (returnedParams.size() <= 1 && returnStmts.size() == 1) {
+                        if (returnedParams.size() <= 1 && returnStmts.size() == 1
+                                && !isParameterModified(methodDecl, exprName)) {
+                            // `\result == a` refers to the entry-time value of a in JML.
+                            // If the body mutates a (e.g., GCDE2E's loop updates a),
+                            // the returned value is post-state, not entry-state, so
+                            // the postcondition is unsound.
                             postconditions.add("\\result == " + exprName);
                         }
                     } else {
@@ -597,6 +602,33 @@ class ReturnValueAnalyzer {
         if (expr instanceof UnaryExpr) {
             UnaryExpr unary = (UnaryExpr) expr;
             return unary.getOperator() == UnaryExpr.Operator.MINUS && unary.getExpression().isLiteralExpr();
+        }
+        return false;
+    }
+
+    /**
+     * True when the body of {@code methodDecl} reassigns the parameter named
+     * {@code paramName} (including compound assignments and unary inc/dec).
+     * Parameters of reference type aren't tracked for field mutation — only the
+     * binding itself matters for spec-level reasoning about the parameter symbol.
+     */
+    boolean isParameterModified(MethodDeclaration methodDecl, String paramName) {
+        if (methodDecl.getBody().isEmpty()) return false;
+        for (AssignExpr ae : methodDecl.getBody().get().findAll(AssignExpr.class)) {
+            if (ae.getTarget() instanceof NameExpr ne
+                    && ne.getNameAsString().equals(paramName)) {
+                return true;
+            }
+        }
+        for (UnaryExpr ue : methodDecl.getBody().get().findAll(UnaryExpr.class)) {
+            if (ue.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT
+                    && ue.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT
+                    && ue.getOperator() != UnaryExpr.Operator.POSTFIX_DECREMENT
+                    && ue.getOperator() != UnaryExpr.Operator.PREFIX_DECREMENT) continue;
+            if (ue.getExpression() instanceof NameExpr ne
+                    && ne.getNameAsString().equals(paramName)) {
+                return true;
+            }
         }
         return false;
     }
