@@ -329,7 +329,11 @@ public class ClassInvariantInferrer {
     }
 
     private boolean isAlwaysSum(ClassOrInterfaceDeclaration classDecl, String target, String field1, String field2) {
-        // Check all assignments to target field
+        // Require at least one assignment to target that matches the pattern.
+        // Without this, a field that is NEVER assigned (e.g. a static final literal
+        // like READ = 1) would trivially satisfy "every assignment matches" and the
+        // inferrer would emit nonsensical invariants like READ == WRITE + EXEC.
+        boolean foundMatch = false;
         for (MethodDeclaration method : classDecl.getMethods()) {
             for (AssignExpr assign : method.findAll(AssignExpr.class)) {
                 if (isFieldAssignment(assign, target)) {
@@ -341,9 +345,10 @@ public class ClassInvariantInferrer {
                             String right = binExpr.getRight().toString();
                             if ((left.equals(field1) && right.equals(field2)) ||
                                 (left.equals(field2) && right.equals(field1))) {
-                                continue; // This assignment maintains the invariant
+                                foundMatch = true;
+                                continue;
                             } else {
-                                return false; // Assignment doesn't maintain invariant
+                                return false;
                             }
                         } else {
                             return false;
@@ -354,7 +359,7 @@ public class ClassInvariantInferrer {
                 }
             }
         }
-        return true;
+        return foundMatch;
     }
 
     /**
