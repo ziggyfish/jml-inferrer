@@ -337,6 +337,16 @@ public class AnalysisUtils {
                 if (c == '=' && li == ri) return true;
             } catch (NumberFormatException ignored) { }
         }
+        // `((\bigint) X + (\bigint) N) >= Integer.MIN_VALUE` where N is a non-negative
+        // literal — always true for any int X. X + N >= MIN_VALUE + N > MIN_VALUE.
+        // Same for the mirror `... <= Integer.MAX_VALUE` when N is a non-positive
+        // literal (MAX_VALUE + N <= MAX_VALUE).
+        if (p.matches("\\(\\(\\\\bigint\\) \\w+(\\.\\w+)*\\s*\\+\\s*\\(\\\\bigint\\) \\d+\\)\\s*>=\\s*Integer\\.MIN_VALUE")) {
+            return true;
+        }
+        if (p.matches("\\(\\(\\\\bigint\\) \\w+(\\.\\w+)*\\s*\\-\\s*\\(\\\\bigint\\) \\d+\\)\\s*<=\\s*Integer\\.MAX_VALUE")) {
+            return true;
+        }
         // `literal != other-literal` — always true (e.g. `10 != 0`).
         int neq = p.indexOf(" != ");
         if (neq > 0) {
