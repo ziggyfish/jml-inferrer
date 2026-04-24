@@ -429,7 +429,8 @@ class LoopInvariantAnalyzer {
                                     && binExpr.getLeft() instanceof NameExpr lne
                                     && lne.getNameAsString().equals(varName)) {
 
-                                if (!counterNames.isEmpty()) {
+                                if (!counterNames.isEmpty()
+                                        && !persistsAcrossEnclosingLoop(body, varName)) {
                                     String counter = counterNames.get(0);
                                     invariants.add(varName + " >= 0");
                                     invariants.add(varName + " <= " + counter);
@@ -451,10 +452,60 @@ class LoopInvariantAnalyzer {
                 String varName = ne.getNameAsString();
                 if (counterNames.contains(varName)) return;
                 if (counterNames.isEmpty()) return;
+                if (persistsAcrossEnclosingLoop(body, varName)) return;
                 String counter = counterNames.get(0);
                 invariants.add(varName + " >= 0");
                 invariants.add(varName + " <= " + counter);
             });
+        }
+
+        /**
+         * True when {@code varName} is declared outside the loop that encloses the
+         * current loop's body — meaning the variable persists across iterations of the
+         * outer loop and its value isn't bounded by the inner loop's counter alone.
+         *
+         * Example: `int count = 0; for(i) for(j) count++;` — at the start of outer
+         * iteration i=1, count == cols but j == 0, so `count <= j` is false.
+         *
+         * If there is no enclosing outer loop (the current loop is top-level within
+         * the method), the counter bound is safe regardless of where the variable is
+         * declared.
+         */
+        private boolean persistsAcrossEnclosingLoop(Statement body, String varName) {
+            com.github.javaparser.ast.Node currentLoop = body.getParentNode().orElse(null);
+            if (currentLoop == null) return false;
+            com.github.javaparser.ast.Node enclosingLoop = findEnclosingLoop(currentLoop);
+            if (enclosingLoop == null) return false;
+            return !varDeclaredInside(enclosingLoop, varName);
+        }
+
+        private com.github.javaparser.ast.Node findEnclosingLoop(com.github.javaparser.ast.Node node) {
+            com.github.javaparser.ast.Node cur = node.getParentNode().orElse(null);
+            while (cur != null) {
+                if (cur instanceof ForStmt || cur instanceof WhileStmt
+                        || cur instanceof DoStmt || cur instanceof ForEachStmt) {
+                    return cur;
+                }
+                cur = cur.getParentNode().orElse(null);
+            }
+            return null;
+        }
+
+        private boolean varDeclaredInside(com.github.javaparser.ast.Node scope, String varName) {
+            for (com.github.javaparser.ast.body.VariableDeclarator vd
+                    : scope.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                if (vd.getNameAsString().equals(varName)) return true;
+            }
+            for (ForStmt fs : scope.findAll(ForStmt.class)) {
+                for (var init : fs.getInitialization()) {
+                    if (init instanceof VariableDeclarationExpr vde) {
+                        for (var v : vde.getVariables()) {
+                            if (v.getNameAsString().equals(varName)) return true;
+                        }
+                    }
+                }
+            }
+            return false;
         }
 
         /**
