@@ -561,7 +561,12 @@ class ReturnValueAnalyzer {
             if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)) {
                 String thenStr = thenExpr.toString();
                 String elseStr = elseExpr.toString();
-                postconditions.add(AnalysisUtils.buildResultEquality(thenStr) + " || " + AnalysisUtils.buildResultEquality(elseStr));
+                if (thenStr.equals(elseStr)) {
+                    postconditions.add(AnalysisUtils.buildResultEquality(thenStr));
+                } else {
+                    postconditions.add(AnalysisUtils.buildResultEquality(thenStr) + " || "
+                            + AnalysisUtils.buildResultEquality(elseStr));
+                }
             }
 
             // Case 2: Null check condition -> conditional postcondition
@@ -597,7 +602,12 @@ class ReturnValueAnalyzer {
                     if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)) {
                         String thenStr = thenExpr.toString();
                         String elseStr = elseExpr.toString();
-                        postconditions.add(AnalysisUtils.buildResultEquality(thenStr) + " || " + AnalysisUtils.buildResultEquality(elseStr));
+                        if (thenStr.equals(elseStr)) {
+                            postconditions.add(AnalysisUtils.buildResultEquality(thenStr));
+                        } else {
+                            postconditions.add(AnalysisUtils.buildResultEquality(thenStr) + " || "
+                                    + AnalysisUtils.buildResultEquality(elseStr));
+                        }
                     }
 
                     // Null check in ternary condition
