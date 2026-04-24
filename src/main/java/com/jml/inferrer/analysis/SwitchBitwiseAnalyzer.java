@@ -100,6 +100,11 @@ class SwitchBitwiseAnalyzer {
 
     void analyzeBitwiseOperations(MethodDeclaration methodDecl, MethodSpecification spec,
                                    ASTCollector collector) {
+        // These analyzers emit numeric bounds on \result. Skip when the method doesn't
+        // return a numeric value — emitting `\result >= 0` on a boolean-returning method
+        // is rejected by OpenJML as a type mismatch.
+        if (!AnalysisUtils.isNumericType(methodDecl.getType())) return;
+
         collector.binaryExprs.forEach(binExpr -> {
             BinaryExpr.Operator op = binExpr.getOperator();
 
