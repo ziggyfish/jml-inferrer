@@ -15,7 +15,7 @@ class StringAnalyzer {
                                         ASTCollector collector) {
         List<ReturnStmt> returnStmts = collector.returnStmts;
 
-        boolean allReturnsNonNull = PostconditionAnalyzer.alwaysReturnsNonNull(collector);
+        boolean allReturnsNonNull = PostconditionAnalyzer.alwaysReturnsNonNull(collector, methodDecl);
         if (allReturnsNonNull) {
             postconditions.add("\\result != null");
 

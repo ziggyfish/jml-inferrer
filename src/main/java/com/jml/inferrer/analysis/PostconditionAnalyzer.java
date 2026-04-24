@@ -44,7 +44,7 @@ class PostconditionAnalyzer {
 
             // Reference type checks
             if (AnalysisUtils.isReferenceType(returnType)) {
-                if (alwaysReturnsNonNull(collector)) {
+                if (alwaysReturnsNonNull(collector, methodDecl)) {
                     postconditions.add("\\result != null");
                 }
             }
@@ -119,14 +119,57 @@ class PostconditionAnalyzer {
     }
 
     static boolean alwaysReturnsNonNull(ASTCollector collector) {
+        return alwaysReturnsNonNull(collector, null);
+    }
+
+    static boolean alwaysReturnsNonNull(ASTCollector collector, MethodDeclaration methodDecl) {
         if (collector.returnStmts.isEmpty()) {
             return false;
         }
-
+        Set<String> refFieldNames = methodDecl == null ? java.util.Set.of()
+                : collectReferenceFieldNames(methodDecl);
         return collector.returnStmts.stream()
             .allMatch(ret -> ret.getExpression()
-                .map(expr -> !expr.isNullLiteralExpr())
+                .map(expr -> isSyntacticallyNonNull(expr, refFieldNames))
                 .orElse(false));
+    }
+
+    private static Set<String> collectReferenceFieldNames(MethodDeclaration methodDecl) {
+        return methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .filter(f -> !f.getCommonType().isPrimitiveType())
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(com.github.javaparser.ast.body.VariableDeclarator::getNameAsString)
+                        .collect(java.util.stream.Collectors.toSet()))
+                .orElseGet(java.util.HashSet::new);
+    }
+
+    /**
+     * Returns true when the expression is NOT a bare reference-field read. A bare
+     * field getter (e.g. `return this.name;` or `return name;` where `name` is a
+     * reference field) can legitimately return null because the field is default-
+     * initialised to null when no explicit constructor sets it. Previously this
+     * method only rejected `null` literal, which led to unsound
+     * `ensures \result != null` on plain field getters.
+     *
+     * <p>Everything else stays as before (method calls, `new X()`, `a + b`,
+     * params, locals) — those were accepted and the existing analysis-test
+     * expectations depend on it.</p>
+     */
+    private static boolean isSyntacticallyNonNull(Expression expr, Set<String> refFieldNames) {
+        if (expr.isNullLiteralExpr()) return false;
+        // `return this.field` — default null for reference fields. Reject.
+        if (expr instanceof FieldAccessExpr fae
+                && fae.getScope().toString().equals("this")) {
+            return false;
+        }
+        // `return bareName` where `bareName` resolves to a reference field of the
+        // enclosing class. Without an explicit constructor initialising the field,
+        // it's default null, so the getter can return null.
+        if (expr instanceof NameExpr ne && refFieldNames.contains(ne.getNameAsString())) {
+            return false;
+        }
+        return true;
     }
 
     private void analyzeReturnValueConstraints(MethodDeclaration methodDecl, Set<String> postconditions,
