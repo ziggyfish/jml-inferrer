@@ -129,6 +129,15 @@ public class AnnotationToJMLConverter {
             // its own line as a separate spec case, so emitting `this.r` and `this.g`
             // separately makes each case forbid the other's write.
             List<String> assignableValues = new ArrayList<>();
+            // Group signals conditions by exception type so we can emit a single
+            // `signals (E e) c1 || c2 || ...;` per type. Multiple `signals` clauses
+            // for the same exception are conjunctive in JML, so emitting each guard
+            // as its own clause makes each one unprovable (they must ALL hold at
+            // every throw, but only one actually holds per throw path).
+            Map<String, List<String>> signalsByType = new java.util.LinkedHashMap<>();
+            // Signals clauses without a condition (pure exception-type declarations)
+            // or with non-when shapes are passed through verbatim.
+            List<String> signalsPassthrough = new ArrayList<>();
 
             for (AnnotationExpr ann : new ArrayList<>(methodDecl.getAnnotations())) {
                 String name = getSimpleName(ann.getNameAsString());
@@ -145,6 +154,20 @@ public class AnnotationToJMLConverter {
                             String normalized = normalizeJMLExpression(value);
                             if (!assignableValues.contains(normalized)) {
                                 assignableValues.add(normalized);
+                            }
+                        } else if (name.equals("Signals")) {
+                            String normalized = normalizeJMLExpression(value);
+                            int whenIdx = normalized.indexOf(" when ");
+                            if (whenIdx > 0) {
+                                String excType = normalized.substring(0, whenIdx).trim();
+                                String cond = normalized.substring(whenIdx + 6).trim();
+                                signalsByType.computeIfAbsent(excType, k -> new ArrayList<>())
+                                        .add(cond);
+                            } else {
+                                String jmlClause = convertMethodAnnotation(name, value);
+                                if (jmlClause != null) {
+                                    signalsPassthrough.add(jmlClause);
+                                }
                             }
                         } else {
                             String jmlClause = convertMethodAnnotation(name, value);
@@ -191,6 +214,25 @@ public class AnnotationToJMLConverter {
             if (!assignableValues.isEmpty()) {
                 specComments.add("assignable " + String.join(", ", assignableValues) + ";");
             }
+
+            // Merge per-guard signals into `signals (E e) c1 || c2 || ...;` to turn the
+            // JML-conjunctive clauses into the disjunction that actually characterises
+            // the set of throw states.
+            for (Map.Entry<String, List<String>> entry : signalsByType.entrySet()) {
+                String excType = entry.getKey();
+                List<String> conditions = entry.getValue();
+                List<String> unique = new ArrayList<>();
+                for (String c : conditions) {
+                    if (!unique.contains(c)) unique.add(c);
+                }
+                String joined = unique.size() == 1
+                        ? unique.get(0)
+                        : unique.stream()
+                                .map(c -> "(" + c + ")")
+                                .collect(java.util.stream.Collectors.joining(" || "));
+                specComments.add("signals (" + excType + " e) " + joined + ";");
+            }
+            specComments.addAll(signalsPassthrough);
 
             if (!specComments.isEmpty() || isPure || !invariantsByLoop.isEmpty()) {
                 // Build JML spec block to insert before method declaration
