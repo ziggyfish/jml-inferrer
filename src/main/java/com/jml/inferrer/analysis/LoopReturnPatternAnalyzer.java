@@ -254,6 +254,12 @@ class LoopReturnPatternAnalyzer {
                 postconditions.add("\\result == " + sentinel + " || " + apg.arrayName
                         + "[\\result] == " + apg.targetExpr);
             }
+            // Matching "universal so far" invariant so the sentinel-return postcondition
+            // and the arr[\result] == target postcondition can both discharge.
+            BinaryExpr.Operator negated = negateRelOp(apg.matchOp);
+            if (negated != null) {
+                emitLinearSearchInvariant(insideLoop, apg, negated, spec);
+            }
             return;
         }
 
