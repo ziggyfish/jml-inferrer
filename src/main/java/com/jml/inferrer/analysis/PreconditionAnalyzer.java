@@ -65,6 +65,10 @@ class PreconditionAnalyzer {
         // pattern: the access `b[i]` is in-bounds only when `b.length >= a.length`.
         analyzeCrossArrayLoopBounds(methodDecl, preconditions, collector);
 
+        // Param-bounded loop bounds for `for(i=start; i<end; i++) arr[i] = ...` style.
+        // Without `start >= 0` and `end <= arr.length` the access is unproveable.
+        analyzeRangeLoopArrayBounds(methodDecl, preconditions, collector);
+
         // Analyze parameter relationships
         analyzeParameterRelationships(methodDecl, preconditions, collector);
 
@@ -467,6 +471,63 @@ class PreconditionAnalyzer {
                 if (!(aa.getIndex() instanceof NameExpr idxNe)) continue;
                 if (!idxNe.getNameAsString().equals(counter)) continue;
                 preconditions.add(accessedArray + ".length " + op + " " + upperParam + ".length");
+            }
+        }
+    }
+
+    /**
+     * For loops like {@code for (int i = start; i < end; i++) arr[i] = ...} where
+     * {@code start} and {@code end} are method parameters and {@code arr} is also a
+     * parameter, emit {@code start >= 0} and {@code end <= arr.length} as
+     * preconditions. Without these the in-loop access raises PossiblyNegativeIndex
+     * or PossiblyTooLargeIndex.
+     */
+    private void analyzeRangeLoopArrayBounds(MethodDeclaration methodDecl,
+                                              Set<String> preconditions, ASTCollector collector) {
+        Set<String> paramNames = new java.util.LinkedHashSet<>();
+        Set<String> arrayParams = new java.util.LinkedHashSet<>();
+        for (Parameter p : methodDecl.getParameters()) {
+            paramNames.add(p.getNameAsString());
+            if (p.getType().asString().contains("[]")) {
+                arrayParams.add(p.getNameAsString());
+            }
+        }
+        if (arrayParams.isEmpty()) return;
+
+        for (com.github.javaparser.ast.stmt.ForStmt fs
+                : methodDecl.findAll(com.github.javaparser.ast.stmt.ForStmt.class)) {
+            if (fs.getInitialization().size() != 1) continue;
+            if (!(fs.getInitialization().get(0) instanceof VariableDeclarationExpr vde)) continue;
+            if (vde.getVariables().size() != 1) continue;
+            String counter = vde.getVariables().get(0).getNameAsString();
+            Optional<Expression> initOpt = vde.getVariables().get(0).getInitializer();
+            if (initOpt.isEmpty()) continue;
+            Expression initExpr = initOpt.get();
+            // init must be a parameter — that's the lower bound we want >= 0 on.
+            if (!(initExpr instanceof NameExpr initNe)) continue;
+            String startParam = initNe.getNameAsString();
+            if (!paramNames.contains(startParam)) continue;
+
+            if (fs.getCompare().isEmpty()) continue;
+            if (!(fs.getCompare().get() instanceof BinaryExpr cmp)) continue;
+            if (!(cmp.getLeft() instanceof NameExpr cmpLeft)
+                    || !cmpLeft.getNameAsString().equals(counter)) continue;
+            // Compare RHS must be a parameter — that's the upper bound.
+            if (!(cmp.getRight() instanceof NameExpr cmpRight)) continue;
+            String endParam = cmpRight.getNameAsString();
+            if (!paramNames.contains(endParam)) continue;
+            String endOp;
+            if (cmp.getOperator() == BinaryExpr.Operator.LESS) endOp = "<=";
+            else if (cmp.getOperator() == BinaryExpr.Operator.LESS_EQUALS) endOp = "<";
+            else continue;
+
+            for (ArrayAccessExpr aa : fs.getBody().findAll(ArrayAccessExpr.class)) {
+                if (!(aa.getName() instanceof NameExpr arrNe)) continue;
+                if (!arrayParams.contains(arrNe.getNameAsString())) continue;
+                if (!(aa.getIndex() instanceof NameExpr idxNe)) continue;
+                if (!idxNe.getNameAsString().equals(counter)) continue;
+                preconditions.add(startParam + " >= 0");
+                preconditions.add(endParam + " " + endOp + " " + arrNe.getNameAsString() + ".length");
             }
         }
     }
