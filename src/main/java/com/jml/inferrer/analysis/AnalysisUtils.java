@@ -337,6 +337,24 @@ public class AnalysisUtils {
                 if (c == '=' && li == ri) return true;
             } catch (NumberFormatException ignored) { }
         }
+        // `literal != other-literal` — always true (e.g. `10 != 0`).
+        int neq = p.indexOf(" != ");
+        if (neq > 0) {
+            String left = p.substring(0, neq).trim();
+            String right = p.substring(neq + 4).trim();
+            try {
+                long li = Long.parseLong(left);
+                long ri = Long.parseLong(right);
+                if (li != ri) return true;
+            } catch (NumberFormatException ignored) { }
+            // `literal != Integer.MIN_VALUE` — true for any literal except MIN_VALUE.
+            if (right.equals("Integer.MIN_VALUE")) {
+                try {
+                    long li = Long.parseLong(left);
+                    if (li != Integer.MIN_VALUE) return true;
+                } catch (NumberFormatException ignored) { }
+            }
+        }
         // `0 <= <dotted>.length`, `0 <= <dotted>.size()`, `0 <= <dotted>.length()`
         String lengthOrSize = "(length|size\\(\\)|length\\(\\))";
         if (p.matches("0\\s*<=\\s*[\\w\\.]+\\." + lengthOrSize)) return true;
