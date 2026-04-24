@@ -558,6 +558,17 @@ class LoopInvariantAnalyzer {
 
             if (!arrayWrites.isEmpty()) {
                 ArrayAccessExpr firstWrite = (ArrayAccessExpr) arrayWrites.get(0).getTarget();
+                // The "array name" is actually the receiver of the innermost []. For
+                // nested writes like `matrix[i][i] = 1`, the target is
+                // ArrayAccessExpr(ArrayAccessExpr(matrix, i), i), and firstWrite.getName()
+                // is the inner `matrix[i]` expression. A forall over `matrix[i][k]` is
+                // unsound: `matrix[i]` depends on the loop counter, so the quantifier
+                // ends up claiming something about the current row rather than the
+                // pattern actually being written (matrix[j][j] for j < i).
+                // Skip when the receiver is itself an ArrayAccessExpr.
+                if (firstWrite.getName() instanceof ArrayAccessExpr) {
+                    return;
+                }
                 String arrayName = firstWrite.getName().toString();
                 String index = firstWrite.getIndex().toString();
 
@@ -565,6 +576,7 @@ class LoopInvariantAnalyzer {
                         .allMatch(assign -> {
                             if (assign.getTarget() instanceof ArrayAccessExpr) {
                                 ArrayAccessExpr aae = (ArrayAccessExpr) assign.getTarget();
+                                if (aae.getName() instanceof ArrayAccessExpr) return false;
                                 return aae.getIndex().toString().equals(counter);
                             }
                             return false;
@@ -577,7 +589,7 @@ class LoopInvariantAnalyzer {
 
                     if (allSameValue) {
                         if (firstValue.isLiteralExpr() || firstValue.isNameExpr()) {
-                            invariants.add("(\\forall int k; 0 <= k < " + counter + "; " +
+                            invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
                                           arrayName + "[k] == " + firstValue + ")");
                         }
                     }
@@ -604,14 +616,14 @@ class LoopInvariantAnalyzer {
                         Expression value = assign.getValue();
 
                         if (value.isIntegerLiteralExpr() && value.asIntegerLiteralExpr().asInt() == 0) {
-                            invariants.add("(\\forall int k; 0 <= k < " + counter + "; " +
+                            invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
                                           arrayName + "[k] == 0)");
                         } else if (value.isNullLiteralExpr()) {
-                            invariants.add("(\\forall int k; 0 <= k < " + counter + "; " +
+                            invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
                                           arrayName + "[k] == null)");
                         } else if (value.isBooleanLiteralExpr()) {
                             boolean boolVal = value.asBooleanLiteralExpr().getValue();
-                            invariants.add("(\\forall int k; 0 <= k < " + counter + "; " +
+                            invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
                                           arrayName + "[k] == " + boolVal + ")");
                         }
                     }
