@@ -264,12 +264,36 @@ class PreconditionAnalyzer {
     private void analyzeFieldArrayIndexConstraints(MethodDeclaration methodDecl, String paramName,
                                                     Set<String> preconditions, ASTCollector collector) {
         for (var access : collector.arrayAccessExprs) {
-            // Top-level access: index must be the parameter we're analyzing
             Expression index = access.getIndex();
             if (!(index instanceof NameExpr ne) || !ne.getNameAsString().equals(paramName)) continue;
 
-            // Resolve the underlying field name (handles `data[i]`, `this.data[i]`, nested arrays)
+            // Resolve the underlying field name. For a 2D access like `data[row][col]`
+            // there are two ArrayAccessExpr nodes — the outer one (index = col, name =
+            // `data[row]`) and the inner one (index = row, name = `data`). The correct
+            // bound for `col` is `data[row].length`, not `data.length`, so detect this
+            // shape and emit the second-dimension bound instead.
             Expression name = access.getName();
+            if (name instanceof ArrayAccessExpr innerAae) {
+                Expression innerBase = innerAae.getName();
+                while (innerBase instanceof ArrayAccessExpr inn) innerBase = inn.getName();
+                String fieldName = null;
+                if (innerBase instanceof FieldAccessExpr fa
+                        && fa.getScope().toString().equals("this")) {
+                    fieldName = fa.getNameAsString();
+                } else if (innerBase instanceof NameExpr innerNe
+                        && AnalysisUtils.isFieldReference(methodDecl, innerNe.getNameAsString())) {
+                    fieldName = innerNe.getNameAsString();
+                }
+                if (fieldName != null && innerAae.getIndex() instanceof NameExpr rowNe
+                        && methodDecl.getParameters().stream()
+                                .anyMatch(p -> p.getNameAsString().equals(rowNe.getNameAsString()))) {
+                    preconditions.add(paramName + " >= 0");
+                    preconditions.add(paramName + " < this." + fieldName
+                            + "[" + rowNe.getNameAsString() + "].length");
+                    continue;
+                }
+            }
+
             String fieldName = null;
             while (name instanceof ArrayAccessExpr inner) name = inner.getName();
             if (name instanceof FieldAccessExpr fa && fa.getScope().toString().equals("this")) {
