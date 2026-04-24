@@ -539,6 +539,10 @@ class ReturnValueAnalyzer {
         if (!methodDecl.getBody().isPresent()) return;
 
         // Analyze if/else statements with return in both branches
+        // Total returns in the method — lets us detect fall-through paths that our
+        // two-branch summary would miss.
+        int totalReturns = methodDecl.getBody().isPresent()
+                ? methodDecl.getBody().get().findAll(ReturnStmt.class).size() : 0;
         collector.ifStmts.forEach(ifStmt -> {
             Optional<Statement> elseStmt = ifStmt.getElseStmt();
             if (elseStmt.isEmpty()) return;
@@ -557,8 +561,15 @@ class ReturnValueAnalyzer {
             Expression elseExpr = elseReturn.getExpression().get();
             Expression condition = ifStmt.getCondition();
 
+            // If the method has returns OUTSIDE this if/else (i.e. there's a
+            // fall-through path), the then/else pair doesn't fully characterise
+            // \result and the disjunctive postcondition ends up unsound for
+            // the fall-through — skip case 1.
+            int thisIfReturns = thenReturns.size() + elseReturns.size();
+
             // Case 1: Both branches return literals -> disjunctive postcondition
-            if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)) {
+            if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)
+                    && thisIfReturns == totalReturns) {
                 String thenStr = thenExpr.toString();
                 String elseStr = elseExpr.toString();
                 if (thenStr.equals(elseStr)) {
