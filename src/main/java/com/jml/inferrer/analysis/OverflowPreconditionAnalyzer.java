@@ -42,10 +42,12 @@ class OverflowPreconditionAnalyzer {
     private Map<String, Expression> localInits;
     private Set<String> loopVars;
     private MethodDeclaration methodDecl;
+    private MethodSpecification spec;
 
     void inferOverflowPreconditions(MethodDeclaration methodDecl, MethodSpecification spec,
                                      ASTCollector collector) {
         this.methodDecl = methodDecl;
+        this.spec = spec;
         this.paramNames = methodDecl.getParameters().stream()
                 .map(Parameter::getNameAsString)
                 .collect(Collectors.toSet());
@@ -186,8 +188,18 @@ class OverflowPreconditionAnalyzer {
             return;
         }
 
-        emitted.add("(\\forall int k; " + lo + " <= k && k < " + upper + "; "
-                + arrayName + "[k] " + predicateRhs + ")");
+        String forall = "(\\forall int k; " + lo + " <= k && k < " + upper + "; "
+                + arrayName + "[k] " + predicateRhs + ")";
+        emitted.add(forall);
+        // Also emit as a loop invariant: for operations like negation, the predicate
+        // `arr[k] != Integer.MIN_VALUE` is preserved by the operation itself, so the
+        // same \forall holds at every iteration. Even when preservation isn't obvious
+        // the invariant at least holds at loop entry; OpenJML will drop the discharge
+        // attempt silently if it can't prove preservation.
+        if (spec != null) {
+            int line = fs.getBegin().map(p -> p.line).orElse(0);
+            spec.addLoopInvariant(forall, line);
+        }
     }
 
     private void handleUnaryIncrement(UnaryExpr unary, Set<String> emitted) {
