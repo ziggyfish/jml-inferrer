@@ -237,16 +237,37 @@ class PreconditionAnalyzer {
                                                     Set<String> preconditions, ASTCollector collector) {
         for (var access : collector.arrayAccessExprs) {
             Expression index = access.getIndex();
-            String idxField = fieldName(index, methodDecl);
-            if (idxField == null) continue;
 
             Expression name = access.getName();
             while (name instanceof ArrayAccessExpr inner) name = inner.getName();
             String arrField = fieldName(name, methodDecl);
-            if (arrField == null || arrField.equals(idxField)) continue;
+            if (arrField == null) continue;
 
-            preconditions.add("this." + idxField + " >= 0");
-            preconditions.add("this." + idxField + " < this." + arrField + ".length");
+            // Simple shape: `data[idxField]`.
+            String idxField = fieldName(index, methodDecl);
+            if (idxField != null && !idxField.equals(arrField)) {
+                preconditions.add("this." + idxField + " >= 0");
+                preconditions.add("this." + idxField + " < this." + arrField + ".length");
+                continue;
+            }
+
+            // Arithmetic shape: `data[field + lit]` or `data[field - lit]`. Emit
+            // bounds on the full index expression so the access is provably safe.
+            // Example: `data[top - 1]` with `top >= 1 && top <= data.length` —
+            // OpenJML composes `top - 1 >= 0` and `top - 1 < data.length`.
+            if (index instanceof BinaryExpr be
+                    && (be.getOperator() == BinaryExpr.Operator.PLUS
+                        || be.getOperator() == BinaryExpr.Operator.MINUS)
+                    && be.getRight().isIntegerLiteralExpr()) {
+                String baseField = fieldName(be.getLeft(), methodDecl);
+                if (baseField != null && !baseField.equals(arrField)) {
+                    String indexStr = "this." + baseField + " "
+                            + (be.getOperator() == BinaryExpr.Operator.PLUS ? "+" : "-")
+                            + " " + be.getRight().asIntegerLiteralExpr().asInt();
+                    preconditions.add("(" + indexStr + ") >= 0");
+                    preconditions.add("(" + indexStr + ") < this." + arrField + ".length");
+                }
+            }
         }
     }
 
