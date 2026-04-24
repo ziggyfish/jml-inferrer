@@ -770,10 +770,40 @@ class LoopInvariantAnalyzer {
                 } else {
                     continue;
                 }
-                spec.addPrecondition(initStr + " " + weakenedOp + " " + bound,
-                        MethodSpecification.ConfidenceLevel.MEDIUM);
+                String candidate = initStr + " " + weakenedOp + " " + bound;
+                if (isTriviallyTrue(candidate)) return true; // already holds, skip
+                spec.addPrecondition(candidate, MethodSpecification.ConfidenceLevel.MEDIUM);
                 return true;
             }
+            return false;
+        }
+
+        /**
+         * Drops preconditions that are statically true — things like `0 >= 0`,
+         * `5 <= 5`, `0 <= arr.length` (array lengths are always non-negative).
+         * A noisy trivially-true requires doesn't fail verification but it makes
+         * the inferred spec harder to read and can confuse downstream analyses.
+         */
+        private boolean isTriviallyTrue(String precond) {
+            String p = precond.trim();
+            // Identical-sides equality/inequality: `x >= x`, `x <= x`.
+            int idx = p.indexOf(" >= ");
+            if (idx < 0) idx = p.indexOf(" <= ");
+            if (idx >= 0) {
+                String left = p.substring(0, idx).trim();
+                String right = p.substring(idx + 4).trim();
+                if (left.equals(right)) return true;
+                try {
+                    int li = Integer.parseInt(left);
+                    int ri = Integer.parseInt(right);
+                    char op = p.charAt(idx + 1);
+                    return (op == '>' && li >= ri) || (op == '<' && li <= ri);
+                } catch (NumberFormatException ignored) { }
+            }
+            // `0 <= arr.length`, `0 <= list.size()` — always true.
+            if (p.matches("0\\s*<=\\s*\\w+(\\.\\w+)*\\.(length|size\\(\\))")) return true;
+            // `arr.length >= 0` — always true.
+            if (p.matches("\\w+(\\.\\w+)*\\.(length|size\\(\\))\\s*>=\\s*0")) return true;
             return false;
         }
 
