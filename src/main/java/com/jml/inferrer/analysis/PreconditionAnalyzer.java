@@ -477,7 +477,12 @@ class PreconditionAnalyzer {
                 if (fieldName != null && innerAae.getIndex() instanceof NameExpr idxNe
                         && methodDecl.getParameters().stream()
                                 .anyMatch(p -> p.getNameAsString().equals(idxNe.getNameAsString()))) {
-                    twoDRowAccesses.add("this." + fieldName + "[" + idxNe.getNameAsString() + "]");
+                    // Guard the row-access null check by the bounds conditions so
+                    // OpenJML's well-definedness check for `data[row]` passes even
+                    // when preconditions are evaluated eagerly / independently.
+                    String idx = idxNe.getNameAsString();
+                    twoDRowAccesses.add("(" + idx + " >= 0 && " + idx + " < this." + fieldName
+                            + ".length) ==> this." + fieldName + "[" + idx + "] != null");
                 }
             }
 
