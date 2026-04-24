@@ -540,11 +540,36 @@ class FieldModificationAnalyzer {
                 .orElse(Collections.emptySet());
 
         String result = condition;
+        // First pass: qualified `this.field` → `\old(this.field)`.
         for (String field : fieldNames) {
             String thisField = "this." + field;
             if (result.contains(thisField) && !result.contains("\\old(" + thisField + ")")) {
                 result = result.replace(thisField, "\\old(" + thisField + ")");
             }
+        }
+        // Second pass: bare-name `field` (not already inside `\old(...)` or `this.`)
+        // → `\old(this.field)`. This catches the Countdown.tick case where the
+        // inner-if condition is `remaining == 0` (bare) rather than
+        // `this.remaining == 0`.
+        //
+        // Skip parameters whose names happen to shadow a field (usually rare, but
+        // the condition source identifier is scoped to the method, not the class).
+        Set<String> paramNames = new LinkedHashSet<>();
+        methodDecl.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+        for (String field : fieldNames) {
+            if (paramNames.contains(field)) continue;
+            // Word-boundary pattern that skips occurrences already in an \old(...)
+            // or `this.field` — the first-pass already handled those.
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![\\w.\\\\])" + java.util.regex.Pattern.quote(field) + "(?!\\w)");
+            java.util.regex.Matcher m = p.matcher(result);
+            StringBuffer sb = new StringBuffer();
+            while (m.find()) {
+                m.appendReplacement(sb,
+                        java.util.regex.Matcher.quoteReplacement("\\old(this." + field + ")"));
+            }
+            m.appendTail(sb);
+            result = sb.toString();
         }
         return result;
     }
