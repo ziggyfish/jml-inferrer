@@ -373,19 +373,6 @@ class FieldModificationAnalyzer {
                     current = parent;
                     continue;
                 }
-                // If the condition references a field that's been modified BEFORE this
-                // ifStmt, the bare / `\old(...)`-wrapped reference doesn't actually match
-                // the condition's evaluation-point value. Example: Countdown.tick has
-                //   if (remaining > 0) { remaining--; if (remaining == 0) done = true; }
-                // The inner `remaining == 0` evaluates in the post-decrement state; as
-                // `\old(remaining) == 0` (what wrapFieldRefsWithOld would produce) it's
-                // wrong — the intended predicate is `\old(remaining) == 1`. Expressing
-                // the symbolic offset here needs proper symbolic execution, which we
-                // don't have; be conservative and drop the enclosing branch condition
-                // rather than emit an unsound one.
-                if (fieldReferencesModifiedBefore(ifStmt.getCondition(), ifStmt, methodDecl)) {
-                    return null;
-                }
                 String substituted = substituteLocalInits(rawCond, methodDecl);
                 if (substituted == null) {
                     // Condition references a local that can't be resolved to pre-state —
@@ -557,42 +544,6 @@ class FieldModificationAnalyzer {
         return tok.equals("this") || tok.equals("null") || tok.equals("true")
                 || tok.equals("false") || tok.equals("new") || tok.equals("Math")
                 || tok.equals("Integer") || tok.equals("Long") || tok.equals("String");
-    }
-
-    /**
-     * True when the condition expression references any instance field whose value
-     * has been modified (in source order) before {@code beforeNode}. Used to detect
-     * "the condition's reference to this field isn't pre-state anymore" situations.
-     */
-    private boolean fieldReferencesModifiedBefore(Expression condition,
-                                                   com.github.javaparser.ast.Node beforeNode,
-                                                   MethodDeclaration methodDecl) {
-        Set<String> classFields = methodDecl.findAncestor(
-                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                .map(cls -> {
-                    Set<String> names = new LinkedHashSet<>();
-                    cls.getFields().stream()
-                            .flatMap(f -> f.getVariables().stream())
-                            .forEach(v -> names.add(v.getNameAsString()));
-                    return names;
-                })
-                .orElseGet(LinkedHashSet::new);
-        if (classFields.isEmpty()) return false;
-
-        for (NameExpr ne : condition.findAll(NameExpr.class)) {
-            String n = ne.getNameAsString();
-            if (classFields.contains(n) && isFieldModifiedBefore(methodDecl, n, beforeNode)) {
-                return true;
-            }
-        }
-        for (FieldAccessExpr fa : condition.findAll(FieldAccessExpr.class)) {
-            if (fa.getScope().toString().equals("this")
-                    && classFields.contains(fa.getNameAsString())
-                    && isFieldModifiedBefore(methodDecl, fa.getNameAsString(), beforeNode)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
