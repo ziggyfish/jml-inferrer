@@ -25,15 +25,26 @@ class PurityAnalyzer {
     }
 
     boolean hasFieldWrites(MethodDeclaration methodDecl, ASTCollector collector) {
+        // Writes to fields OR to elements of any externally-visible array (instance
+        // field or parameter) are both non-pure: the caller can observe the mutation.
+        // Writes through a local variable (e.g. `c.field = 5` where c is a fresh/local
+        // reference) are NOT observable externally, so they stay pure.
+        java.util.Set<String> localVarNames = new java.util.HashSet<>();
+        collector.varDeclExprs.forEach(vde -> vde.getVariables()
+                .forEach(v -> localVarNames.add(v.getNameAsString())));
+
         boolean directWrite = collector.assignExprs.stream().anyMatch(assign -> {
             Expression target = assign.getTarget();
-            if (target instanceof FieldAccessExpr) return true;
+            if (target instanceof FieldAccessExpr fae) {
+                String scope = fae.getScope().toString();
+                if (localVarNames.contains(scope)) return false;
+                return true;
+            }
             if (target instanceof NameExpr) {
                 return AnalysisUtils.isFieldReference(methodDecl, target.toString());
             }
             if (target instanceof ArrayAccessExpr aa) {
-                return AssignableAnalyzer.extractArrayBase(aa, methodDecl) != null
-                        && !isParameterArray(aa, methodDecl);
+                return AssignableAnalyzer.extractArrayBase(aa, methodDecl) != null;
             }
             return false;
         });
@@ -46,9 +57,17 @@ class PurityAnalyzer {
                 case PREFIX_INCREMENT:
                 case PREFIX_DECREMENT:
                     Expression e = u.getExpression();
-                    if (e instanceof FieldAccessExpr) return true;
+                    if (e instanceof FieldAccessExpr fae) {
+                        String scope = fae.getScope().toString();
+                        if (localVarNames.contains(scope)) return false;
+                        return true;
+                    }
                     if (e instanceof NameExpr) {
                         return AnalysisUtils.isFieldReference(methodDecl, e.toString());
+                    }
+                    if (e instanceof ArrayAccessExpr aae) {
+                        // Writing to an array element — always a side effect on the array
+                        return AssignableAnalyzer.extractArrayBase(aae, methodDecl) != null;
                     }
                     return false;
                 default:

@@ -14,6 +14,13 @@ class AssignableAnalyzer {
     void inferAssignableClauses(MethodDeclaration methodDecl, MethodSpecification spec, ASTCollector collector) {
         Set<String> assignedLocations = new LinkedHashSet<>();
 
+        // Collect local-variable names so we can exclude assignments to their fields from
+        // `assignable`. A local points at a fresh object (or reassigned reference) that
+        // the caller cannot observe — writes through it are not caller-visible side effects.
+        Set<String> localVarNames = new LinkedHashSet<>();
+        collector.varDeclExprs.forEach(vde -> vde.getVariables()
+                .forEach(v -> localVarNames.add(v.getNameAsString())));
+
         // Find unary increment/decrement on fields
         collector.unaryExprs.forEach(unary -> {
             if (unary.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT ||
@@ -27,6 +34,8 @@ class AssignableAnalyzer {
                     String field = fieldAccess.getNameAsString();
                     if (scope.equals("this")) {
                         assignedLocations.add("this." + field);
+                    } else if (localVarNames.contains(scope)) {
+                        // local.field — writing through a local is not externally visible
                     } else {
                         assignedLocations.add(scope + "." + field);
                     }
@@ -34,6 +43,11 @@ class AssignableAnalyzer {
                     String varName = expr.toString();
                     if (AnalysisUtils.isFieldReference(methodDecl, varName)) {
                         assignedLocations.add("this." + varName);
+                    }
+                } else if (expr instanceof ArrayAccessExpr aae) {
+                    String baseName = extractArrayBase(aae, methodDecl);
+                    if (baseName != null) {
+                        assignedLocations.add(baseName + "[*]");
                     }
                 }
             }
@@ -50,6 +64,8 @@ class AssignableAnalyzer {
 
                 if (scope.equals("this")) {
                     assignedLocations.add("this." + field);
+                } else if (localVarNames.contains(scope)) {
+                    // local.field — writing through a local is not externally visible
                 } else {
                     assignedLocations.add(scope + "." + field);
                 }
