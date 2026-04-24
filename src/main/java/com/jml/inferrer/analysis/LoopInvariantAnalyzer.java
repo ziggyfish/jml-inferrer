@@ -546,6 +546,31 @@ class LoopInvariantAnalyzer {
             return false;
         }
 
+        /**
+         * Returns the initial value of the for-loop counter, expressed as a string
+         * suitable for use as the lower bound in a forall quantifier. Returns the
+         * literal initializer when the counter is declared in the for's init with a
+         * simple expression (integer literal, parameter name, or `.length`);
+         * otherwise falls back to {@code "0"} as the safe (but potentially weakening)
+         * lower bound.
+         */
+        private String forallLowerBound(ForStmt forStmt, String counter) {
+            for (var init : forStmt.getInitialization()) {
+                if (init instanceof VariableDeclarationExpr vde) {
+                    for (var v : vde.getVariables()) {
+                        if (v.getNameAsString().equals(counter) && v.getInitializer().isPresent()) {
+                            Expression e = v.getInitializer().get();
+                            if (e.isIntegerLiteralExpr() || e.isNameExpr()
+                                    || e instanceof FieldAccessExpr) {
+                                return e.toString();
+                            }
+                        }
+                    }
+                }
+            }
+            return "0";
+        }
+
         private void analyzeArraySegments(ForStmt forStmt, Set<String> invariants, List<String> counterNames) {
             if (counterNames.isEmpty()) return;
             String counter = counterNames.get(0);
@@ -589,8 +614,16 @@ class LoopInvariantAnalyzer {
 
                     if (allSameValue) {
                         if (firstValue.isLiteralExpr() || firstValue.isNameExpr()) {
-                            invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
-                                          arrayName + "[k] == " + firstValue + ")");
+                            // Use the for-loop's own init as the forall's lower bound.
+                            // `for (int i = start; i < end; i++)` writing arr[i] only
+                            // fills arr[start..counter), so the forall lower bound is
+                            // `start`, not 0 — otherwise the invariant claims the
+                            // elements before `start` are also `value`, which isn't
+                            // ensured by the caller.
+                            String lowerBound = forallLowerBound(forStmt, counter);
+                            invariants.add("(\\forall int k; " + lowerBound
+                                    + " <= k && k < " + counter + "; "
+                                    + arrayName + "[k] == " + firstValue + ")");
                         }
                     }
                 }
@@ -606,6 +639,7 @@ class LoopInvariantAnalyzer {
 
             Statement body = forStmt.getBody();
 
+            String lowerBound = forallLowerBound(forStmt, counter);
             body.findAll(AssignExpr.class).forEach(assign -> {
                 if (assign.getTarget() instanceof ArrayAccessExpr) {
                     ArrayAccessExpr arrayAccess = (ArrayAccessExpr) assign.getTarget();
@@ -616,15 +650,15 @@ class LoopInvariantAnalyzer {
                         Expression value = assign.getValue();
 
                         if (value.isIntegerLiteralExpr() && value.asIntegerLiteralExpr().asInt() == 0) {
-                            invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
-                                          arrayName + "[k] == 0)");
+                            invariants.add("(\\forall int k; " + lowerBound + " <= k && k < "
+                                    + counter + "; " + arrayName + "[k] == 0)");
                         } else if (value.isNullLiteralExpr()) {
-                            invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
-                                          arrayName + "[k] == null)");
+                            invariants.add("(\\forall int k; " + lowerBound + " <= k && k < "
+                                    + counter + "; " + arrayName + "[k] == null)");
                         } else if (value.isBooleanLiteralExpr()) {
                             boolean boolVal = value.asBooleanLiteralExpr().getValue();
-                            invariants.add("(\\forall int k; 0 <= k && k < " + counter + "; " +
-                                          arrayName + "[k] == " + boolVal + ")");
+                            invariants.add("(\\forall int k; " + lowerBound + " <= k && k < "
+                                    + counter + "; " + arrayName + "[k] == " + boolVal + ")");
                         }
                     }
                 }
