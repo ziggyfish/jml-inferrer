@@ -222,13 +222,18 @@ class FieldModificationAnalyzer {
                             .anyMatch(v -> v.getNameAsString().equals(name)))
                     .orElse(false);
             if (isField) {
-                // If the RHS field was modified earlier in the same method, its
-                // value at this assignment is POST-state, not pre-state. `\old(...)`
-                // would be wrong — emit the post-state reference `this.name` so
-                // the generated postcondition relates the two fields in their
-                // post-state (e.g. `lastNotifiedValue == this.count` when
+                // If the RHS field was modified earlier in the same method (source
+                // order, not reachability), its value at this assignment is
+                // POST-state, not pre-state. `\old(...)` would be wrong — emit the
+                // post-state reference `this.name` so the generated postcondition
+                // relates the two fields in their post-state (e.g.
+                // `lastNotifiedValue == this.count` when
                 // `count++; lastNotifiedValue = count;`).
-                if (isFieldModifiedInMethod(methodDecl, name)) {
+                //
+                // IntPair2.swap regression check: `first = second; second = temp;`
+                // — at `first = second`, `second` hasn't yet been written, so the
+                // reference is pre-state and `\old(second)` remains correct.
+                if (isFieldModifiedBefore(methodDecl, name, value)) {
                     return "this." + fieldName + " == this." + name;
                 }
                 return "this." + fieldName + " == \\old(this." + name + ")";
@@ -240,7 +245,7 @@ class FieldModificationAnalyzer {
             FieldAccessExpr fa = (FieldAccessExpr) value;
             if (fa.getScope().toString().equals("this")) {
                 String refName = fa.getNameAsString();
-                if (isFieldModifiedInMethod(methodDecl, refName)) {
+                if (isFieldModifiedBefore(methodDecl, refName, value)) {
                     return "this." + fieldName + " == this." + refName;
                 }
                 return "this." + fieldName + " == \\old(this." + refName + ")";
@@ -542,14 +547,26 @@ class FieldModificationAnalyzer {
     }
 
     /**
-     * True when the method body contains any statement that writes to the named
-     * instance field — compound or plain assignment, unary inc/dec — and therefore
-     * the field's value at any non-earliest point is POST-state (post prior writes)
-     * rather than pre-state.
+     * True when the method body contains a write to the named instance field that
+     * appears BEFORE {@code beforeNode} in source order. Used to decide whether a
+     * field reference at {@code beforeNode}'s position evaluates to a pre-state or
+     * post-state value: if any earlier write modified the field, the reference is
+     * post-state relative to method entry.
+     *
+     * <p>IntPair2.swap ordering matters here: at {@code first = second;} the field
+     * {@code second} has not yet been written, so it's pre-state. At
+     * {@code second = temp;} (next line), {@code second} is still on the LHS of
+     * its own write, so by the standard convention the RHS is still pre-state.
+     * Only writes strictly before the current node count.</p>
      */
-    private boolean isFieldModifiedInMethod(MethodDeclaration methodDecl, String fieldName) {
+    private boolean isFieldModifiedBefore(MethodDeclaration methodDecl, String fieldName,
+                                           com.github.javaparser.ast.Node beforeNode) {
         if (methodDecl.getBody().isEmpty()) return false;
+        int beforeLine = beforeNode.getBegin().map(p -> p.line).orElse(Integer.MAX_VALUE);
+        int beforeCol = beforeNode.getBegin().map(p -> p.column).orElse(Integer.MAX_VALUE);
+
         for (AssignExpr ae : methodDecl.getBody().get().findAll(AssignExpr.class)) {
+            if (!isBefore(ae, beforeLine, beforeCol)) continue;
             Expression target = ae.getTarget();
             if (target instanceof NameExpr ne && ne.getNameAsString().equals(fieldName)) return true;
             if (target instanceof FieldAccessExpr fa
@@ -557,6 +574,7 @@ class FieldModificationAnalyzer {
                     && fa.getNameAsString().equals(fieldName)) return true;
         }
         for (UnaryExpr ue : methodDecl.getBody().get().findAll(UnaryExpr.class)) {
+            if (!isBefore(ue, beforeLine, beforeCol)) continue;
             UnaryExpr.Operator op = ue.getOperator();
             if (op != UnaryExpr.Operator.PREFIX_INCREMENT
                     && op != UnaryExpr.Operator.POSTFIX_INCREMENT
@@ -569,6 +587,14 @@ class FieldModificationAnalyzer {
                     && fa.getNameAsString().equals(fieldName)) return true;
         }
         return false;
+    }
+
+    private boolean isBefore(com.github.javaparser.ast.Node node, int beforeLine, int beforeCol) {
+        if (node.getBegin().isEmpty()) return false;
+        var pos = node.getBegin().get();
+        if (pos.line < beforeLine) return true;
+        if (pos.line > beforeLine) return false;
+        return pos.column < beforeCol;
     }
 
     String wrapFieldRefsWithOld(String condition, MethodDeclaration methodDecl) {
