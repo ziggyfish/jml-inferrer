@@ -134,7 +134,11 @@ class OverflowPreconditionAnalyzer {
         Expression operand = unary.getExpression();
         String intForm = toIntStr(operand);
         if (intForm != null) {
-            emitted.add(intForm + " != Integer.MIN_VALUE");
+            // Skip when operand is a literal that can never be Integer.MIN_VALUE —
+            // the constraint would be trivially true and only adds noise.
+            if (!isTriviallyNotMinValue(operand)) {
+                emitted.add(intForm + " != Integer.MIN_VALUE");
+            }
             return;
         }
         // The straight-line case failed (e.g. operand uses a loop variable). If the
@@ -142,6 +146,58 @@ class OverflowPreconditionAnalyzer {
         // universal precondition over the loop range so OpenJML can discharge the
         // negation overflow check on every element.
         emitForallElementPrecondition(unary, operand, emitted, "!= Integer.MIN_VALUE");
+    }
+
+    /**
+     * True when {@code expr} is an integer literal whose value is demonstrably not
+     * {@code Integer.MIN_VALUE} (-2147483648). Used to suppress trivially-true
+     * overflow preconditions on literal operands.
+     */
+    private boolean isTriviallyNotMinValue(Expression expr) {
+        if (expr instanceof IntegerLiteralExpr lit) {
+            return lit.asInt() != Integer.MIN_VALUE;
+        }
+        if (expr instanceof UnaryExpr u
+                && u.getOperator() == UnaryExpr.Operator.MINUS
+                && u.getExpression() instanceof IntegerLiteralExpr inner) {
+            // -N fits in int as long as inner != 2147483648; we conservatively
+            // treat every negated literal we can read as "not MIN_VALUE" only
+            // when its absolute value is strictly less than 2^31.
+            try {
+                long v = -((long) inner.asInt());
+                return v != Integer.MIN_VALUE;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** True when {@code expr} is a non-zero integer literal. */
+    private boolean isTriviallyNonzero(Expression expr) {
+        if (expr instanceof IntegerLiteralExpr lit) {
+            return lit.asInt() != 0;
+        }
+        if (expr instanceof UnaryExpr u
+                && u.getOperator() == UnaryExpr.Operator.MINUS
+                && u.getExpression() instanceof IntegerLiteralExpr inner) {
+            return inner.asInt() != 0;
+        }
+        return false;
+    }
+
+    /** True when {@code expr} is an integer literal whose value is not {@code -1}. */
+    private boolean isTriviallyNotMinusOne(Expression expr) {
+        if (expr instanceof IntegerLiteralExpr lit) {
+            return lit.asInt() != -1;
+        }
+        if (expr instanceof UnaryExpr u
+                && u.getOperator() == UnaryExpr.Operator.MINUS
+                && u.getExpression() instanceof IntegerLiteralExpr inner) {
+            return inner.asInt() != 1;
+        }
+        // Non-literal right-hand side — we don't know, so don't suppress the guard.
+        return false;
     }
 
     /**
@@ -334,10 +390,17 @@ class OverflowPreconditionAnalyzer {
         if (op != BinaryExpr.Operator.DIVIDE && op != BinaryExpr.Operator.REMAINDER) return;
         String rhs = toIntStr(binary.getRight());
         if (rhs == null) return;
-        emitted.add(rhs + " != 0");
+        // Suppress trivially-true `b != 0` when `b` is a non-zero literal.
+        if (!isTriviallyNonzero(binary.getRight())) {
+            emitted.add(rhs + " != 0");
+        }
         if (op == BinaryExpr.Operator.DIVIDE) {
             String lhs = toIntStr(binary.getLeft());
             if (lhs == null) return;
+            // The MIN_VALUE/-1 overflow can't happen when either side is literally
+            // guaranteed otherwise — skip the guard then.
+            if (isTriviallyNotMinValue(binary.getLeft())) return;
+            if (isTriviallyNotMinusOne(binary.getRight())) return;
             emitted.add(lhs + " != Integer.MIN_VALUE || " + rhs + " != -1");
         }
     }
