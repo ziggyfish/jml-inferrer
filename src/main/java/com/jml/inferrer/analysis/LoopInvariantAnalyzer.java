@@ -418,13 +418,16 @@ class LoopInvariantAnalyzer {
                         if (value instanceof BinaryExpr) {
                             BinaryExpr binExpr = (BinaryExpr) value;
 
-                            // `v = v + literal_1` (count-by-one accumulator) — the only
-                            // shape we can reliably bound. Other compound-add patterns get
-                            // attempted by findMonotonicNonNegativeCounters with a stricter
-                            // RHS check, so they don't need to fire here.
-                            if (binExpr.getOperator() == BinaryExpr.Operator.PLUS &&
-                                binExpr.getRight().isIntegerLiteralExpr() &&
-                                binExpr.getRight().asIntegerLiteralExpr().asInt() == 1) {
+                            // `v = v + 1` (count-by-one accumulator) — the only shape we
+                            // can reliably bound. Require the LEFT operand to be exactly
+                            // `v`; otherwise e.g. `current = 3 * current + 1` (Collatz)
+                            // wrongly inferred `current >= 0` and `current <= steps`,
+                            // both of which break at the first iteration.
+                            if (binExpr.getOperator() == BinaryExpr.Operator.PLUS
+                                    && binExpr.getRight().isIntegerLiteralExpr()
+                                    && binExpr.getRight().asIntegerLiteralExpr().asInt() == 1
+                                    && binExpr.getLeft() instanceof NameExpr lne
+                                    && lne.getNameAsString().equals(varName)) {
 
                                 if (!counterNames.isEmpty()) {
                                     String counter = counterNames.get(0);
