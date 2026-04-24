@@ -61,6 +61,9 @@ class PreconditionAnalyzer {
         // a chance to prove the access.
         analyzeInstanceFieldNullPreconditions(methodDecl, preconditions, collector);
 
+        // Nested param-field null: `obj.name.method()` needs `obj.name != null`.
+        analyzeNestedFieldDereference(methodDecl, preconditions, collector);
+
         // Cross-array bound preconditions for the `for(i=0; i<a.length; i++) b[i] = a[i]`
         // pattern: the access `b[i]` is in-bounds only when `b.length >= a.length`.
         analyzeCrossArrayLoopBounds(methodDecl, preconditions, collector);
@@ -473,6 +476,36 @@ class PreconditionAnalyzer {
                 preconditions.add(accessedArray + ".length " + op + " " + upperParam + ".length");
             }
         }
+    }
+
+    /**
+     * For method calls like {@code obj.name.length()} where {@code obj} is a parameter,
+     * emit {@code obj.name != null} precondition. Covers the nested-dereference case
+     * that {@link #analyzeInstanceFieldNullPreconditions} doesn't handle (that one
+     * handles {@code this.field}, not {@code param.field}).
+     */
+    private void analyzeNestedFieldDereference(MethodDeclaration methodDecl,
+                                                 Set<String> preconditions, ASTCollector collector) {
+        Set<String> paramNames = new java.util.LinkedHashSet<>();
+        for (Parameter p : methodDecl.getParameters()) paramNames.add(p.getNameAsString());
+        if (paramNames.isEmpty()) return;
+
+        collector.methodCallExprs.forEach(call -> {
+            if (call.getScope().isEmpty()) return;
+            Expression scope = call.getScope().get();
+            if (!(scope instanceof FieldAccessExpr fae)) return;
+            if (!(fae.getScope() instanceof NameExpr paramNe)) return;
+            if (!paramNames.contains(paramNe.getNameAsString())) return;
+            preconditions.add(paramNe.getNameAsString() + "." + fae.getNameAsString() + " != null");
+        });
+
+        collector.fieldAccessExprs.forEach(fa -> {
+            // `obj.name.length` (no method call): still requires obj.name != null
+            if (!(fa.getScope() instanceof FieldAccessExpr inner)) return;
+            if (!(inner.getScope() instanceof NameExpr paramNe)) return;
+            if (!paramNames.contains(paramNe.getNameAsString())) return;
+            preconditions.add(paramNe.getNameAsString() + "." + inner.getNameAsString() + " != null");
+        });
     }
 
     /**
