@@ -30,6 +30,7 @@ public class MethodSpecificationInferrer {
     private final ComplexityAnalyzer complexityAnalyzer;
     private final SwitchBitwiseAnalyzer switchBitwiseAnalyzer;
     private final InterproceduralAnalyzer interproceduralAnalyzer;
+    private final OverflowPreconditionAnalyzer overflowPreconditionAnalyzer;
 
     /**
      * Creates a new inferrer with a specification cache and call graph for interprocedural analysis.
@@ -57,6 +58,7 @@ public class MethodSpecificationInferrer {
         this.assignableAnalyzer = new AssignableAnalyzer();
         this.complexityAnalyzer = new ComplexityAnalyzer();
         this.switchBitwiseAnalyzer = new SwitchBitwiseAnalyzer();
+        this.overflowPreconditionAnalyzer = new OverflowPreconditionAnalyzer();
     }
 
     /**
@@ -89,6 +91,7 @@ public class MethodSpecificationInferrer {
 
         // Basic JML specifications
         preconditionAnalyzer.inferPreconditions(methodDecl, spec, interproceduralAnalyzer, collector);
+        overflowPreconditionAnalyzer.inferOverflowPreconditions(methodDecl, spec, collector);
         postconditionAnalyzer.inferPostconditions(methodDecl, spec, collector);
         loopInvariantAnalyzer.inferLoopInvariants(methodDecl, spec);
         postconditionAnalyzer.promoteLoopInvariantsToPostconditions(methodDecl, spec);
