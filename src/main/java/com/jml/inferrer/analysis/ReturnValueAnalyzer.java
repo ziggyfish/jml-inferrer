@@ -494,7 +494,14 @@ class ReturnValueAnalyzer {
                 if (AnalysisUtils.isTrivialResult(sr.resolvedExpr)) continue;
                 if (sr.resolvedExpr.length() > 100) continue;
                 if (!symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) continue;
-                postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
+                // If the resolved expression references an instance field that's modified
+                // somewhere in the method body, the value at the assignment-time may
+                // differ from the post-state value. Wrap modified-field refs with
+                // \old(this.field). Conservative: applies to single-return paths only.
+                String wrapped = results.size() == 1
+                        ? wrapModifiedFields(sr.resolvedExpr, methodDecl)
+                        : sr.resolvedExpr;
+                postconditions.add(AnalysisUtils.buildResultEquality(wrapped, isStringReturn));
             } else {
                 if (hasLoopWithReturn) continue;
                 // Conditional — single identifiers are meaningful here
@@ -516,6 +523,84 @@ class ReturnValueAnalyzer {
                         + AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
             }
         }
+    }
+
+    /**
+     * For each instance field of the enclosing class that's modified in the method
+     * body, replace bare-name references in {@code expr} with {@code \old(this.field)}.
+     * `this.field` references already get wrapped via the same mechanism. The
+     * conservative case: if a field is modified ANY time in the method, all
+     * references in the resolved expression are treated as referring to its
+     * pre-state value (since assignments to local intermediates capture the
+     * value AT assignment time, which is pre-modification).
+     */
+    private String wrapModifiedFields(String expr, MethodDeclaration methodDecl) {
+        Optional<com.github.javaparser.ast.body.ClassOrInterfaceDeclaration> classOpt =
+                methodDecl.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        if (classOpt.isEmpty()) return expr;
+        Set<String> modifiedFields = new LinkedHashSet<>();
+        Set<String> classFields = new LinkedHashSet<>();
+        classOpt.get().getFields().forEach(f -> f.getVariables().forEach(v ->
+                classFields.add(v.getNameAsString())));
+        if (classFields.isEmpty() || methodDecl.getBody().isEmpty()) return expr;
+
+        // Skip if any class field name is shadowed by a method parameter — bare
+        // references would resolve to the parameter, not the field.
+        for (Parameter p : methodDecl.getParameters()) {
+            if (classFields.contains(p.getNameAsString())) return expr;
+        }
+
+        for (AssignExpr ae : methodDecl.getBody().get().findAll(AssignExpr.class)) {
+            Expression target = ae.getTarget();
+            if (target instanceof NameExpr ne && classFields.contains(ne.getNameAsString())) {
+                modifiedFields.add(ne.getNameAsString());
+            }
+            if (target instanceof FieldAccessExpr fa
+                    && fa.getScope().toString().equals("this")
+                    && classFields.contains(fa.getNameAsString())) {
+                modifiedFields.add(fa.getNameAsString());
+            }
+        }
+        for (UnaryExpr ue : methodDecl.getBody().get().findAll(UnaryExpr.class)) {
+            UnaryExpr.Operator op = ue.getOperator();
+            if (op != UnaryExpr.Operator.PREFIX_INCREMENT
+                    && op != UnaryExpr.Operator.POSTFIX_INCREMENT
+                    && op != UnaryExpr.Operator.PREFIX_DECREMENT
+                    && op != UnaryExpr.Operator.POSTFIX_DECREMENT) continue;
+            Expression inner = ue.getExpression();
+            if (inner instanceof NameExpr ne && classFields.contains(ne.getNameAsString())) {
+                modifiedFields.add(ne.getNameAsString());
+            }
+            if (inner instanceof FieldAccessExpr fa
+                    && fa.getScope().toString().equals("this")
+                    && classFields.contains(fa.getNameAsString())) {
+                modifiedFields.add(fa.getNameAsString());
+            }
+        }
+        if (modifiedFields.isEmpty()) return expr;
+
+        String result = expr;
+        for (String field : modifiedFields) {
+            // First wrap qualified `this.field` if any. This must come BEFORE bare
+            // wrapping so we don't double-wrap.
+            String thisField = "this." + field;
+            if (result.contains(thisField) && !result.contains("\\old(" + thisField + ")")) {
+                result = result.replace(thisField, "\\old(" + thisField + ")");
+            }
+            // Then bare-name `field` (not preceded by `.` or `\` and not followed by
+            // an identifier char). Avoid touching tokens already inside `\old(...)`.
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![\\w.\\\\])" + java.util.regex.Pattern.quote(field) + "(?!\\w)");
+            java.util.regex.Matcher m = p.matcher(result);
+            StringBuffer sb = new StringBuffer();
+            while (m.find()) {
+                m.appendReplacement(sb,
+                        java.util.regex.Matcher.quoteReplacement("\\old(this." + field + ")"));
+            }
+            m.appendTail(sb);
+            result = sb.toString();
+        }
+        return result;
     }
 
     /** True when any loop in the method body contains a return statement. */
