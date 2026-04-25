@@ -429,6 +429,21 @@ class PostconditionAnalyzer {
                     }
                 }));
 
+        // Set of all OTHER local variable names declared anywhere in the method body
+        // (excluding loop counters, which are handled by allCounters above and the
+        // returnedLocal replacement). Promoted postconditions cannot reference these
+        // — they're not visible at method scope. Skipping them prevents the
+        // "cannot find symbol" OpenJML errors seen for MoveZeroes.moveZeroes etc.
+        Set<String> otherLocals = new LinkedHashSet<>();
+        methodDecl.getBody().get().findAll(VariableDeclarationExpr.class).forEach(vde ->
+                vde.getVariables().forEach(v -> {
+                    String n = v.getNameAsString();
+                    if (!allCounters.contains(n)
+                            && (returnedLocal == null || !returnedLocal.equals(n))) {
+                        otherLocals.add(n);
+                    }
+                }));
+
         // Pattern to find counter variable in forall bound: 0 <= k < COUNTER
         for (String invariant : spec.getLoopInvariants()) {
             if (!invariant.contains("\\forall")) continue;
@@ -450,6 +465,10 @@ class PostconditionAnalyzer {
                     // counter (including the one we just substituted — invariants often
                     // use the counter in multiple positions: `< i` AND `arr[i][k]`).
                     if (referencesAnyCounter(postcond, allCounters, null)) continue;
+                    // Skip if it references a non-counter local (e.g. `writeIdx` from
+                    // a two-pointer loop). Those identifiers don't exist at the
+                    // postcondition site and produce "cannot find symbol".
+                    if (referencesAnyCounter(postcond, otherLocals, null)) continue;
                     spec.addPostcondition(postcond,
                             MethodSpecification.ConfidenceLevel.MEDIUM);
                 }
