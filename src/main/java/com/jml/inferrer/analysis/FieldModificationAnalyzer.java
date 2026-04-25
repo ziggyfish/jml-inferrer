@@ -164,7 +164,16 @@ class FieldModificationAnalyzer {
                 if (!multiplyModifiedFields.contains(name)) {
                     String operatorStr = AnalysisUtils.getCompoundOperatorString(operator);
                     if (operatorStr != null) {
-                        String postcond = "this." + name + " == \\old(this." + name + ") " + operatorStr + " " + value;
+                        // Bitwise operators (`&`, `|`, `^`) bind looser than `==`, so the
+                        // emitted `this.flags == \old(this.flags) | perm` parses as
+                        // `(this.flags == \old(this.flags)) | perm` — boolean | int → error.
+                        // Parenthesize the RHS for those operators.
+                        boolean needsParens = operatorStr.equals("&") || operatorStr.equals("|")
+                                              || operatorStr.equals("^");
+                        String rhs = needsParens
+                                ? "(\\old(this." + name + ") " + operatorStr + " " + value + ")"
+                                : "\\old(this." + name + ") " + operatorStr + " " + value;
+                        String postcond = "this." + name + " == " + rhs;
                         if (branchCond != null) {
                             postconditions.add(branchCond + " ==> " + postcond);
                         } else {
@@ -291,7 +300,10 @@ class FieldModificationAnalyzer {
             }
             BinaryExpr bin = (BinaryExpr) value;
             if (isSimpleJMLExpression(bin.getLeft()) && isSimpleJMLExpression(bin.getRight())) {
-                return "this." + fieldName + " == " + value;
+                // Parenthesize the RHS — `==` binds tighter than `|`, `^`, `&`, `&&`, `||`,
+                // so emitting `this.b == a ^ b` parses as `(this.b == a) ^ b`, producing
+                // the OpenJML error "boolean ^ int". Parens are harmless for arithmetic.
+                return "this." + fieldName + " == (" + value + ")";
             }
         } else if (value instanceof ConditionalExpr) {
             return null;

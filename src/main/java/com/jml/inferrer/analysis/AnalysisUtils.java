@@ -112,11 +112,17 @@ public class AnalysisUtils {
         }
         // Parenthesize expressions containing comparison/equality/logical operators OR a
         // ternary `?:` to avoid ambiguous precedence like \result == a == b or
-        // \result == cond ? a : b.
+        // \result == cond ? a : b. Also bitwise `&`, `|`, `^` since `==` binds tighter
+        // than them in Java — `\result == a | b` parses as `(\result == a) | b` and
+        // OpenJML errors out with "boolean | int".
+        boolean hasBitwise = resolvedExpr.matches(".*(?<![&|])&(?![&]).*")
+                          || resolvedExpr.matches(".*(?<![|])\\|(?![|]).*")
+                          || resolvedExpr.contains("^");
         if (resolvedExpr.matches(".*[=!<>]=.*") ||
             resolvedExpr.matches(".*(?<!=)>(?!=).*") ||
             resolvedExpr.matches(".*(?<!=)<(?!=).*") ||
             resolvedExpr.contains("&&") || resolvedExpr.contains("||") ||
+            hasBitwise ||
             (resolvedExpr.contains("?") && resolvedExpr.contains(":"))) {
             return "\\result == (" + resolvedExpr + ")";
         }
