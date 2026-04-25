@@ -195,6 +195,23 @@ class InterproceduralAnalyzer {
             return null;
         }
 
+        // Reject `<primitive> != null` produced by substituting a primitive argument into
+        // a stdlib spec written for the reference-type overload. Example: `String.indexOf`
+        // has both `(int)` and `(String)` overloads but only the latter is in the spec
+        // table; calling `s.indexOf(c)` with `char c` produces `c != null`, an invalid JML
+        // type comparison that errors out in OpenJML.
+        if (result.contains("!= null")) {
+            for (Parameter p : callingParams) {
+                if (p.getType().isPrimitiveType()) {
+                    String primitiveName = p.getNameAsString();
+                    if (result.matches(".*\\b" + java.util.regex.Pattern.quote(primitiveName)
+                            + "\\s*!=\\s*null.*")) {
+                        return null;
+                    }
+                }
+            }
+        }
+
         for (Parameter p : callingParams) {
             if (result.contains(p.getNameAsString())) {
                 return result;
