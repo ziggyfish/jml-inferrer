@@ -1,0 +1,117 @@
+# =============================================================================
+# OpenJML fork build environment
+# =============================================================================
+# Builds OpenJML from source with custom SMT-translator patches that add
+# define-fun-rec based encodings for \sum, \num_of, \product. The final
+# artifact is extracted as /out/openjml.zip.
+#
+# Usage:
+#   docker build -f Dockerfile.build -t openjml-fork-build .
+#   docker run --rm -v $(pwd)/out:/out openjml-fork-build
+# =============================================================================
+
+FROM ubuntu:22.04 AS build
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget unzip curl ca-certificates \
+    build-essential autoconf make \
+    libxext-dev libxtst-dev libxrandr-dev libcups2-dev libasound2-dev \
+    libxt-dev libfontconfig1-dev \
+    zip file gawk python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Boot JDK — OpenJML's build uses a prior Java to compile the OpenJDK module.
+# 21 is current; we pick 20 as the boot JDK.
+ENV BOOT_JDK_URL=https://download.java.net/java/GA/jdk20.0.2/6e380f22cbe7469fa75fb448bd903d8e/9/GPL/openjdk-20.0.2_linux-x64_bin.tar.gz
+
+RUN mkdir -p /opt/boot-jdk \
+    && wget -qO /tmp/boot-jdk.tgz "$BOOT_JDK_URL" \
+    && tar -xzf /tmp/boot-jdk.tgz -C /opt/boot-jdk --strip-components=1 \
+    && rm /tmp/boot-jdk.tgz \
+    && /opt/boot-jdk/bin/java -version
+
+ENV JAVA_HOME=/opt/boot-jdk
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+WORKDIR /src
+
+# Clone OpenJML and its sibling artifact repos. The `make release` step in the
+# OpenJML Makefile expects JMLAnnotations, Specs, and Solvers as siblings of the
+# OpenJML directory — it copies annotation sources into the build tree and bundles
+# precompiled specs/solvers into the release zip.
+RUN git clone https://github.com/OpenJML/OpenJML.git OpenJML \
+    && git clone https://github.com/OpenJML/JMLAnnotations.git JMLAnnotations \
+    && git clone --branch master-21 https://github.com/OpenJML/Specs.git Specs \
+    && git clone https://github.com/OpenJML/Solvers.git Solvers \
+    && git clone https://github.com/OpenJML/openjml.github.io.git openjml.github.io \
+    && cd OpenJML && git log -1 --format='%H %ci' > /src/openjml-sha.txt
+
+# Patches applied here before the build. The COPY happens at build time so
+# edits to the patches force a rebuild of this layer only.
+COPY patches/ /src/patches/
+
+# Drop new files into their target packages.
+RUN SMTLIB_DIR=/src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/smtlib/command \
+    && ESC_DIR=/src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/esc \
+    && if [ -f /src/patches/new-files/C_define_fun_rec.java ]; then \
+         cp /src/patches/new-files/C_define_fun_rec.java "$SMTLIB_DIR/C_define_fun_rec.java"; \
+         echo "Dropped C_define_fun_rec.java"; \
+       fi \
+    && if [ -f /src/patches/new-files/JmlBoundsExtractor.java ]; then \
+         cp /src/patches/new-files/JmlBoundsExtractor.java "$ESC_DIR/JmlBoundsExtractor.java"; \
+         echo "Dropped JmlBoundsExtractor.java"; \
+       fi
+
+# Apply the SMTTranslator patch via the Python script (python3 in base layer).
+RUN if [ -f /src/patches/scripts/patch_smttranslator.py ]; then \
+         python3 /src/patches/scripts/patch_smttranslator.py \
+           /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/esc/SMTTranslator.java; \
+       fi
+
+# Patch JmlSpecs.isEffectivelySpecPureMethod so that pure methods returning
+# reference types (String.substring, Arrays.copyOf, etc.) qualify for the
+# existing ESC determinism axiom. Without this, two calls to the same pure
+# method (one in the body, one in the spec) become unrelated fresh result
+# temps and the spec is unprovable. See patch_pure_determinism.py for
+# the full rationale.
+RUN if [ -f /src/patches/scripts/patch_pure_determinism.py ]; then \
+         python3 /src/patches/scripts/patch_pure_determinism.py \
+           /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/JmlSpecs.java; \
+       fi
+
+# Patch the Specs/ tree (java/lang/String.jml + Integer.jml) so ESC mode sees
+# useful postconditions for the most common String/Integer methods. Without
+# this, half of the inferrers String-method tests can't discharge.
+RUN if [ -f /src/patches/scripts/patch_string_jml.py ]; then \
+         python3 /src/patches/scripts/patch_string_jml.py /src/Specs/specs; \
+       fi
+
+# Apply legacy git patches if any remain.
+RUN if [ -d /src/patches ] && ls /src/patches/*.patch >/dev/null 2>&1; then \
+      cd /src/OpenJML && for p in /src/patches/*.patch; do \
+        echo "Applying $p"; \
+        git apply --verbose "$p"; \
+      done; \
+    fi
+
+# Build
+WORKDIR /src/OpenJML/OpenJMLsrc
+
+RUN bash ./configure \
+      --with-boot-jdk=/opt/boot-jdk \
+      --disable-warnings-as-errors \
+      --build=x86_64-unknown-linux-gnu \
+      --host=x86_64-unknown-linux-gnu \
+      2>&1 | tail -30
+
+RUN make openjml 2>&1 | tail -50 \
+    && make release 2>&1 | tail -30
+
+# Final stage: just the zip
+FROM alpine:3.19 AS artifact
+RUN apk add --no-cache bash
+COPY --from=build /src/OpenJML/OpenJMLsrc/release-temp/openjml*.zip /out/openjml.zip
+COPY --from=build /src/openjml-sha.txt /out/openjml-sha.txt
+CMD ["sh", "-c", "ls -la /out && echo 'Build complete'"]

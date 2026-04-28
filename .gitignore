@@ -73,3 +73,10 @@ inferred-specs.log
 
 # Test-output archives
 test-output-*.zip
+
+# OpenJML fork build artifacts (kept out of vendored openjml-dev/)
+openjml-dev/out/
+openjml-dev/build-log*.txt
+openjml-dev/build-pure-determinism.log
+openjml-dev/Dockerfile.build.bak*
+openjml-dev/**/__pycache__/

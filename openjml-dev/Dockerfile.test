@@ -1,0 +1,41 @@
+# =============================================================================
+# Test image that uses our custom OpenJML fork
+# =============================================================================
+# Drop-in replacement for the upstream Dockerfile.test in the Inferrer project —
+# installs the fork-built openjml.zip instead of pulling the upstream release.
+#
+# Usage: sits alongside the built openjml-fork-build image. Build with:
+#   docker build -f Dockerfile.test -t inferrer-test-forked .
+# =============================================================================
+FROM maven:3.9.6-eclipse-temurin-21
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    unzip curl libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the fork-built OpenJML zip from the artifact image. Expects
+# `openjml-fork-build` to have been built first.
+ENV OPENJML_HOME=/opt/openjml
+RUN mkdir -p "$OPENJML_HOME"
+
+COPY --from=openjml-fork-build:latest /out/openjml.zip /tmp/openjml.zip
+
+RUN unzip -q /tmp/openjml.zip -d "$OPENJML_HOME" \
+    && if [ ! -f "$OPENJML_HOME/openjml" ]; then \
+         INNER=$(find "$OPENJML_HOME" -maxdepth 1 -type d ! -path "$OPENJML_HOME" | head -1); \
+         if [ -n "$INNER" ] && [ -f "$INNER/openjml" ]; then \
+           mv "$INNER"/* "$OPENJML_HOME/" 2>/dev/null || true; \
+           rmdir "$INNER" 2>/dev/null || true; \
+         fi; \
+       fi \
+    && chmod +x "$OPENJML_HOME/openjml" \
+    && rm -f /tmp/openjml.zip
+
+WORKDIR /app
+
+COPY pom.xml ./
+RUN mvn dependency:go-offline -B
+
+COPY src/ ./src/
+
+CMD ["mvn", "test", "-B"]
