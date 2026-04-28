@@ -17,7 +17,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 IMAGE_NAME="jml-inferrer-tests"
-DOCKERFILE="Dockerfile.test"
+# Default to the fork-based dockerfile so the verification suite runs against
+# the patched OpenJML in openjml-dev/ (define-fun-rec for \sum/\product/\num_of,
+# pure-function determinism, ESC-visible String/Integer specs). Override with
+# DOCKERFILE=Dockerfile.test to fall back to vanilla OpenJML 21-0.23 — many
+# inferred specs will not discharge.
+DOCKERFILE="${DOCKERFILE:-Dockerfile.test.fork}"
+FORK_IMAGE="openjml-fork-build:latest"
+FORK_DIR="$PROJECT_ROOT/openjml-dev"
 # Container runtime: set DOCKER=podman to use Podman instead of Docker
 DOCKER="${DOCKER:-docker}"
 
@@ -57,8 +64,39 @@ check_docker() {
 # Build
 # ==============================================================================
 
+# Builds the openjml-dev fork image if the inferrer-test image will need it.
+# The Dockerfile.test.fork variant FROM-references openjml-fork-build:latest;
+# without it docker build fails with "image not found".
+ensure_fork_image() {
+    if [ "$DOCKERFILE" != "Dockerfile.test.fork" ]; then
+        return 0
+    fi
+
+    if $DOCKER image inspect "$FORK_IMAGE" &>/dev/null; then
+        info "Fork image '$FORK_IMAGE' already built"
+        return 0
+    fi
+
+    if [ ! -d "$FORK_DIR" ]; then
+        error "openjml-dev/ not found at $FORK_DIR"
+        error "  The Dockerfile.test.fork variant depends on the patched OpenJML fork."
+        error "  Either git pull to fetch openjml-dev/, or set DOCKERFILE=Dockerfile.test"
+        error "  to fall back to vanilla OpenJML (many inferred specs will not discharge)."
+        exit 1
+    fi
+
+    step "Building OpenJML fork image: $FORK_IMAGE"
+    info "First-time fork build downloads + patches upstream OpenJML — ~10-15 minutes."
+    cd "$FORK_DIR"
+    $DOCKER build --platform linux/amd64 -f Dockerfile.build -t "$FORK_IMAGE" .
+    cd "$PROJECT_ROOT"
+    ok "Fork image '$FORK_IMAGE' built successfully"
+}
+
 do_build() {
-    step "Building Docker image: $IMAGE_NAME"
+    ensure_fork_image
+
+    step "Building Docker image: $IMAGE_NAME (using $DOCKERFILE)"
     info "This includes OpenJML (~350MB) and may take a few minutes on first build."
 
     cd "$PROJECT_ROOT"
@@ -122,6 +160,19 @@ do_clean() {
     else
         info "Image '$IMAGE_NAME' not found, nothing to clean"
     fi
+
+    # The fork image is intentionally left in place — it's expensive to
+    # rebuild and is reused across many verification runs. Pass --clean-fork
+    # to remove it as well.
+    if [ "${CLEAN_FORK:-false}" = true ]; then
+        step "Removing OpenJML fork image: $FORK_IMAGE"
+        if $DOCKER image inspect "$FORK_IMAGE" &>/dev/null; then
+            $DOCKER rmi "$FORK_IMAGE"
+            ok "Removed image '$FORK_IMAGE'"
+        else
+            info "Image '$FORK_IMAGE' not found, nothing to clean"
+        fi
+    fi
 }
 
 # ==============================================================================
@@ -145,6 +196,8 @@ main() {
             --build|-b)       mode="build" ;;
             --test-only|-t)   mode="test-only" ;;
             --clean|-c)       mode="clean" ;;
+            --clean-fork)     mode="clean"; CLEAN_FORK=true ;;
+            --vanilla)        DOCKERFILE="Dockerfile.test" ;;
             --help|-h)        mode="help" ;;
             --show-jml)       SHOW_JML=true ;;
             --test)
@@ -184,7 +237,12 @@ main() {
             echo "  (no args)     Build image (if needed) and run all verification tests"
             echo "  --build       Build the Docker image only"
             echo "  --test-only   Run tests only (builds image if not found)"
-            echo "  --clean       Remove the Docker image"
+            echo "  --clean       Remove the inferrer-test image (fork image kept)"
+            echo "  --clean-fork  Same as --clean, also remove openjml-fork-build"
+            echo "  --vanilla     Use Dockerfile.test (vanilla OpenJML 21-0.23) instead"
+            echo "                of Dockerfile.test.fork (patched fork). Many inferred"
+            echo "                specs will not discharge under vanilla — only useful"
+            echo "                for measuring the fork's contribution."
             echo "  --show-jml    Print inferred JML specifications for each test"
             echo "  --test NAME   Run specific test suite or method, e.g.:"
             echo "                  --test 'com.jml.inferrer.verification.BitwiseSwitchVerificationTest'"

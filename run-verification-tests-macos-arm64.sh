@@ -26,7 +26,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 IMAGE_NAME="jml-inferrer-tests"
-DOCKERFILE="Dockerfile.test"
+# Defaults to Dockerfile.test.fork (patched OpenJML in openjml-dev/). Override
+# with DOCKERFILE=Dockerfile.test for vanilla OpenJML 21-0.23.
+DOCKERFILE="${DOCKERFILE:-Dockerfile.test.fork}"
+FORK_IMAGE="openjml-fork-build:latest"
+FORK_DIR="$PROJECT_ROOT/openjml-dev"
 PLATFORM="linux/amd64"
 # Container runtime: set DOCKER=podman to use Podman instead of Docker
 DOCKER="${DOCKER:-docker}"
@@ -94,8 +98,39 @@ check_rosetta() {
 # Build
 # ==============================================================================
 
+# Builds the openjml-dev fork image first when Dockerfile.test.fork is in use
+# (it FROM-references openjml-fork-build:latest). On Apple Silicon the fork
+# build itself runs under linux/amd64 emulation, so first build is slow.
+ensure_fork_image() {
+    if [ "$DOCKERFILE" != "Dockerfile.test.fork" ]; then
+        return 0
+    fi
+
+    if $DOCKER image inspect "$FORK_IMAGE" &>/dev/null; then
+        info "Fork image '$FORK_IMAGE' already built"
+        return 0
+    fi
+
+    if [ ! -d "$FORK_DIR" ]; then
+        error "openjml-dev/ not found at $FORK_DIR"
+        error "  Dockerfile.test.fork depends on the patched OpenJML fork."
+        error "  Either git pull to fetch openjml-dev/, or set DOCKERFILE=Dockerfile.test"
+        error "  to fall back to vanilla OpenJML (many inferred specs will not discharge)."
+        exit 1
+    fi
+
+    step "Building OpenJML fork image: $FORK_IMAGE (platform: $PLATFORM)"
+    info "First-time fork build downloads + patches upstream OpenJML — ~15-20 minutes under emulation."
+    cd "$FORK_DIR"
+    $DOCKER build --platform "$PLATFORM" -f Dockerfile.build -t "$FORK_IMAGE" .
+    cd "$PROJECT_ROOT"
+    ok "Fork image '$FORK_IMAGE' built successfully"
+}
+
 do_build() {
-    step "Building Docker image: $IMAGE_NAME (platform: $PLATFORM)"
+    ensure_fork_image
+
+    step "Building Docker image: $IMAGE_NAME (platform: $PLATFORM, dockerfile: $DOCKERFILE)"
     info "Using amd64 emulation via Rosetta 2 — build will be slower than native."
     info "Image includes OpenJML (~350MB) and may take several minutes on first build."
 
