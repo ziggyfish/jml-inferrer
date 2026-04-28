@@ -346,8 +346,23 @@ class ReturnValueAnalyzer {
     void analyzeLoopAccumulatorReturn(MethodDeclaration methodDecl, Set<String> postconditions) {
         if (methodDecl.getBody().isEmpty()) return;
         List<ReturnStmt> returnStmts = methodDecl.findAll(ReturnStmt.class);
-        if (returnStmts.size() != 1) return;
-        ReturnStmt rs = returnStmts.get(0);
+        if (returnStmts.isEmpty()) return;
+
+        // Multi-return guard-then-compute shape: every "non-final" return must be a
+        // non-negative integer literal inside an if-guard at the top of the method
+        // (these are early-exit guards), and the LAST return must be the loop
+        // accumulator variable. Drives GuardEarlyReturnThenCompute.sumOrZero where
+        // `if (arr.length == 0) return 0;` precedes `return sum;`.
+        ReturnStmt rs = returnStmts.get(returnStmts.size() - 1);
+        if (returnStmts.size() > 1) {
+            for (int i = 0; i < returnStmts.size() - 1; i++) {
+                ReturnStmt early = returnStmts.get(i);
+                if (early.getExpression().isEmpty()) return;
+                Expression earlyExpr = early.getExpression().get();
+                if (!(earlyExpr instanceof IntegerLiteralExpr lit)
+                        || lit.asInt() < 0) return;
+            }
+        }
         if (rs.getExpression().isEmpty()) return;
         if (!(rs.getExpression().get() instanceof NameExpr returnName)) return;
         String varName = returnName.getNameAsString();
@@ -451,9 +466,25 @@ class ReturnValueAnalyzer {
         // Force `.equals()` in that case.
         boolean isStringReturn = "String".equals(methodDecl.getType().asString());
 
+        // For sequenced reads (e.g. CircularBuffer2.dequeue: `int v = buffer[head]; head = ...; return v;`),
+        // the resolvedExpr captures the value at the time of the assignment to the local —
+        // but JML interprets bare field references in a postcondition as POST-STATE. Wrap
+        // any field reference whose field is mutated AFTER the resolvedExpr was captured
+        // with `\old(...)` so the postcondition correctly refers to the captured value.
+        //
+        // CRITICAL: this wrap MUST NOT fire when the return expression is direct
+        // (i.e. the source `return data[top]` after `top--`). In the direct case the
+        // resolvedExpr equals the originalExpr (no env substitution happened), and JML
+        // post-state semantics already gives the right value. The wrapper would
+        // incorrectly produce `\old(this.top)` when the source-level `top` was meant.
+        // The `wrapIfSubstituted` helper consults SymbolicReturn.originalExpr as the
+        // "did substitution happen?" flag.
+        Set<String> mutatedFields = collectMutatedFieldNames(methodDecl);
+
         // Check if all results resolve to the same expression — emit single unconditional spec
-        String firstExpr = results.get(0).resolvedExpr;
-        boolean allSame = results.stream().allMatch(r -> r.resolvedExpr.equals(firstExpr));
+        String firstExpr = wrapIfSubstituted(results.get(0), mutatedFields, methodDecl);
+        boolean allSame = results.stream().allMatch(r ->
+                wrapIfSubstituted(r, mutatedFields, methodDecl).equals(firstExpr));
 
         if (allSame && results.size() > 1) {
             // All paths return the same expression — treat as unconditional
@@ -471,10 +502,11 @@ class ReturnValueAnalyzer {
         // safeAdd, where conditions reference local vars and would otherwise be dropped.
         if (results.size() == 1 && results.get(0).pathCondition != null) {
             SymbolicExecutor.SymbolicReturn sr = results.get(0);
-            if (!AnalysisUtils.isTrivialResult(sr.resolvedExpr)
-                    && sr.resolvedExpr.length() <= 100
-                    && symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) {
-                postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
+            String wrappedExpr = wrapIfSubstituted(sr, mutatedFields, methodDecl);
+            if (!AnalysisUtils.isTrivialResult(wrappedExpr)
+                    && wrappedExpr.length() <= 100
+                    && symbolicExecutor.isMethodScopeSafe(wrappedExpr, methodDecl, paramNames)) {
+                postconditions.add(AnalysisUtils.buildResultEquality(wrappedExpr, isStringReturn));
                 return;
             }
         }
@@ -489,33 +521,264 @@ class ReturnValueAnalyzer {
         boolean hasLoopWithReturn = methodHasLoopWithReturn(methodDecl);
 
         for (SymbolicExecutor.SymbolicReturn sr : results) {
+            String wrappedExpr = wrapIfSubstituted(sr, mutatedFields, methodDecl);
             if (sr.pathCondition == null) {
                 // Unconditional — filter trivial results (single identifier, literal, etc.)
-                if (AnalysisUtils.isTrivialResult(sr.resolvedExpr)) continue;
-                if (sr.resolvedExpr.length() > 100) continue;
-                if (!symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) continue;
-                postconditions.add(AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
+                if (AnalysisUtils.isTrivialResult(wrappedExpr)) continue;
+                if (wrappedExpr.length() > 100) continue;
+                if (!symbolicExecutor.isMethodScopeSafe(wrappedExpr, methodDecl, paramNames)) continue;
+                if (returnsModifiedParameter(wrappedExpr, methodDecl)) continue;
+                postconditions.add(AnalysisUtils.buildResultEquality(wrappedExpr, isStringReturn));
             } else {
                 if (hasLoopWithReturn) continue;
                 // Conditional — single identifiers are meaningful here
                 // (e.g., "a >= b ==> \result == a"), only filter ternary/new expressions
-                if (sr.resolvedExpr.contains("?") && sr.resolvedExpr.contains(":")) continue;
-                if (sr.resolvedExpr.contains("new ")) continue;
-                if (sr.resolvedExpr.length() > 100) continue;
-                if (!symbolicExecutor.isMethodScopeSafe(sr.resolvedExpr, methodDecl, paramNames)) continue;
+                if (wrappedExpr.contains("?") && wrappedExpr.contains(":")) continue;
+                if (wrappedExpr.contains("new ")) continue;
+                if (wrappedExpr.length() > 100) continue;
+                if (!symbolicExecutor.isMethodScopeSafe(wrappedExpr, methodDecl, paramNames)) continue;
+                // Recursive postconditions like `\result == n * factorial(n - 1)`:
+                // Z3 can't unfold the recursive call inside the SMT theory and times out
+                // (Recursive1.factorial, Recursive5.power). Without an explicit measure
+                // and inductive helper, the postcondition reduces to "validity unknown".
+                // Skip — the per-base-case `n == 0 ==> \result == 1` and any non-recursive
+                // bound (`\result > 0`) still describe useful properties of the function.
+                if (containsRecursiveCallTo(wrappedExpr, methodDecl.getNameAsString())) continue;
                 // Don't emit `cond ==> \result == true|false` — the path condition is
                 // usually incomplete (the symbolic executor doesn't model loop bodies),
                 // so promising a boolean result on a partial path generates contradictions
                 // with the loop-derived spec.
-                String trimmedExpr = sr.resolvedExpr.trim();
+                String trimmedExpr = wrappedExpr.trim();
                 if (trimmedExpr.equals("true") || trimmedExpr.equals("false")) continue;
+                // Also drop `cond ==> \result == PARAM` when PARAM is mutated inside the
+                // method (e.g. GCDE2E.gcd's `return a` after the loop modifies `a`). JML
+                // interprets parameter names in ensures clauses as the call-time value;
+                // emitting `\result == a` when the body mutated `a` produces a wrong
+                // postcondition that fails verification for any non-trivial input.
+                if (returnsModifiedParameter(wrappedExpr, methodDecl)) continue;
                 String simplifiedCond = AnalysisUtils.simplifyPathCondition(sr.pathCondition);
                 if (simplifiedCond.length() > 80) continue;
                 if (!symbolicExecutor.isMethodScopeSafe(simplifiedCond, methodDecl, paramNames)) continue;
                 postconditions.add(simplifiedCond + " ==> "
-                        + AnalysisUtils.buildResultEquality(sr.resolvedExpr, isStringReturn));
+                        + AnalysisUtils.buildResultEquality(wrappedExpr, isStringReturn));
             }
         }
+    }
+
+    /**
+     * True when {@code expr} is a single parameter identifier AND that parameter is
+     * mutated anywhere in the method body. Such a parameter has different values at
+     * pre-state (the call-time value, which is what JML's ensures binding uses) and
+     * post-state (the value at the return), so `\result == PARAM` is unsound.
+     * Conservative: if {@code expr} is a compound expression that happens to contain
+     * a mutated parameter name as a substring, we don't suppress (the surrounding
+     * arithmetic might still yield a meaningful relationship).
+     */
+    private boolean returnsModifiedParameter(String expr, MethodDeclaration methodDecl) {
+        if (expr == null) return false;
+        String trimmed = expr.trim();
+        for (Parameter p : methodDecl.getParameters()) {
+            if (trimmed.equals(p.getNameAsString())
+                    && isParameterModified(methodDecl, p.getNameAsString())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the names of every field assigned to or compound-modified anywhere
+     * in {@code methodDecl}. Used to identify fields whose appearance in a
+     * symbolically-resolved return expression must be wrapped with {@code \old}.
+     */
+    private Set<String> collectMutatedFieldNames(MethodDeclaration methodDecl) {
+        if (methodDecl.getBody().isEmpty()) return java.util.Collections.emptySet();
+        Set<String> fields = new java.util.LinkedHashSet<>();
+        Set<String> classFields = methodDecl.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(com.github.javaparser.ast.body.VariableDeclarator::getNameAsString)
+                        .collect(java.util.stream.Collectors.toSet()))
+                .orElseGet(java.util.HashSet::new);
+        for (AssignExpr ae : methodDecl.getBody().get().findAll(AssignExpr.class)) {
+            String name = null;
+            if (ae.getTarget() instanceof FieldAccessExpr fae && fae.getScope().toString().equals("this")) {
+                name = fae.getNameAsString();
+            } else if (ae.getTarget() instanceof NameExpr ne && classFields.contains(ne.getNameAsString())) {
+                name = ne.getNameAsString();
+            }
+            if (name != null) fields.add(name);
+        }
+        for (UnaryExpr ue : methodDecl.getBody().get().findAll(UnaryExpr.class)) {
+            UnaryExpr.Operator op = ue.getOperator();
+            if (op != UnaryExpr.Operator.PREFIX_INCREMENT
+                    && op != UnaryExpr.Operator.POSTFIX_INCREMENT
+                    && op != UnaryExpr.Operator.PREFIX_DECREMENT
+                    && op != UnaryExpr.Operator.POSTFIX_DECREMENT) continue;
+            String name = null;
+            if (ue.getExpression() instanceof FieldAccessExpr fae && fae.getScope().toString().equals("this")) {
+                name = fae.getNameAsString();
+            } else if (ue.getExpression() instanceof NameExpr ne && classFields.contains(ne.getNameAsString())) {
+                name = ne.getNameAsString();
+            }
+            if (name != null) fields.add(name);
+        }
+        return fields;
+    }
+
+    /**
+     * Returns {@code sr.resolvedExpr} either as-is or with mutated-field references
+     * wrapped in {@code \old(...)}. The wrap only fires when the SymbolicExecutor
+     * actually substituted something — i.e. the return value came through a captured
+     * local that snapshotted a pre-mutation value. For direct returns
+     * ({@code resolvedExpr == originalExpr}), the source-level field references are
+     * already correctly post-state in JML semantics and must NOT be wrapped.
+     *
+     * <p>Also wraps {@code paramArr[idx]} accesses with {@code \old(paramArr[idx])}
+     * when {@code paramArr} has had any of its elements written via
+     * {@code paramArr[*] = ...}. This captures the "extract-and-replace" pattern:
+     * {@code int old = arr[idx]; arr[idx] = newVal; return old;} — the resolved
+     * return is {@code arr[idx]}, but at post-state {@code arr[idx]} is the new
+     * value. Without the wrap the postcondition {@code \result == arr[idx]} is
+     * trivially false.</p>
+     */
+    private String wrapIfSubstituted(SymbolicExecutor.SymbolicReturn sr,
+                                      Set<String> mutatedFields, MethodDeclaration methodDecl) {
+        if (sr.originalExpr != null && sr.originalExpr.equals(sr.resolvedExpr)) {
+            return sr.resolvedExpr;
+        }
+        String wrapped = wrapMutatedFieldsWithOld(sr.resolvedExpr, mutatedFields, methodDecl);
+        // Also wrap parameter-array accesses when the array's elements are written.
+        Set<String> mutatedArrayParams = collectMutatedArrayParams(methodDecl);
+        if (!mutatedArrayParams.isEmpty()) {
+            wrapped = wrapMutatedArrayAccessesWithOld(wrapped, mutatedArrayParams);
+        }
+        return wrapped;
+    }
+
+    /**
+     * Returns the names of parameter arrays whose elements are written anywhere in
+     * the method body via {@code arr[idx] = expr} (or compound-assign). These
+     * arrays' elements have different pre- and post-state values, so any
+     * {@code arr[idx]} reference in a postcondition that came through symbolic
+     * substitution must be wrapped with {@code \old(...)} to refer to the
+     * pre-state value.
+     */
+    private Set<String> collectMutatedArrayParams(MethodDeclaration methodDecl) {
+        if (methodDecl.getBody().isEmpty()) return java.util.Collections.emptySet();
+        Set<String> params = new java.util.LinkedHashSet<>();
+        for (Parameter p : methodDecl.getParameters()) {
+            if (p.getType().asString().contains("[]")) params.add(p.getNameAsString());
+        }
+        if (params.isEmpty()) return java.util.Collections.emptySet();
+        Set<String> mutated = new java.util.LinkedHashSet<>();
+        for (AssignExpr ae : methodDecl.getBody().get().findAll(AssignExpr.class)) {
+            if (!(ae.getTarget() instanceof ArrayAccessExpr aae)) continue;
+            Expression base = aae.getName();
+            while (base instanceof ArrayAccessExpr inner) base = inner.getName();
+            if (base instanceof NameExpr ne && params.contains(ne.getNameAsString())) {
+                mutated.add(ne.getNameAsString());
+            }
+        }
+        return mutated;
+    }
+
+    /**
+     * Wraps {@code paramArr[idx]} (and {@code paramArr[idx][j]}) in {@code expr}
+     * with {@code \old(paramArr[idx])}. Skips already-wrapped occurrences.
+     *
+     * <p>Implementation: scan the string for {@code paramArr[}, find the matching
+     * close-bracket via a depth counter (since indices can themselves be
+     * expressions like {@code arr[i + 1]}), and rewrite to {@code \old(...)}.</p>
+     */
+    private String wrapMutatedArrayAccessesWithOld(String expr, Set<String> mutatedArrays) {
+        String result = expr;
+        for (String name : mutatedArrays) {
+            // Match `name[` not preceded by alphanumeric, dot, or backslash (the latter
+            // would mean we're inside an existing \old).
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![\\w.\\\\])" + java.util.regex.Pattern.quote(name) + "\\[");
+            java.util.regex.Matcher m = p.matcher(result);
+            StringBuilder sb = new StringBuilder();
+            int last = 0;
+            while (m.find()) {
+                int start = m.start();
+                int bracketStart = m.end() - 1; // position of '['
+                int depth = 1;
+                int i = bracketStart + 1;
+                while (i < result.length() && depth > 0) {
+                    char c = result.charAt(i);
+                    if (c == '[') depth++;
+                    else if (c == ']') depth--;
+                    if (depth > 0) i++;
+                }
+                if (depth != 0) {
+                    // Unmatched bracket — bail on this match
+                    sb.append(result, last, m.end());
+                    last = m.end();
+                    continue;
+                }
+                int closeBracket = i;
+                String accessExpr = result.substring(start, closeBracket + 1);
+                // Skip if already inside \old(...) — we can't easily detect this
+                // by string position, but the lookbehind on `\\\\` catches the
+                // common case. As an extra guard, check for `\old(` ending right
+                // before `start` after stripping spaces.
+                String prefix = result.substring(0, start);
+                if (prefix.endsWith("\\old(")) {
+                    sb.append(result, last, closeBracket + 1);
+                    last = closeBracket + 1;
+                    continue;
+                }
+                sb.append(result, last, start);
+                sb.append("\\old(").append(accessExpr).append(")");
+                last = closeBracket + 1;
+                m.region(closeBracket + 1, result.length());
+            }
+            sb.append(result.substring(last));
+            result = sb.toString();
+        }
+        return result;
+    }
+
+    /**
+     * Wraps occurrences of mutated-field names in {@code expr} with {@code \old(...)},
+     * matching whole-word and either bare or {@code this.}-qualified forms. Idempotent:
+     * never double-wraps an already-wrapped reference.
+     *
+     * Skips when {@code mutatedFields} is empty or the expression contains nothing to wrap.
+     */
+    private String wrapMutatedFieldsWithOld(String expr, Set<String> mutatedFields,
+                                             MethodDeclaration methodDecl) {
+        if (expr == null || mutatedFields.isEmpty()) return expr;
+        // Avoid clobbering parameters that share a name with a field — when the
+        // method has a parameter `count` shadowing field `count`, the local
+        // identifier in the resolvedExpr refers to the parameter, not the field.
+        Set<String> paramNames = new java.util.LinkedHashSet<>();
+        methodDecl.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+
+        String result = expr;
+        for (String field : mutatedFields) {
+            if (paramNames.contains(field)) continue;
+            // Wrap `this.field` → `\old(this.field)`
+            String thisQual = "this." + field;
+            if (result.contains(thisQual) && !result.contains("\\old(" + thisQual + ")")) {
+                result = result.replace(thisQual, "\\old(" + thisQual + ")");
+            }
+            // Wrap bare `field` → `\old(this.field)` (skip already-old occurrences)
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![\\w.\\\\])" + java.util.regex.Pattern.quote(field) + "(?!\\w)");
+            java.util.regex.Matcher m = p.matcher(result);
+            StringBuffer sb = new StringBuffer();
+            while (m.find()) {
+                m.appendReplacement(sb,
+                        java.util.regex.Matcher.quoteReplacement("\\old(this." + field + ")"));
+            }
+            m.appendTail(sb);
+            result = sb.toString();
+        }
+        return result;
     }
 
     /** True when any loop in the method body contains a return statement. */
@@ -567,16 +830,29 @@ class ReturnValueAnalyzer {
             // the fall-through — skip case 1.
             int thisIfReturns = thenReturns.size() + elseReturns.size();
 
-            // Case 1: Both branches return literals -> disjunctive postcondition
-            if (isLiteralOrNegativeLiteral(thenExpr) && isLiteralOrNegativeLiteral(elseExpr)
-                    && thisIfReturns == totalReturns) {
-                String thenStr = thenExpr.toString();
-                String elseStr = elseExpr.toString();
-                if (thenStr.equals(elseStr)) {
-                    postconditions.add(AnalysisUtils.buildResultEquality(thenStr));
+            // Case 1: Every reachable return below this if/else returns a
+            // literal -> disjunctive postcondition over all distinct literal
+            // values. Walking the full subtree (rather than just `thenReturns
+            // .get(0)` and `elseReturns.get(0)`) is what fixes IfElseChain's
+            // `if(...) "A"; else if(...) "B"; else if(...) "C"; else "F";`
+            // where the previous code emitted only `\result == "A" || \result
+            // == "B"` and IGNORED C/D/F, then failed verification on every
+            // path that returned C/D/F.
+            if (thisIfReturns == totalReturns
+                    && thenReturns.stream().allMatch(r -> r.getExpression().isPresent()
+                            && isLiteralOrNegativeLiteral(r.getExpression().get()))
+                    && elseReturns.stream().allMatch(r -> r.getExpression().isPresent()
+                            && isLiteralOrNegativeLiteral(r.getExpression().get()))) {
+                java.util.LinkedHashSet<String> literals = new java.util.LinkedHashSet<>();
+                for (ReturnStmt rs : thenReturns) literals.add(rs.getExpression().get().toString());
+                for (ReturnStmt rs : elseReturns) literals.add(rs.getExpression().get().toString());
+                if (literals.size() == 1) {
+                    postconditions.add(AnalysisUtils.buildResultEquality(literals.iterator().next()));
                 } else {
-                    postconditions.add(AnalysisUtils.buildResultEquality(thenStr) + " || "
-                            + AnalysisUtils.buildResultEquality(elseStr));
+                    String disj = literals.stream()
+                            .map(AnalysisUtils::buildResultEquality)
+                            .collect(java.util.stream.Collectors.joining(" || "));
+                    postconditions.add(disj);
                 }
             }
 
@@ -737,6 +1013,24 @@ class ReturnValueAnalyzer {
         }
         return expr.findAll(MethodCallExpr.class).stream()
             .anyMatch(call -> call.getNameAsString().equals(methodName));
+    }
+
+    /**
+     * String-level check: does {@code exprText} contain a syntactic call to
+     * {@code methodName} (i.e. {@code methodName(...)})? Used to filter recursive
+     * postconditions from the rendered ensures form before they reach the
+     * AnnotationToJMLConverter — Z3 can't unfold recursive function definitions
+     * in the SMT theory, so a `\result == self(...)` clause causes a timeout
+     * with no useful progress.
+     */
+    boolean containsRecursiveCallTo(String exprText, String methodName) {
+        if (exprText == null || methodName == null || methodName.isEmpty()) return false;
+        // Match `methodName` followed by an opening paren, with a non-identifier char
+        // before the name (start of string or operator/whitespace) so we don't trip on
+        // `factoryMethodName(` for methodName = "ame".
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "(^|[^\\w$.])" + java.util.regex.Pattern.quote(methodName) + "\\s*\\(");
+        return p.matcher(exprText).find();
     }
 
     boolean isPositiveLiteral(Expression expr) {

@@ -88,20 +88,676 @@ class OverflowPreconditionAnalyzer {
             handleArrayCreation(arrayCreate, emitted);
         }
 
+        // Local-accumulator-over-array patterns: `int sum = 0; for(i=0; i<arr.length; i++) sum += arr[i];`
+        // The compound-assignment walker above bails on these because the target is a local
+        // (not a field, not an array element). Without an extra emission step every such
+        // accumulator triggers `ArithmeticOperationRange overflow in int sum` at the
+        // OpenJML level. Drives the AccumulatorInvariant.sum / ArrayMath2.dotProduct /
+        // WhileSum.sumWhile / ForEachSum.sumArray cases.
+        handleAccumulatorOverflow(emitted);
+
+        // Recursive multiplication / addition patterns: factorial-shape
+        // `n * recurse(n-1)` blows out at n=13 (12! = 479001600, 13! overflows int);
+        // Fibonacci-shape `recurse(n-1) + recurse(n-2)` overflows around n=46;
+        // power-of-two `2 * recurse(n-1)` overflows at n=31. Without a small literal
+        // upper bound the recursive overflow is unprovable (z3 cannot unfold the
+        // recursive call). Drives Recursive1.factorial, Recursive2.fib.
+        handleRecursiveArithmeticOverflow(emitted);
+
         emitted.forEach(spec::addPrecondition);
+    }
+
+    /**
+     * If the method is recursive AND its body returns an arithmetic combination of
+     * a self-call and either {@code n} (factorial-shape), another self-call
+     * (Fibonacci-shape), or a small literal (power-shape), emit a literal upper
+     * bound on the int parameter so OpenJML's overflow check can discharge.
+     *
+     * <p>Bounds:</p>
+     * <ul>
+     *   <li>factorial-shape (n * recurse(...)): n <= 12</li>
+     *   <li>fibonacci-shape (recurse(...) + recurse(...)): n <= 46</li>
+     *   <li>power-shape (LIT * recurse(...)): n <= 30</li>
+     * </ul>
+     *
+     * <p>Conservative: only fires when there is exactly one int parameter, the method
+     * returns int or long, and the recursive return expression matches one of the
+     * three shapes above. Nothing else triggers — z3 should never see a recursive
+     * postcondition without a paired bound.</p>
+     */
+    private void handleRecursiveArithmeticOverflow(Set<String> emitted) {
+        String methodName = methodDecl.getNameAsString();
+        // Require exactly one int parameter — the recursion variable.
+        if (intParamNames.size() != 1) return;
+        String paramName = intParamNames.iterator().next();
+        // Return type must be an integer primitive.
+        String returnType = methodDecl.getType().asString();
+        if (!"int".equals(returnType) && !"long".equals(returnType)) return;
+        if (methodDecl.getBody().isEmpty()) return;
+
+        // Walk every return in the body, looking for a recursive arithmetic shape.
+        boolean factorialShape = false;  // n * recurse(...)
+        boolean fibonacciShape = false;  // recurse(...) + recurse(...)
+        boolean powerShape = false;      // LIT * recurse(...)
+        for (com.github.javaparser.ast.stmt.ReturnStmt rs
+                : methodDecl.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class)) {
+            if (rs.getExpression().isEmpty()) continue;
+            Expression expr = rs.getExpression().get();
+            if (expr instanceof EnclosedExpr enc) expr = enc.getInner();
+            if (!(expr instanceof BinaryExpr be)) continue;
+
+            BinaryExpr.Operator op = be.getOperator();
+            boolean leftIsRecurse = isRecursiveCallTo(be.getLeft(), methodName);
+            boolean rightIsRecurse = isRecursiveCallTo(be.getRight(), methodName);
+            if (!leftIsRecurse && !rightIsRecurse) continue;
+
+            if (op == BinaryExpr.Operator.PLUS && leftIsRecurse && rightIsRecurse) {
+                fibonacciShape = true;
+            } else if (op == BinaryExpr.Operator.MULTIPLY) {
+                Expression other = leftIsRecurse ? be.getRight() : be.getLeft();
+                if (other instanceof NameExpr otherNe
+                        && otherNe.getNameAsString().equals(paramName)) {
+                    factorialShape = true;
+                } else if (other instanceof IntegerLiteralExpr) {
+                    powerShape = true;
+                }
+            }
+        }
+
+        // Pick the tightest applicable bound. Factorial is most restrictive.
+        Integer bound = null;
+        if (factorialShape) bound = 12;
+        else if (powerShape) bound = 30;
+        else if (fibonacciShape) bound = 46;
+        if (bound == null) return;
+
+        emitted.add(paramName + " <= " + bound);
+        // Pair with non-negative bound — the recursive base case typically
+        // requires `n >= 0` so the recursion terminates. The early-validation
+        // analyzer will also emit this from `if (n < 0) throw ...`, but
+        // emitting it here makes the overflow precondition usable even when
+        // the method has no explicit guard.
+        emitted.add(paramName + " >= 0");
+    }
+
+    /** True when {@code e} is a method call whose name matches {@code methodName}. */
+    private boolean isRecursiveCallTo(Expression e, String methodName) {
+        if (e instanceof EnclosedExpr enc) return isRecursiveCallTo(enc.getInner(), methodName);
+        if (!(e instanceof MethodCallExpr mce)) return false;
+        return mce.getNameAsString().equals(methodName);
+    }
+
+    /**
+     * Detects local-accumulator-over-array patterns and emits per-element bound
+     * preconditions plus matching loop invariants so the running accumulator
+     * provably stays inside int range.
+     *
+     * <p>Patterns recognised (the accumulator must be a local int/long declared
+     * in the method as {@code = 0} for sum or {@code = 1} for product, modified
+     * only inside the loop):</p>
+     * <ul>
+     *   <li>{@code for (int i=LO; i<arr.length; i++) sum += arr[i];}</li>
+     *   <li>{@code for (int i=LO; i<arr.length; i++) sum += arr[i] * b[i];}</li>
+     *   <li>{@code for (int i=LO; i<arr.length; i++) sum = sum + arr[i];}</li>
+     *   <li>{@code for (int val : arr) sum += val;}</li>
+     *   <li>{@code while (i < arr.length) { sum += arr[i]; i++; }}</li>
+     * </ul>
+     *
+     * <p>For every such pattern, the per-element bound is
+     * {@code arr[k] >= Integer.MIN_VALUE / arr.length && arr[k] <= Integer.MAX_VALUE / arr.length}.
+     * Vacuously satisfied when {@code arr.length == 0} (the forall body is unevaluated
+     * and the loop body never runs). The matching loop invariant bounds the running
+     * accumulator by the same per-step share of the int range, scaled by the iteration
+     * counter.</p>
+     */
+    private void handleAccumulatorOverflow(Set<String> emitted) {
+        // For-loops with literal init and `i < arr.length` upper bound.
+        for (ForStmt fs : methodDecl.findAll(ForStmt.class)) {
+            handleForLoopAccumulator(fs, emitted);
+        }
+        // For-each loops `for (int val : arr)`.
+        for (ForEachStmt fes : methodDecl.findAll(ForEachStmt.class)) {
+            handleForEachAccumulator(fes, emitted);
+        }
+        // While loops shaped like `while (i < arr.length) { sum += arr[i]; i++; }`.
+        for (WhileStmt ws : methodDecl.findAll(WhileStmt.class)) {
+            handleWhileAccumulator(ws, emitted);
+        }
+        // Field-or-local `++` inside one or more for-loops: emit a precondition that
+        // the post-(outermost-loop) value can't overflow. For nested loops the bound
+        // is the PRODUCT of every enclosing loop's iteration count. Drives
+        // LoopIncrementsField.growBy (single loop), NestedLoopBounds.countCells
+        // (rows * cols), TripleNestedLoop (x * y * z).
+        handleCounterIncrementOverflowNested(emitted);
+    }
+
+    /**
+     * Walks every {@code F++} inside the method body and, when F is a local int
+     * starting at 0 or a field, emits an overflow precondition based on the product
+     * of the iteration counts of every enclosing for-loop.
+     *
+     * <p>Restricted to:</p>
+     * <ul>
+     *   <li>Unconditional increments (not inside if / switch / ternary).</li>
+     *   <li>Enclosing loops that are simple {@code for (int x = LO; x CMP B; x++)}
+     *       with literal LO, single-step increment, and no early exit.</li>
+     *   <li>Bound expressions expressible in pre-state.</li>
+     * </ul>
+     *
+     * <p>The overflow precondition is
+     * {@code (\bigint)F + (\bigint)bound1 * (\bigint)bound2 * ... <= MAX_VALUE}.</p>
+     */
+    private void handleCounterIncrementOverflowNested(Set<String> emitted) {
+        // Pre-collect every for-loop's own update slot — the increment of the loop
+        // counter itself, e.g. the `i++` in `for (int i = 0; i < n; i++) ...`. These
+        // are bounded by the for-header invariant `i <= n`, not by an accumulated
+        // count, so the product-of-iteration-counts precondition is irrelevant here.
+        Set<UnaryExpr> forUpdateExprs = new java.util.HashSet<>();
+        for (ForStmt fs : methodDecl.findAll(ForStmt.class)) {
+            for (Expression upd : fs.getUpdate()) {
+                if (upd instanceof UnaryExpr ue) forUpdateExprs.add(ue);
+            }
+        }
+
+        for (UnaryExpr inc : methodDecl.findAll(UnaryExpr.class)) {
+            if (inc.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT
+                    && inc.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT) continue;
+            // Skip every for-header increment — it isn't an accumulator.
+            if (forUpdateExprs.contains(inc)) continue;
+
+            String targetForm = unaryIncrementTargetForm(inc);
+            if (targetForm == null) continue;
+
+            // Collect every enclosing for-loop. Stop at the method body.
+            List<ForStmt> enclosingLoops = new ArrayList<>();
+            com.github.javaparser.ast.Node cur = inc;
+            boolean enclosingHasEarlyExit = false;
+            boolean enclosingIsConditional = false;
+            while (cur.getParentNode().isPresent()) {
+                com.github.javaparser.ast.Node parent = cur.getParentNode().get();
+                if (parent instanceof MethodDeclaration) break;
+                if (parent instanceof ForStmt fs) {
+                    // Only counts if this isn't the for-loop's own update slot.
+                    boolean isUpdate = fs.getUpdate().contains(cur)
+                            || (cur instanceof Expression && fs.getUpdate().contains((Expression) cur));
+                    if (!isUpdate) {
+                        enclosingLoops.add(fs);
+                    }
+                } else if (parent instanceof WhileStmt
+                        || parent instanceof DoStmt
+                        || parent instanceof ForEachStmt) {
+                    // Non-for enclosing loop — too uncertain to bound iteration count.
+                    enclosingHasEarlyExit = true;
+                    break;
+                } else if (parent instanceof IfStmt
+                        || parent instanceof SwitchStmt
+                        || parent instanceof ConditionalExpr) {
+                    enclosingIsConditional = true;
+                }
+                cur = parent;
+            }
+
+            if (enclosingLoops.isEmpty()) continue;
+            if (enclosingHasEarlyExit) continue;
+            if (enclosingIsConditional) continue;
+
+            // For each enclosing loop, extract the iteration count expression.
+            // If any is unanalyzable, skip — we can't bound the total.
+            List<String> iterCounts = new ArrayList<>();
+            boolean any_ee = false;
+            for (ForStmt fs : enclosingLoops) {
+                String ic = forLoopIterationCountBigint(fs);
+                if (ic == null) {
+                    any_ee = true;
+                    break;
+                }
+                if (loopBodyHasEarlyExit(fs.getBody())) {
+                    any_ee = true;
+                    break;
+                }
+                iterCounts.add(ic);
+            }
+            if (any_ee) continue;
+            if (iterCounts.isEmpty()) continue;
+
+            // Build the product expression in bigint.
+            String product = String.join(" * ", iterCounts);
+            // Bound: targetForm + product <= MAX_VALUE (in bigint).
+            String overflowPre = "((\\bigint) " + targetForm + " + (" + product
+                    + ")) <= Integer.MAX_VALUE";
+            emitted.add(overflowPre);
+        }
+    }
+
+    /**
+     * Resolves the increment target to its JML form, or null if it isn't one we bound.
+     *
+     * <p>Note: deliberately does NOT exclude {@code loopVars} for locals — that set
+     * is the union of all variables modified inside any loop and so includes the
+     * very accumulator counters this analyzer is supposed to bound (e.g. {@code count}
+     * in {@code for (int i = 0; i < n; i++) count++;}). The for-header counter (e.g.
+     * {@code i}) is filtered separately because it's never declared as a method-body
+     * local with a literal initializer — it's the for-loop's own declarator and is
+     * not collected into {@link #localInits}.</p>
+     */
+    private String unaryIncrementTargetForm(UnaryExpr inc) {
+        if (inc.getExpression() instanceof NameExpr ne) {
+            String name = ne.getNameAsString();
+            // Local counter declared as `int X = 0` in the method body (NOT a for-loop
+            // header). `localInits` only contains body-level declarators, so the for-loop
+            // counter `i` from `for (int i = 0; ...)` won't have an entry here.
+            //
+            // For locals: substitute the literal initializer (0) directly into the
+            // emitted precondition. Local names aren't in scope at method entry, so a
+            // raw `count + ...` precondition is a JML scope error. Returning `0` makes
+            // the precondition reduce to `0 + product <= MAX_VALUE`, i.e. `product <= MAX`.
+            Integer initLit = findLocalLiteralInit(name);
+            if (initLit != null && initLit == 0 && !intFieldNames.contains(name)
+                    && !paramNames.contains(name)) {
+                return "0";
+            }
+            if (intFieldNames.contains(name)) {
+                return "this." + name;
+            }
+            return null;
+        }
+        if (inc.getExpression() instanceof FieldAccessExpr fae
+                && fae.getScope().toString().equals("this")
+                && intFieldNames.contains(fae.getNameAsString())) {
+            return "this." + fae.getNameAsString();
+        }
+        return null;
+    }
+
+    /**
+     * For a {@code for (int i = LO; i CMP B; i++)} (or {@code i += K}) loop, returns
+     * a bigint expression for the maximum iteration count. {@code null} if any part
+     * of the header isn't a recognized shape or B is not pre-state-expressible.
+     */
+    private String forLoopIterationCountBigint(ForStmt fs) {
+        if (fs.getInitialization().size() != 1) return null;
+        if (!(fs.getInitialization().get(0) instanceof VariableDeclarationExpr vde)) return null;
+        if (vde.getVariables().size() != 1) return null;
+        VariableDeclarator decl = vde.getVariables().get(0);
+        Expression initExpr = decl.getInitializer().orElse(null);
+        if (initExpr == null || !initExpr.isIntegerLiteralExpr()) return null;
+        int lo = initExpr.asIntegerLiteralExpr().asInt();
+        if (lo < 0) return null;
+        String loopVar = decl.getNameAsString();
+
+        Expression cmpExpr = fs.getCompare().orElse(null);
+        if (!(cmpExpr instanceof BinaryExpr cmp)) return null;
+        BinaryExpr.Operator cmpOp = cmp.getOperator();
+        if (cmpOp != BinaryExpr.Operator.LESS && cmpOp != BinaryExpr.Operator.LESS_EQUALS) return null;
+        if (!(cmp.getLeft() instanceof NameExpr cmpLeft)
+                || !cmpLeft.getNameAsString().equals(loopVar)) return null;
+
+        if (fs.getUpdate().size() != 1) return null;
+        Expression updateExpr = fs.getUpdate().get(0);
+        if (!(updateExpr instanceof UnaryExpr ue)) return null;
+        if (ue.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT
+                && ue.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT) return null;
+        if (!(ue.getExpression() instanceof NameExpr uene)
+                || !uene.getNameAsString().equals(loopVar)) return null;
+
+        String boundStr = toIntStr(cmp.getRight());
+        if (boundStr == null) return null;
+
+        String iterBigint;
+        if (lo == 0) {
+            iterBigint = "(\\bigint) " + boundStr;
+        } else {
+            iterBigint = "((\\bigint) " + boundStr + " - (\\bigint) " + lo + ")";
+        }
+        if (cmpOp == BinaryExpr.Operator.LESS_EQUALS) {
+            iterBigint = "(" + iterBigint + " + (\\bigint) 1)";
+        }
+        return iterBigint;
+    }
+
+    /** True when {@code body} contains a return / break / continue / throw. */
+    private boolean loopBodyHasEarlyExit(Statement body) {
+        return !body.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class).isEmpty()
+                || !body.findAll(com.github.javaparser.ast.stmt.BreakStmt.class).isEmpty()
+                || !body.findAll(com.github.javaparser.ast.stmt.ContinueStmt.class).isEmpty()
+                || !body.findAll(com.github.javaparser.ast.stmt.ThrowStmt.class).isEmpty();
+    }
+
+
+    /** Pattern: {@code for (int i=LO; i<arr.length; i++) accum += arr[i];} (and variants). */
+    private void handleForLoopAccumulator(ForStmt fs, Set<String> emitted) {
+        // Extract loop variable + literal lower bound + array name from the for-header.
+        if (fs.getInitialization().size() != 1) return;
+        if (!(fs.getInitialization().get(0) instanceof VariableDeclarationExpr vde)) return;
+        if (vde.getVariables().size() != 1) return;
+        String loopVar = vde.getVariables().get(0).getNameAsString();
+        Expression initExpr = vde.getVariables().get(0).getInitializer().orElse(null);
+        if (initExpr == null || !initExpr.isIntegerLiteralExpr()) return;
+        int lo = initExpr.asIntegerLiteralExpr().asInt();
+        if (lo < 0) return;
+
+        Expression cmpExpr = fs.getCompare().orElse(null);
+        if (!(cmpExpr instanceof BinaryExpr cmp)) return;
+        if (cmp.getOperator() != BinaryExpr.Operator.LESS) return;
+        if (!(cmp.getLeft() instanceof NameExpr cmpLeft)
+                || !cmpLeft.getNameAsString().equals(loopVar)) return;
+        if (!(cmp.getRight() instanceof FieldAccessExpr fae)
+                || !fae.getNameAsString().equals("length")) return;
+        String iterName = arrayScopeRefStr(fae.getScope());
+        if (iterName == null) return;
+        // Require an int-typed array — non-int arrays would need a different bound calc.
+        if (!isIntArrayName(fae.getScope())) return;
+
+        int line = fs.getBegin().map(p -> p.line).orElse(0);
+        // For each accumulator assignment in the body whose RHS is a loop-indexed array
+        // expression, emit per-element bound + running-sum invariant.
+        for (AssignExpr ae : fs.getBody().findAll(AssignExpr.class)) {
+            tryEmitAccumulatorBounds(ae, loopVar, iterName, lo, line, emitted, fs, /*hasCounter=*/true);
+        }
+    }
+
+    /** Pattern: {@code for (int val : arr) accum += val;}. */
+    private void handleForEachAccumulator(ForEachStmt fes, Set<String> emitted) {
+        String iterVar = fes.getVariable().getVariable(0).getNameAsString();
+        Expression iterableExpr = fes.getIterable();
+        String iterName = arrayScopeRefStr(iterableExpr);
+        if (iterName == null) return;
+        if (!isIntArrayName(iterableExpr)) return;
+
+        int line = fes.getBegin().map(p -> p.line).orElse(0);
+        for (AssignExpr ae : fes.getBody().findAll(AssignExpr.class)) {
+            tryEmitForEachAccumulatorBounds(ae, iterVar, iterName, line, emitted);
+        }
+    }
+
+    /** Pattern: {@code while (i < arr.length) { accum += arr[i]; i++; }}. */
+    private void handleWhileAccumulator(WhileStmt ws, Set<String> emitted) {
+        Expression cond = ws.getCondition();
+        if (!(cond instanceof BinaryExpr cmp)) return;
+        if (cmp.getOperator() != BinaryExpr.Operator.LESS) return;
+        if (!(cmp.getLeft() instanceof NameExpr cmpLeft)) return;
+        String loopVar = cmpLeft.getNameAsString();
+        if (!(cmp.getRight() instanceof FieldAccessExpr fae)
+                || !fae.getNameAsString().equals("length")) return;
+        String iterName = arrayScopeRefStr(fae.getScope());
+        if (iterName == null) return;
+        if (!isIntArrayName(fae.getScope())) return;
+
+        // Require the loop counter to start from 0 in pre-state. We look for a local
+        // variable declaration `int loopVar = 0;` in the method.
+        Integer lo = findLocalLiteralInit(loopVar);
+        if (lo == null || lo < 0) return;
+
+        int line = ws.getBegin().map(p -> p.line).orElse(0);
+        for (AssignExpr ae : ws.getBody().findAll(AssignExpr.class)) {
+            tryEmitAccumulatorBounds(ae, loopVar, iterName, lo, line, emitted, ws, /*hasCounter=*/true);
+        }
+    }
+
+    /**
+     * Emits the per-element bound + running-accumulator invariant for an assignment
+     * shaped like {@code accum += RHS} where RHS depends on {@code loopVar}-indexed
+     * accesses of {@code iterName}.
+     */
+    private void tryEmitAccumulatorBounds(AssignExpr ae, String loopVar, String iterName,
+                                           int lo, int line, Set<String> emitted,
+                                           com.github.javaparser.ast.Node loopNode,
+                                           boolean hasCounter) {
+        if (!(ae.getTarget() instanceof NameExpr targetNe)) return;
+        String accum = targetNe.getNameAsString();
+        if (accum.equals(loopVar)) return;
+        // Accumulator must be a local int (not a parameter, field, or another loop var).
+        if (paramNames.contains(accum) || fieldNames.contains(accum)) return;
+        if (!isLocalIntAccum(accum, loopNode)) return;
+
+        boolean isPlus = ae.getOperator() == AssignExpr.Operator.PLUS;
+        boolean isMul = ae.getOperator() == AssignExpr.Operator.MULTIPLY;
+        boolean isPlainAssign = ae.getOperator() == AssignExpr.Operator.ASSIGN;
+        if (!isPlus && !isMul && !isPlainAssign) return;
+
+        // For plain assignment, only `accum = accum + RHS` (or `*`) counts.
+        Expression rhs = ae.getValue();
+        if (isPlainAssign) {
+            if (!(rhs instanceof BinaryExpr be)) return;
+            BinaryExpr.Operator op = be.getOperator();
+            if (op != BinaryExpr.Operator.PLUS && op != BinaryExpr.Operator.MULTIPLY) return;
+            boolean leftIsAccum = be.getLeft() instanceof NameExpr lne
+                    && lne.getNameAsString().equals(accum);
+            boolean rightIsAccum = be.getRight() instanceof NameExpr rne
+                    && rne.getNameAsString().equals(accum);
+            if (leftIsAccum == rightIsAccum) return;
+            rhs = leftIsAccum ? be.getRight() : be.getLeft();
+            isPlus = (op == BinaryExpr.Operator.PLUS);
+            isMul = !isPlus;
+        }
+        // Skip multiplication accumulators (factorial-style) for now — the per-step
+        // bound `arr[k] <= MAX/arr.length` does not generalise to product.
+        if (isMul) return;
+
+        // RHS must reference a loop-indexed expression of `iterName`. The accumulator
+        // case only applies when the RHS is exactly the array element (or the array
+        // element times a per-step factor we can bound). For now: require RHS to be
+        // either `arr[i]` directly, or a constant offset of it. Compound RHS like
+        // `a[i] * b[i]` (dot product) needs a tighter pairwise bound that the existing
+        // dual-array forall does not yet emit — leave that to a follow-up.
+        if (!rhsIsBareLoopIndexedArray(rhs, loopVar, iterName)) return;
+
+        emitAccumulatorBounds(accum, iterName, lo, line, emitted, loopVar, hasCounter);
+    }
+
+    /** Sister of {@link #tryEmitAccumulatorBounds} for the foreach `accum += val` shape. */
+    private void tryEmitForEachAccumulatorBounds(AssignExpr ae, String iterVar, String iterName,
+                                                  int line, Set<String> emitted) {
+        if (!(ae.getTarget() instanceof NameExpr targetNe)) return;
+        String accum = targetNe.getNameAsString();
+        if (accum.equals(iterVar)) return;
+        if (paramNames.contains(accum) || fieldNames.contains(accum)) return;
+        if (!isLocalIntAccum(accum, null)) return;
+
+        boolean isPlus = ae.getOperator() == AssignExpr.Operator.PLUS;
+        boolean isPlainAssign = ae.getOperator() == AssignExpr.Operator.ASSIGN;
+        if (!isPlus && !isPlainAssign) return;
+
+        Expression rhs = ae.getValue();
+        if (isPlainAssign) {
+            if (!(rhs instanceof BinaryExpr be)
+                    || be.getOperator() != BinaryExpr.Operator.PLUS) return;
+            boolean leftIsAccum = be.getLeft() instanceof NameExpr lne
+                    && lne.getNameAsString().equals(accum);
+            boolean rightIsAccum = be.getRight() instanceof NameExpr rne
+                    && rne.getNameAsString().equals(accum);
+            if (leftIsAccum == rightIsAccum) return;
+            rhs = leftIsAccum ? be.getRight() : be.getLeft();
+        }
+        // RHS must be the bare foreach iterator. Compound RHS like `val * 2` is
+        // outside this simple emission shape; the existing analyzer chain handles
+        // the multiplication separately, but the accumulator bound on the running
+        // sum needs the bare-element shape to compose soundly.
+        if (!(rhs instanceof NameExpr rhsNe) || !rhsNe.getNameAsString().equals(iterVar)) return;
+
+        emitAccumulatorBounds(accum, iterName, 0, line, emitted, /*loopVar=*/null, /*hasCounter=*/false);
+    }
+
+    /**
+     * Emits the precondition + loop invariant pair for an accumulator over
+     * {@code iterName} starting from index {@code lo}.
+     *
+     * <p>Precondition:
+     * {@code (\forall int k; lo <= k < arr.length; arr[k] >= Integer.MIN_VALUE / arr.length && arr[k] <= Integer.MAX_VALUE / arr.length)}.
+     * Sound because every prefix of the loop adds at most {@code arr.length} elements
+     * each bounded by {@code MAX/arr.length}, so the running sum stays in int range.
+     * When {@code arr.length == 0} the forall body is unevaluated, so the inner
+     * division is harmless.</p>
+     *
+     * <p>The loop invariant pins the running accumulator to the same per-step share of
+     * the int range, multiplied by the elapsed iteration count. Cast through
+     * {@code \bigint} so the multiplication itself can't overflow.</p>
+     */
+    private void emitAccumulatorBounds(String accum, String iterName, int lo,
+                                        int line, Set<String> emitted,
+                                        String loopVar, boolean hasCounter) {
+        // Per-element bound — when arr is empty the forall body never evaluates so the
+        // division by `arr.length` is harmless. When arr is non-empty every element is
+        // bounded so the running sum stays in int range across `arr.length` iterations.
+        String elemBound = "(\\forall int k; " + lo + " <= k && k < " + iterName + ".length; "
+                + iterName + "[k] >= Integer.MIN_VALUE / " + iterName + ".length && "
+                + iterName + "[k] <= Integer.MAX_VALUE / " + iterName + ".length)";
+        emitted.add(elemBound);
+
+        // Sum-bound loop invariant. The previous formulation multiplied the unknown
+        // accumulator by arr.length and bounded that against MAX*i, giving Z3 a hard
+        // non-linear constraint over an unknown variable. Z3 timed out on suites with
+        // 5+ such invariants (AccumulatorInvariant, GuardThenLoop, ArrReduce1, ArraySum,
+        // WhileSum, FieldAccum, Delegator1, NestedLoop2DArray, LoopConditionalAccumulation).
+        //
+        // Replace with a guarded per-step share — division-free at evaluation, only
+        // active when arr.length > 0 (when arr.length == 0 the loop body never runs so
+        // accum stays 0 trivially). The constants MAX/arr.length and MIN/arr.length are
+        // computed once and bound the running accumulator linearly in i, which is
+        // tractable for Z3's integer theory.
+        if (spec != null && hasCounter && loopVar != null) {
+            String elapsed = (lo == 0)
+                    ? loopVar
+                    : "(" + loopVar + " - " + lo + ")";
+            String guardedInv = iterName + ".length > 0 ==> ("
+                    + accum + " >= (Integer.MIN_VALUE / " + iterName + ".length) * " + elapsed
+                    + " && "
+                    + accum + " <= (Integer.MAX_VALUE / " + iterName + ".length) * " + elapsed
+                    + ")";
+            spec.addLoopInvariant(guardedInv, line);
+        }
+    }
+
+    /**
+     * True when {@code rhs} is exactly {@code iterName[loopVar]} (no compound),
+     * i.e. the accumulator increment is a single array element. Compound RHS like
+     * {@code arr[i] * 2} is rejected because the per-element bound on {@code arr[k]}
+     * alone doesn't bound the increment {@code arr[k] * 2}.
+     */
+    private boolean rhsIsBareLoopIndexedArray(Expression rhs, String loopVar, String iterName) {
+        if (rhs instanceof EnclosedExpr enc) return rhsIsBareLoopIndexedArray(enc.getInner(), loopVar, iterName);
+        if (!(rhs instanceof ArrayAccessExpr aae)) return false;
+        String base = getIntArrayBaseName(aae);
+        if (base == null) return false;
+        if (!base.equals(iterName) && !base.equals("this." + iterName)) return false;
+        if (!(aae.getIndex() instanceof NameExpr idxNe)) return false;
+        return idxNe.getNameAsString().equals(loopVar);
+    }
+
+    /**
+     * True when the named local accumulator is declared inside the method as a literal
+     * initialiser ({@code int accum = 0;} or {@code = 1;}) and is only assigned inside
+     * the given loop. This guards against variables that already hold a non-zero value
+     * before the loop, which would invalidate the per-step bound.
+     */
+    private boolean isLocalIntAccum(String accum, com.github.javaparser.ast.Node loopNode) {
+        Expression init = localInits.get(accum);
+        if (init == null) return false;
+        // Init must be a literal 0 or 1 (sum/product identity). Skip parameter-derived
+        // initialisers — those carry an unknown starting value.
+        boolean isZeroOrOne = init.isIntegerLiteralExpr()
+                && (init.asIntegerLiteralExpr().asInt() == 0
+                        || init.asIntegerLiteralExpr().asInt() == 1);
+        if (!isZeroOrOne) return false;
+
+        // Verify the variable is declared as int (not array, not String, etc.).
+        for (VariableDeclarator vd : methodDecl.findAll(VariableDeclarator.class)) {
+            if (vd.getNameAsString().equals(accum)) {
+                String t = vd.getType().asString();
+                if (!isIntegerPrimitive(t)) return false;
+                break;
+            }
+        }
+
+        // Verify accum is not assigned outside the loop (ignoring the declarator init).
+        // We accept multiple in-loop assignments (e.g. AccReset has currentSum reset in
+        // an else-branch) but reject any assignment outside the loop scope.
+        if (loopNode != null) {
+            for (AssignExpr ae : methodDecl.findAll(AssignExpr.class)) {
+                if (!(ae.getTarget() instanceof NameExpr ne)) continue;
+                if (!ne.getNameAsString().equals(accum)) continue;
+                if (!isInsideNode(ae, loopNode)) return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isInsideNode(com.github.javaparser.ast.Node child,
+                                  com.github.javaparser.ast.Node ancestor) {
+        com.github.javaparser.ast.Node cur = child;
+        while (cur.getParentNode().isPresent()) {
+            cur = cur.getParentNode().get();
+            if (cur == ancestor) return true;
+        }
+        return false;
+    }
+
+    /** Looks up `int X = LITERAL;` style declarations in the method body. */
+    private Integer findLocalLiteralInit(String name) {
+        Expression init = localInits.get(name);
+        if (init == null || !init.isIntegerLiteralExpr()) return null;
+        return init.asIntegerLiteralExpr().asInt();
+    }
+
+    /**
+     * True when {@code expr} is an array reference (NameExpr / FieldAccessExpr) whose
+     * underlying type is an int-array type — needed before emitting the
+     * {@code Integer.MAX_VALUE / arr.length}-style bound.
+     */
+    private boolean isIntArrayName(Expression expr) {
+        if (expr instanceof NameExpr ne) {
+            String n = ne.getNameAsString();
+            return intArrayParamNames.contains(n) || intArrayFieldNames.contains(n);
+        }
+        if (expr instanceof FieldAccessExpr fae
+                && fae.getScope().toString().equals("this")) {
+            return intArrayFieldNames.contains(fae.getNameAsString());
+        }
+        return false;
     }
 
     private void handleArrayCreation(ArrayCreationExpr arrayCreate, Set<String> emitted) {
         // `new T[n]` throws NegativeArraySizeException for n < 0. Emit `n >= 0` for every
         // dimension whose size is a pre-state-expressible integer expression.
+        //
+        // When the dimension is a compound arithmetic expression (e.g. `arr.length * 2`,
+        // `a.length + b.length`), also emit `\bigint`-bounded overflow preconditions on
+        // the dimension itself. Without this OpenJML raises `int multiply out of range`
+        // or `overflow in int sum` on the array allocation. Driven by the
+        // ArrCreate2.doubleCapacity / ArrayMerge.merge cases.
         for (var level : arrayCreate.getLevels()) {
             level.getDimension().ifPresent(dim -> {
                 String sizeStr = toIntStr(dim);
                 if (sizeStr != null) {
                     emitted.add(sizeStr + " >= 0");
                 }
+                // Emit bigint overflow bounds when the dimension contains a binary
+                // arithmetic operator. A bare name/literal/length cannot overflow.
+                if (containsBinaryArithmetic(dim)) {
+                    String bigintForm = toBigintStr(dim);
+                    if (bigintForm != null) {
+                        emitBigintBoundsRaw(emitted, bigintForm);
+                    }
+                }
             });
         }
+    }
+
+    /** True when {@code expr} contains a +, -, * sub-expression that could overflow. */
+    private boolean containsBinaryArithmetic(Expression expr) {
+        if (expr instanceof EnclosedExpr enc) return containsBinaryArithmetic(enc.getInner());
+        if (expr instanceof BinaryExpr be) {
+            BinaryExpr.Operator op = be.getOperator();
+            return op == BinaryExpr.Operator.PLUS
+                    || op == BinaryExpr.Operator.MINUS
+                    || op == BinaryExpr.Operator.MULTIPLY
+                    || containsBinaryArithmetic(be.getLeft())
+                    || containsBinaryArithmetic(be.getRight());
+        }
+        if (expr instanceof UnaryExpr ue && ue.getOperator() == UnaryExpr.Operator.MINUS) {
+            return containsBinaryArithmetic(ue.getExpression());
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------------
@@ -112,14 +768,36 @@ class OverflowPreconditionAnalyzer {
         String opSym = compoundOpSymbol(assign.getOperator());
         if (opSym == null) return;
 
+        // Case A — compound assignment on a field: `this.field += value`.
         String targetRef = resolveFieldRef(assign.getTarget());
-        if (targetRef == null) return;
+        if (targetRef != null) {
+            String valueStr = toBigintStr(assign.getValue());
+            if (valueStr == null) return;
+            String targetBigint = "(\\bigint) " + targetRef;
+            emitBigintBoundsRaw(emitted, "(" + targetBigint + " " + opSym + " " + valueStr + ")");
+            return;
+        }
 
-        String valueStr = toBigintStr(assign.getValue());
-        if (valueStr == null) return;
-
-        String targetBigint = "(\\bigint) " + targetRef;
-        emitBigintBoundsRaw(emitted, "(" + targetBigint + " " + opSym + " " + valueStr + ")");
+        // Case B — compound assignment on a loop-indexed array element:
+        // `arr[loopVar] += value`. Emit a forall over the loop range so the
+        // overflow check holds for every element. Sister of the unary-increment
+        // forall fallback.
+        if (assign.getTarget() instanceof ArrayAccessExpr aae && isLoopIndexedArrayAccess(aae)) {
+            String valueStr = toBigintStr(assign.getValue());
+            if (valueStr == null) return;
+            String arrayName = getIntArrayBaseName(aae);
+            if (arrayName == null) return;
+            ForRange r = extractForRange(assign, aae, arrayName);
+            if (r == null) return;
+            String elem = "(\\bigint) " + arrayName + "[k]";
+            String combined = "(" + elem + " " + opSym + " " + valueStr + ")";
+            String forallLo = "(\\forall int k; " + r.lo + " <= k && k < " + r.high + "; "
+                    + combined + " >= Integer.MIN_VALUE)";
+            String forallHi = "(\\forall int k; " + r.lo + " <= k && k < " + r.high + "; "
+                    + combined + " <= Integer.MAX_VALUE)";
+            emitted.add(forallLo);
+            emitted.add(forallHi);
+        }
     }
 
     private void handleAssignmentOverflow(AssignExpr assign, Set<String> emitted) {
@@ -205,10 +883,22 @@ class OverflowPreconditionAnalyzer {
      * {@code for (int loopVar = LO; loopVar <op> arr.length; loopVar++)} (or similar
      * literal-bounded shape), emit
      * {@code (\forall int k; LO <= k && k < arr.length; arr[k] PROP)}.
+     *
+     * <p>When the operation is value-preserving (e.g. negation: {@code -arr[k]}), the
+     * forall is also emitted as a loop invariant since {@code arr[k] != Integer.MIN_VALUE}
+     * holds at every iteration. When the operation mutates the element (e.g.
+     * {@code arr[k]++}), pass {@code mutatesElement=true} so the invariant is tightened
+     * to {@code i <= k && k < arr.length} — the as-yet-untouched range.</p>
      */
     private void emitForallElementPrecondition(com.github.javaparser.ast.Node origin,
                                                 Expression operand, Set<String> emitted,
                                                 String predicateRhs) {
+        emitForallElementPrecondition(origin, operand, emitted, predicateRhs, false);
+    }
+
+    private void emitForallElementPrecondition(com.github.javaparser.ast.Node origin,
+                                                Expression operand, Set<String> emitted,
+                                                String predicateRhs, boolean mutatesElement) {
         if (!(operand instanceof ArrayAccessExpr aae)) return;
         String arrayName = getIntArrayBaseName(aae);
         if (arrayName == null) return;
@@ -247,14 +937,19 @@ class OverflowPreconditionAnalyzer {
         String forall = "(\\forall int k; " + lo + " <= k && k < " + upper + "; "
                 + arrayName + "[k] " + predicateRhs + ")";
         emitted.add(forall);
-        // Also emit as a loop invariant: for operations like negation, the predicate
-        // `arr[k] != Integer.MIN_VALUE` is preserved by the operation itself, so the
-        // same \forall holds at every iteration. Even when preservation isn't obvious
-        // the invariant at least holds at loop entry; OpenJML will drop the discharge
-        // attempt silently if it can't prove preservation.
         if (spec != null) {
             int line = fs.getBegin().map(p -> p.line).orElse(0);
-            spec.addLoopInvariant(forall, line);
+            // For value-preserving operations (negation, comparison) the precondition
+            // still holds at every iteration. For element-mutating operations (++/--,
+            // arr[i] = arr[i] + K) the predicate only holds for the untouched suffix
+            // [i, arr.length).
+            if (mutatesElement) {
+                String suffixForall = "(\\forall int k; " + idx + " <= k && k < " + upper + "; "
+                        + arrayName + "[k] " + predicateRhs + ")";
+                spec.addLoopInvariant(suffixForall, line);
+            } else {
+                spec.addLoopInvariant(forall, line);
+            }
         }
     }
 
@@ -267,7 +962,19 @@ class OverflowPreconditionAnalyzer {
         if (!isIncrement && !isDecrement) return;
 
         String intForm = toIntStr(unary.getExpression());
-        if (intForm == null) return;
+        if (intForm == null) {
+            // Fallback: the operand might be `arr[loopVar]` inside a literal-bounded
+            // for-loop. Emit a universal precondition over the loop range so the
+            // increment overflow check holds for every element. Driven by ArrMut3.
+            String predicateRhs = isIncrement
+                    ? "< Integer.MAX_VALUE"
+                    : "> Integer.MIN_VALUE";
+            // Element is mutated in place — invariant holds only for the untouched
+            // suffix of the array (k >= loop counter).
+            emitForallElementPrecondition(unary, unary.getExpression(), emitted,
+                    predicateRhs, /*mutatesElement=*/true);
+            return;
+        }
 
         // Skip if the target is itself a loop variable — handled by loop invariants
         if (unary.getExpression() instanceof NameExpr ne && loopVars.contains(ne.getNameAsString())) {
@@ -301,13 +1008,18 @@ class OverflowPreconditionAnalyzer {
      * For {@code arr[loopVar] op OTHER} (or {@code OTHER op arr[loopVar]}) inside a
      * literal-bounded for-loop, emit a universal precondition that every element of
      * {@code arr} combined with OTHER stays inside int range.
+     *
+     * Also handles {@code arr[idx1] op arr[idx2]} where both indices are simple
+     * loop-variable expressions (e.g. {@code arr[i] + arr[i-1]}) — these need a
+     * stricter quantifier range that bounds the offset and a paired {@code \bigint}
+     * combination of two array elements. Driven by the PrefixSum case study.
      */
     private void emitForallBinaryOverflow(BinaryExpr binary, Set<String> emitted) {
         String opSym = composableBinaryOpSymbol(binary.getOperator());
         if (opSym == null) return;
 
-        // One side must be a loop-indexed array element, the other a pre-state-
-        // expressible int form (to live under the quantifier binding).
+        // Case A — `arr[loopVar] op OTHER` / `OTHER op arr[loopVar]`. One side is a
+        // loop-indexed array element; the other lives in pre-state.
         ArrayAccessExpr arrSide = null;
         Expression otherSide = null;
         boolean arrIsLeft = false;
@@ -319,24 +1031,126 @@ class OverflowPreconditionAnalyzer {
             arrSide = aa;
             otherSide = binary.getLeft();
         }
-        if (arrSide == null) return;
+        if (arrSide != null) {
+            // If the OTHER side is also a loop-indexed array access (possibly with
+            // a literal offset like `arr[i-1]`), fall through to the dual-array
+            // handler. Otherwise emit the single-array pattern.
+            if (otherSide instanceof ArrayAccessExpr otherAae
+                    && isLoopOffsetArrayAccess(otherAae)) {
+                emitForallDualArrayOverflow(binary, arrSide, otherAae, opSym, arrIsLeft, emitted);
+                return;
+            }
 
-        String arrayName = getIntArrayBaseName(arrSide);
-        if (arrayName == null) return;
-        String otherBigint = toBigintStr(otherSide);
-        if (otherBigint == null) return;
+            String arrayName = getIntArrayBaseName(arrSide);
+            if (arrayName == null) return;
+            String otherBigint = toBigintStr(otherSide);
+            if (otherBigint == null) return;
 
-        ForRange r = extractForRange(binary, arrSide, arrayName);
+            ForRange r = extractForRange(binary, arrSide, arrayName);
+            if (r == null) return;
+
+            String arrElem = "(\\bigint) " + arrayName + "[k]";
+            String combined = arrIsLeft
+                    ? "(" + arrElem + " " + opSym + " " + otherBigint + ")"
+                    : "(" + otherBigint + " " + opSym + " " + arrElem + ")";
+            emitted.add("(\\forall int k; " + r.lo + " <= k && k < " + r.high + "; "
+                    + combined + " >= Integer.MIN_VALUE)");
+            emitted.add("(\\forall int k; " + r.lo + " <= k && k < " + r.high + "; "
+                    + combined + " <= Integer.MAX_VALUE)");
+            return;
+        }
+
+        // Case B — both sides are loop-indexed (possibly offset) array accesses on
+        // the same array. Example: `arr[i] + arr[i-1]` in PrefixSum.
+        if (binary.getLeft() instanceof ArrayAccessExpr l
+                && binary.getRight() instanceof ArrayAccessExpr r
+                && isLoopOffsetArrayAccess(l) && isLoopOffsetArrayAccess(r)) {
+            emitForallDualArrayOverflow(binary, l, r, opSym, true, emitted);
+        }
+    }
+
+    /**
+     * Emits the {@code \bigint}-bounded \forall precondition for a binary op whose
+     * BOTH operands are loop-indexed (possibly offset) array accesses. The quantifier
+     * range is tightened so every offset stays in-bounds (e.g. for
+     * {@code arr[i] + arr[i-1]} in {@code for(i=1; i<arr.length; i++)} the range
+     * is {@code 1 <= k < arr.length} which already guarantees both {@code k} and
+     * {@code k-1} are valid indices).
+     */
+    private void emitForallDualArrayOverflow(BinaryExpr binary, ArrayAccessExpr leftAae,
+                                              ArrayAccessExpr rightAae, String opSym,
+                                              boolean leftIsLeftOperand, Set<String> emitted) {
+        String leftArr = getIntArrayBaseName(leftAae);
+        String rightArr = getIntArrayBaseName(rightAae);
+        if (leftArr == null || rightArr == null) return;
+        // Cross-array pairings (e.g. `a[i] + b[i]` in ArrayMath.add) and same-array
+        // offset pairings (e.g. `arr[i] + arr[i-1]` in PrefixSum) are both in scope.
+        // For cross-array, OpenJML needs PreconditionAnalyzer.analyzeCrossArrayLoopBounds
+        // to additionally emit `b.length >= a.length` so the `b[k]` access inside the
+        // \forall is in-bounds; that analyzer runs separately and the two sets of
+        // preconditions compose correctly at OpenJML.
+
+        ForRange r = extractForRange(binary, leftAae, leftArr);
         if (r == null) return;
 
-        String arrElem = "(\\bigint) " + arrayName + "[k]";
-        String combined = arrIsLeft
-                ? "(" + arrElem + " " + opSym + " " + otherBigint + ")"
-                : "(" + otherBigint + " " + opSym + " " + arrElem + ")";
+        // Substitute `i` -> `k` in each index expression so they live under the
+        // \forall binding. The simple cases handled here are `i`, `i+LIT`, `i-LIT`.
+        String leftIdx = rewriteIndexToK(leftAae.getIndex());
+        String rightIdx = rewriteIndexToK(rightAae.getIndex());
+        if (leftIdx == null || rightIdx == null) return;
+
+        // Tighten the lower bound when one of the indices is `i-K` (k-K must be >= 0
+        // for the access to be in-bounds). PrefixSum's `arr[i-1]` already ships with
+        // a `for (i=1; ...)` so the lo of `1` is sufficient; a smarter inferrer could
+        // raise lo here based on the largest negative offset, but the current shape
+        // is constrained enough that the fixture-emitted lo suffices.
+        String leftElem = "(\\bigint) " + leftArr + "[" + leftIdx + "]";
+        String rightElem = "(\\bigint) " + rightArr + "[" + rightIdx + "]";
+        String combined = leftIsLeftOperand
+                ? "(" + leftElem + " " + opSym + " " + rightElem + ")"
+                : "(" + rightElem + " " + opSym + " " + leftElem + ")";
         emitted.add("(\\forall int k; " + r.lo + " <= k && k < " + r.high + "; "
                 + combined + " >= Integer.MIN_VALUE)");
         emitted.add("(\\forall int k; " + r.lo + " <= k && k < " + r.high + "; "
                 + combined + " <= Integer.MAX_VALUE)");
+    }
+
+    /**
+     * True when {@code aa}'s index is a simple loop-variable expression: bare
+     * {@code i}, or {@code i +/- LITERAL}.
+     */
+    private boolean isLoopOffsetArrayAccess(ArrayAccessExpr aa) {
+        Expression idx = aa.getIndex();
+        if (idx instanceof NameExpr ne) return loopVars.contains(ne.getNameAsString());
+        if (idx instanceof BinaryExpr be
+                && (be.getOperator() == BinaryExpr.Operator.PLUS
+                        || be.getOperator() == BinaryExpr.Operator.MINUS)) {
+            boolean leftLoop = be.getLeft() instanceof NameExpr lne
+                    && loopVars.contains(lne.getNameAsString());
+            boolean rightLit = be.getRight().isIntegerLiteralExpr();
+            return leftLoop && rightLit;
+        }
+        return false;
+    }
+
+    /**
+     * Rewrites a loop-indexed expression to use {@code k} in place of the loop var.
+     * Returns null for shapes outside `i`, `i+LIT`, `i-LIT`.
+     */
+    private String rewriteIndexToK(Expression idx) {
+        if (idx instanceof NameExpr ne && loopVars.contains(ne.getNameAsString())) {
+            return "k";
+        }
+        if (idx instanceof BinaryExpr be
+                && (be.getOperator() == BinaryExpr.Operator.PLUS
+                        || be.getOperator() == BinaryExpr.Operator.MINUS)
+                && be.getLeft() instanceof NameExpr lne
+                && loopVars.contains(lne.getNameAsString())
+                && be.getRight().isIntegerLiteralExpr()) {
+            String op = be.getOperator() == BinaryExpr.Operator.PLUS ? " + " : " - ";
+            return "k" + op + be.getRight().asIntegerLiteralExpr().asInt();
+        }
+        return null;
     }
 
     private boolean isLoopIndexedArrayAccess(ArrayAccessExpr aa) {
@@ -461,8 +1275,10 @@ class OverflowPreconditionAnalyzer {
                 return "(\\bigint) this." + fae.getNameAsString();
             }
             if (fae.getNameAsString().equals("length")) {
-                // arr.length is int-typed
-                String scopeStr = toIntStr(fae.getScope());
+                // arr.length is int-typed; the scope must resolve to an array reference
+                // (param or field of array type), not via toIntStr which only handles
+                // integer-typed scopes.
+                String scopeStr = arrayScopeRefStr(fae.getScope());
                 return scopeStr == null ? null : "(\\bigint) " + scopeStr + ".length";
             }
             return null;
@@ -479,6 +1295,17 @@ class OverflowPreconditionAnalyzer {
         if (e instanceof IntegerLiteralExpr || e instanceof LongLiteralExpr
                 || e instanceof CharLiteralExpr) {
             return "(\\bigint) " + e.toString();
+        }
+
+        // Ternary: emit `(cond ? bigint(a) : bigint(b))`. The condition stays in its
+        // original (pre-state-substituted) form because it's bool-typed. Used to
+        // express the abs pattern `(dx < 0 ? -dx : dx)` as a bigint expression.
+        if (e instanceof ConditionalExpr ce) {
+            String condStr = toPrestatePredicateStr(ce.getCondition());
+            String thenStr = toBigintStr(ce.getThenExpr());
+            String elseStr = toBigintStr(ce.getElseExpr());
+            if (condStr == null || thenStr == null || elseStr == null) return null;
+            return "(" + condStr + " ? " + thenStr + " : " + elseStr + ")";
         }
 
         // `param.length()` — String.length / CharSequence.length is a non-negative int.
@@ -564,6 +1391,63 @@ class OverflowPreconditionAnalyzer {
         }
 
         return null;
+    }
+
+    /**
+     * Returns a syntactic boolean-predicate string with locals substituted from their
+     * pre-state initializers, or {@code null} if any leaf is non-substitutable.
+     * Used inside {@link #toBigintStr} for ternary conditions like {@code dx < 0}.
+     * Supports relational ({@code <, <=, >, >=, ==, !=}) and logical ({@code &&, ||, !})
+     * operators on top of the int-form leaves recognised by {@link #toIntStr}.
+     */
+    private String toPrestatePredicateStr(Expression e) {
+        if (e instanceof EnclosedExpr enc) {
+            String inner = toPrestatePredicateStr(enc.getInner());
+            return inner == null ? null : "(" + inner + ")";
+        }
+        if (e instanceof UnaryExpr ue && ue.getOperator() == UnaryExpr.Operator.LOGICAL_COMPLEMENT) {
+            String inner = toPrestatePredicateStr(ue.getExpression());
+            return inner == null ? null : "(!" + inner + ")";
+        }
+        if (e instanceof BinaryExpr be) {
+            BinaryExpr.Operator op = be.getOperator();
+            String relSym = relationalOpSymbol(op);
+            if (relSym != null) {
+                String left = toIntStr(be.getLeft());
+                String right = toIntStr(be.getRight());
+                if (left == null || right == null) return null;
+                return "(" + left + " " + relSym + " " + right + ")";
+            }
+            String logicalSym = logicalOpSymbol(op);
+            if (logicalSym != null) {
+                String left = toPrestatePredicateStr(be.getLeft());
+                String right = toPrestatePredicateStr(be.getRight());
+                if (left == null || right == null) return null;
+                return "(" + left + " " + logicalSym + " " + right + ")";
+            }
+        }
+        if (e instanceof BooleanLiteralExpr) return e.toString();
+        return null;
+    }
+
+    private String relationalOpSymbol(BinaryExpr.Operator op) {
+        return switch (op) {
+            case LESS -> "<";
+            case LESS_EQUALS -> "<=";
+            case GREATER -> ">";
+            case GREATER_EQUALS -> ">=";
+            case EQUALS -> "==";
+            case NOT_EQUALS -> "!=";
+            default -> null;
+        };
+    }
+
+    private String logicalOpSymbol(BinaryExpr.Operator op) {
+        return switch (op) {
+            case AND -> "&&";
+            case OR -> "||";
+            default -> null;
+        };
     }
 
     // ---------------------------------------------------------------------

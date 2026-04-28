@@ -50,6 +50,20 @@ abstract class FormalVerificationTestBase {
     /** Set via -Djml.showInferred=true to print inferred JML for every test. */
     private static final boolean SHOW_INFERRED = Boolean.getBoolean("jml.showInferred");
 
+    /**
+     * Persistent record of every inferred JML body and (when verification fails)
+     * the OpenJML counter-example block. Always written, regardless of
+     * SHOW_INFERRED — the file is the durable artefact for after-the-fact
+     * triage ("which failures are real spec bugs vs solver gaps?"), distinct
+     * from the per-run stdout log. Path is fixed under user.dir so all parallel
+     * test classes append into the same file. Truncated on the first @BeforeAll
+     * call of the JVM so each `mvn test` produces a fresh file.
+     */
+    private static final Path INFERRED_SPECS_LOG =
+            Path.of(System.getProperty("user.dir"), "inferred-specs.log");
+    private static final Object SPECS_LOG_LOCK = new Object();
+    private static volatile boolean specsLogInitialised = false;
+
     @BeforeAll
     static void initOpenJML() throws IOException {
         tempDir = Files.createTempDirectory("jml-verification-tests");
@@ -63,6 +77,22 @@ abstract class FormalVerificationTestBase {
             logger.info("OpenJML found at: {}", openjmlPath.get());
         } else {
             logger.warn("OpenJML not found -- formal verification tests will be skipped");
+        }
+
+        // Truncate inferred-specs.log once per JVM so each `mvn test` run
+        // produces a fresh, ordered record of every spec inferred during the
+        // suite. Multiple test classes that subclass this base will all append
+        // into the same file; the static `specsLogInitialised` guard means
+        // only the first @BeforeAll truncates.
+        synchronized (SPECS_LOG_LOCK) {
+            if (!specsLogInitialised) {
+                try {
+                    Files.writeString(INFERRED_SPECS_LOG, "");
+                } catch (IOException e) {
+                    logger.warn("Could not truncate {}: {}", INFERRED_SPECS_LOG, e.getMessage());
+                }
+                specsLogInitialised = true;
+            }
         }
     }
 
@@ -193,17 +223,20 @@ abstract class FormalVerificationTestBase {
             runSpecQualityChecks(method.get(), jmlSource, className, methodName);
         }
 
-        // Log the inferred JML source for review (opt-in via -Djml.showInferred=true).
-        // When enabled, every block is prefixed with `>>>JML>>>` so a post-run
-        // extractor can reliably pull the specs out of the combined test log even
-        // when stderr/stdout are interleaved.
-        if (SHOW_INFERRED) {
-            System.out.println(">>>JML>>> === Inferred JML: " + className + "." + methodName + " ===");
-            for (String line : jmlSource.split("\n", -1)) {
-                System.out.println(">>>JML>>> " + line);
-            }
-            System.out.println(">>>JML>>> === End JML ===");
+        // Log the inferred JML source for review. The `>>>JML>>>` prefix is
+        // grep-able from the combined test log; the same content also lands in
+        // inferred-specs.log unconditionally so that file is the durable
+        // record across runs (independent of -Djml.showInferred).
+        StringBuilder specsBlock = new StringBuilder();
+        specsBlock.append(">>>JML>>> === Inferred JML: ").append(className).append('.').append(methodName).append(" ===\n");
+        for (String line : jmlSource.split("\n", -1)) {
+            specsBlock.append(">>>JML>>> ").append(line).append('\n');
         }
+        specsBlock.append(">>>JML>>> === End JML ===\n");
+        if (SHOW_INFERRED) {
+            System.out.print(specsBlock);
+        }
+        appendToInferredSpecsLog(specsBlock.toString());
 
         // Step 5: Write JML-commented source and verify. Keep the class name matched with
         // the file name; use a subdirectory to avoid clashing with the annotated version.
@@ -237,13 +270,72 @@ abstract class FormalVerificationTestBase {
                     + "). Raw output:\n" + invocation.output());
         }
 
-        if (SHOW_INFERRED) {
-            System.out.println(">>>JML>>> outcome: " + primary.getStatus()
-                    + (primary.getFailedSpecs().isEmpty() ? ""
-                            : " failed=" + primary.getFailedSpecs()));
-            System.out.println();
+        StringBuilder outcomeBlock = new StringBuilder();
+        outcomeBlock.append(">>>JML>>> outcome: ").append(primary.getStatus());
+        if (!primary.getFailedSpecs().isEmpty()) {
+            outcomeBlock.append(" failed=").append(primary.getFailedSpecs());
         }
+        outcomeBlock.append('\n');
+        if (primary.getStatus() != MethodVerificationResult.Status.VERIFIED) {
+            outcomeBlock.append(extractCounterExample(invocation.output()));
+        }
+        outcomeBlock.append('\n');
+        if (SHOW_INFERRED) {
+            System.out.print(outcomeBlock);
+        }
+        appendToInferredSpecsLog(outcomeBlock.toString());
         return primary;
+    }
+
+    /**
+     * Appends a block to inferred-specs.log. Synchronised so parallel test
+     * classes don't interleave mid-line. SYNC flag forces each write through
+     * to disk so the file can be tailed live (`tail -f inferred-specs.log`)
+     * during a long suite run — without it the OS may buffer per-test blocks
+     * for tens of seconds. Failures are logged-and-swallowed — a broken log
+     * file should never cause a verification test to fail.
+     */
+    private static void appendToInferredSpecsLog(String content) {
+        synchronized (SPECS_LOG_LOCK) {
+            try {
+                Files.writeString(INFERRED_SPECS_LOG, content,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.APPEND,
+                        java.nio.file.StandardOpenOption.SYNC);
+            } catch (IOException e) {
+                logger.warn("Could not append to {}: {}", INFERRED_SPECS_LOG, e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Extracts the counter-example slice of an OpenJML run as a multi-line
+     * string of `>>>CE>>>`-prefixed lines. Captures explicit `Counterexample:`
+     * blocks, the pretty-printed `TRACE`, and any `Validity is unknown` line
+     * (the SMT "unknown" signal that distinguishes a solver gap from a real
+     * spec violation). Returns an empty string when no counter-example block
+     * is present.
+     */
+    private static String extractCounterExample(String openjmlOutput) {
+        if (openjmlOutput == null || openjmlOutput.isBlank()) return "";
+        StringBuilder out = new StringBuilder();
+        boolean inCe = false;
+        for (String line : openjmlOutput.split("\n", -1)) {
+            String trimmed = line.stripTrailing();
+            if (trimmed.startsWith("Counterexample:")
+                    || trimmed.startsWith("TRACE")
+                    || trimmed.contains("Validity is unknown")) {
+                inCe = true;
+            } else if (inCe && trimmed.isEmpty()) {
+                inCe = false;
+                out.append(">>>CE>>> ---\n");
+                continue;
+            }
+            if (inCe) {
+                out.append(">>>CE>>> ").append(trimmed).append('\n');
+            }
+        }
+        return out.toString();
     }
 
     // -------------------------------------------------------------------------

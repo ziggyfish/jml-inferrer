@@ -21,7 +21,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void pureMethod() throws IOException {
         String source = """
                 public class PureMethod {
-                    /*@ pure @*/
                     public int add(int a, int b) {
                         return a + b;
                     }
@@ -35,7 +34,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void pureMultiplication() throws IOException {
         String source = """
                 public class PureMultiplication {
-                    /*@ pure @*/
                     public int multiply(int a, int b) {
                         return a * b;
                     }
@@ -49,7 +47,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void pureBooleanComparison() throws IOException {
         String source = """
                 public class PureBooleanComparison {
-                    /*@ pure @*/
                     public boolean isPositive(int n) {
                         return n > 0;
                     }
@@ -63,7 +60,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void pureTernary() throws IOException {
         String source = """
                 public class PureTernary {
-                    /*@ pure @*/
                     public int max(int a, int b) {
                         return a >= b ? a : b;
                     }
@@ -77,7 +73,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void pureMultiBranch() throws IOException {
         String source = """
                 public class PureMultiBranch {
-                    /*@ pure @*/
                     public int sign(int x) {
                         if (x > 0) return 1;
                         if (x < 0) return -1;
@@ -94,7 +89,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class PureFieldRead {
                     int value;
-                    /*@ pure @*/
                     public int getValue() {
                         return this.value;
                     }
@@ -110,7 +104,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                 public class PureTwoFieldReads {
                     int x;
                     int y;
-                    /*@ pure @*/
                     public int sum() {
                         return this.x + this.y;
                     }
@@ -125,10 +118,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class PureArrayRead {
                     int[] data;
-                    /*@ pure @*/
-                    //@ requires this.data != null;
-                    //@ requires idx >= 0;
-                    //@ requires idx < this.data.length;
                     public int getAt(int idx) {
                         return this.data[idx];
                     }
@@ -142,7 +131,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void pureCompoundWithLocals() throws IOException {
         String source = """
                 public class PureCompoundWithLocals {
-                    /*@ pure @*/
                     public int distSquared(int x1, int y1, int x2, int y2) {
                         int dx = x2 - x1;
                         int dy = y2 - y1;
@@ -158,8 +146,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void pureStringLength() throws IOException {
         String source = """
                 public class PureStringLength {
-                    /*@ pure @*/
-                    //@ requires s != null;
                     public int len(String s) {
                         return s.length();
                     }
@@ -177,8 +163,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableNothing() throws IOException {
         String source = """
                 public class AssignableNothing {
-                    //@ assignable \\nothing;
-                    //@ ensures \\result == a + b;
                     public int add(int a, int b) {
                         return a + b;
                     }
@@ -192,7 +176,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableNothingBoolean() throws IOException {
         String source = """
                 public class AssignableNothingBoolean {
-                    //@ assignable \\nothing;
                     public boolean isEqual(int a, int b) {
                         return a == b;
                     }
@@ -206,8 +189,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableNothingLocals() throws IOException {
         String source = """
                 public class AssignableNothingLocals {
-                    //@ assignable \\nothing;
-                    //@ ensures \\result >= 0;
                     public int absDiff(int a, int b) {
                         int diff = a - b;
                         if (diff < 0) diff = -diff;
@@ -228,8 +209,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class AssignableField {
                     int value;
-                    //@ assignable this.value;
-                    //@ ensures this.value == v;
                     public void setValue(int v) {
                         this.value = v;
                     }
@@ -244,8 +223,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class AssignableFieldIncrement {
                     int count;
-                    //@ assignable this.count;
-                    //@ ensures this.count == \\old(this.count) + 1;
                     public void increment() {
                         this.count++;
                     }
@@ -260,9 +237,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class AssignableFieldConditional {
                     int max;
-                    //@ assignable this.max;
-                    //@ ensures this.max >= \\old(this.max);
-                    //@ ensures this.max >= value;
                     public void updateMax(int value) {
                         if (value > this.max) {
                             this.max = value;
@@ -279,8 +253,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class AssignableBooleanToggle {
                     boolean active;
-                    //@ assignable this.active;
-                    //@ ensures this.active == !\\old(this.active);
                     public void toggle() {
                         this.active = !this.active;
                     }
@@ -300,9 +272,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                 public class AssignableMultipleFields {
                     int x;
                     int y;
-                    //@ assignable this.x, this.y;
-                    //@ ensures this.x == a;
-                    //@ ensures this.y == b;
                     public void setCoords(int a, int b) {
                         this.x = a;
                         this.y = b;
@@ -320,10 +289,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     int r;
                     int g;
                     int b;
-                    //@ assignable this.r, this.g, this.b;
-                    //@ ensures this.r == red;
-                    //@ ensures this.g == green;
-                    //@ ensures this.b == blue;
                     public void setColor(int red, int green, int blue) {
                         this.r = red;
                         this.g = green;
@@ -341,9 +306,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                 public class AssignableSwapFields {
                     int a;
                     int b;
-                    //@ assignable this.a, this.b;
-                    //@ ensures this.a == \\old(this.b);
-                    //@ ensures this.b == \\old(this.a);
                     public void swap() {
                         int tmp = this.a;
                         this.a = this.b;
@@ -361,11 +323,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                 public class AssignableStackPush {
                     int[] data;
                     int size;
-                    //@ requires this.data != null;
-                    //@ requires this.size >= 0;
-                    //@ requires this.size < this.data.length;
-                    //@ assignable this.data[this.size], this.size;
-                    //@ ensures this.size == \\old(this.size) + 1;
                     public void push(int value) {
                         this.data[this.size] = value;
                         this.size++;
@@ -384,10 +341,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableArrayElements() throws IOException {
         String source = """
                 public class AssignableArrayElements {
-                    //@ requires arr != null;
-                    //@ assignable arr[*];
                     public void zeroFill(int[] arr) {
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             arr[i] = 0;
                         }
@@ -402,10 +356,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableArrayFillConstant() throws IOException {
         String source = """
                 public class AssignableArrayFillConstant {
-                    //@ requires arr != null;
-                    //@ assignable arr[*];
                     public void fill(int[] arr, int val) {
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             arr[i] = val;
                         }
@@ -420,12 +371,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableArrayCopy() throws IOException {
         String source = """
                 public class AssignableArrayCopy {
-                    //@ requires src != null;
-                    //@ requires dst != null;
-                    //@ requires dst.length >= src.length;
-                    //@ assignable dst[*];
                     public void copy(int[] src, int[] dst) {
-                        //@ loop_invariant i >= 0 && i <= src.length;
                         for (int i = 0; i < src.length; i++) {
                             dst[i] = src[i];
                         }
@@ -455,11 +401,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableSingleArrayElement() throws IOException {
         String source = """
                 public class AssignableSingleArrayElement {
-                    //@ requires arr != null;
-                    //@ requires idx >= 0;
-                    //@ requires idx < arr.length;
-                    //@ assignable arr[idx];
-                    //@ ensures arr[idx] == val;
                     public void setAt(int[] arr, int idx, int val) {
                         arr[idx] = val;
                     }
@@ -478,11 +419,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class AssignableFieldViaLoop {
                     int count;
-                    //@ requires this.count >= 0;
-                    //@ assignable this.count;
-                    //@ ensures this.count == 0;
                     public void drainToZero() {
-                        //@ loop_invariant this.count >= 0;
                         while (this.count > 0) {
                             this.count--;
                         }
@@ -497,12 +434,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void pureWithLoop() throws IOException {
         String source = """
                 public class PureWithLoop {
-                    /*@ pure @*/
-                    //@ requires arr != null;
-                    //@ ensures \\result >= -1;
-                    //@ ensures \\result < arr.length;
                     public int indexOf(int[] arr, int target) {
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] == target) return i;
                         }
@@ -520,15 +452,7 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                 public class AssignableFieldAndArray {
                     int[] data;
                     int size;
-                    //@ requires this.data != null;
-                    //@ requires this.size >= 0;
-                    //@ requires this.size + count <= this.data.length;
-                    //@ requires count >= 0;
-                    //@ assignable this.data[*], this.size;
-                    //@ ensures this.size == \\old(this.size) + count;
                     public void addMany(int value, int count) {
-                        //@ loop_invariant i >= 0 && i <= count;
-                        //@ loop_invariant this.size == \\old(this.size) + i;
                         for (int i = 0; i < count; i++) {
                             this.data[this.size] = value;
                             this.size++;
@@ -548,11 +472,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
                     int y;
                     int z;
                     boolean active;
-                    //@ assignable this.x, this.y, this.z, this.active;
-                    //@ ensures this.x == 0;
-                    //@ ensures this.y == 0;
-                    //@ ensures this.z == 0;
-                    //@ ensures this.active == false;
                     public void reset() {
                         this.x = 0;
                         this.y = 0;
@@ -570,8 +489,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class AssignableConditionalWrite {
                     int bestScore;
-                    //@ assignable this.bestScore;
-                    //@ ensures this.bestScore >= \\old(this.bestScore);
                     public void submitScore(int score) {
                         if (score > this.bestScore) {
                             this.bestScore = score;
@@ -587,12 +504,6 @@ class PurityAssignableVerificationTest extends FormalVerificationTestBase {
     void assignableArrayExtractReplace() throws IOException {
         String source = """
                 public class AssignableArrayExtractReplace {
-                    //@ requires arr != null;
-                    //@ requires idx >= 0;
-                    //@ requires idx < arr.length;
-                    //@ assignable arr[idx];
-                    //@ ensures \\result == \\old(arr[idx]);
-                    //@ ensures arr[idx] == newVal;
                     public int getAndSet(int[] arr, int idx, int newVal) {
                         int old = arr[idx];
                         arr[idx] = newVal;

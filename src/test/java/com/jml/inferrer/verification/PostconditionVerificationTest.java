@@ -21,7 +21,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void simpleAddition() throws IOException {
         String source = """
                 public class SimpleAddition {
-                    //@ ensures \\result == a + b;
                     public int add(int a, int b) {
                         return a + b;
                     }
@@ -35,7 +34,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void simpleSubtraction() throws IOException {
         String source = """
                 public class SimpleSubtraction {
-                    //@ ensures \\result == a - b;
                     public int subtract(int a, int b) {
                         return a - b;
                     }
@@ -49,7 +47,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void simpleMultiplication() throws IOException {
         String source = """
                 public class SimpleMultiplication {
-                    //@ ensures \\result == a * b;
                     public int multiply(int a, int b) {
                         return a * b;
                     }
@@ -63,7 +60,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void negation() throws IOException {
         String source = """
                 public class Negation {
-                    //@ ensures \\result == -x;
                     public int negate(int x) {
                         return -x;
                     }
@@ -77,7 +73,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void compoundExpression() throws IOException {
         String source = """
                 public class CompoundExpression {
-                    //@ ensures \\result == a * b + c;
                     public int multiplyAdd(int a, int b, int c) {
                         return a * b + c;
                     }
@@ -91,7 +86,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void averageOfTwo() throws IOException {
         String source = """
                 public class AverageOfTwo {
-                    //@ ensures \\result == (a + b) / 2;
                     public int average(int a, int b) {
                         return (a + b) / 2;
                     }
@@ -109,7 +103,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void selfSquareNonNeg() throws IOException {
         String source = """
                 public class SelfSquareNonNeg {
-                    //@ ensures \\result >= 0;
                     public int square(int x) {
                         return x * x;
                     }
@@ -123,7 +116,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void mathAbsNonNeg() throws IOException {
         String source = """
                 public class MathAbsNonNeg {
-                    //@ ensures \\result >= 0;
                     public int absValue(int x) {
                         return Math.abs(x);
                     }
@@ -137,9 +129,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void maxOfTwo() throws IOException {
         String source = """
                 public class MaxOfTwo {
-                    //@ ensures \\result >= a;
-                    //@ ensures \\result >= b;
-                    //@ ensures \\result == a || \\result == b;
                     public int max(int a, int b) {
                         return a >= b ? a : b;
                     }
@@ -153,9 +142,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void minOfTwo() throws IOException {
         String source = """
                 public class MinOfTwo {
-                    //@ ensures \\result <= a;
-                    //@ ensures \\result <= b;
-                    //@ ensures \\result == a || \\result == b;
                     public int min(int a, int b) {
                         return a <= b ? a : b;
                     }
@@ -169,9 +155,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void clampPostcondition() throws IOException {
         String source = """
                 public class ClampPostcondition {
-                    //@ requires lo <= hi;
-                    //@ ensures \\result >= lo;
-                    //@ ensures \\result <= hi;
                     public int clamp(int val, int lo, int hi) {
                         if (val < lo) return lo;
                         if (val > hi) return hi;
@@ -187,7 +170,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void absoluteDifference() throws IOException {
         String source = """
                 public class AbsoluteDifference {
-                    //@ ensures \\result >= 0;
                     public int absDiff(int a, int b) {
                         if (a >= b) return a - b;
                         return b - a;
@@ -207,8 +189,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class FieldAssignment {
                     int value;
-                    //@ assignable this.value;
-                    //@ ensures this.value == v;
                     public void setValue(int v) {
                         this.value = v;
                     }
@@ -223,8 +203,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class FieldIncrement {
                     int count;
-                    //@ assignable this.count;
-                    //@ ensures this.count == \\old(this.count) + 1;
                     public void increment() {
                         this.count++;
                     }
@@ -239,8 +217,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class FieldDecrement {
                     int count;
-                    //@ assignable this.count;
-                    //@ ensures this.count == \\old(this.count) - 1;
                     public void decrement() {
                         this.count--;
                     }
@@ -256,9 +232,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                 public class MultipleFieldAssignment {
                     int x;
                     int y;
-                    //@ assignable this.x, this.y;
-                    //@ ensures this.x == a;
-                    //@ ensures this.y == b;
                     public void setCoords(int a, int b) {
                         this.x = a;
                         this.y = b;
@@ -275,9 +248,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                 public class SwapFields {
                     int x;
                     int y;
-                    //@ assignable this.x, this.y;
-                    //@ ensures this.x == \\old(this.y);
-                    //@ ensures this.y == \\old(this.x);
                     public void swap() {
                         int tmp = this.x;
                         this.x = this.y;
@@ -296,10 +266,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     int a;
                     int b;
                     int c;
-                    //@ assignable this.a, this.b, this.c;
-                    //@ ensures this.a == 0;
-                    //@ ensures this.b == 0;
-                    //@ ensures this.c == 0;
                     public void reset() {
                         this.a = 0;
                         this.b = 0;
@@ -320,8 +286,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class BuilderReturnsThis {
                     int value;
-                    //@ assignable this.value;
-                    //@ ensures \\result == this;
                     public BuilderReturnsThis withValue(int v) {
                         this.value = v;
                         return this;
@@ -336,8 +300,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void newObjectNonNull() throws IOException {
         String source = """
                 public class NewObjectNonNull {
-                    //@ requires n >= 0;
-                    //@ ensures \\result != null;
                     public int[] createArray(int n) {
                         return new int[n];
                     }
@@ -351,9 +313,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void newArrayLength() throws IOException {
         String source = """
                 public class NewArrayLength {
-                    //@ requires n >= 0;
-                    //@ ensures \\result != null;
-                    //@ ensures \\result.length == n;
                     public int[] makeArray(int n) {
                         return new int[n];
                     }
@@ -371,7 +330,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void signFunction() throws IOException {
         String source = """
                 public class SignFunction {
-                    //@ ensures \\result == -1 || \\result == 0 || \\result == 1;
                     public int sign(int x) {
                         if (x > 0) return 1;
                         if (x < 0) return -1;
@@ -387,7 +345,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void booleanToInt() throws IOException {
         String source = """
                 public class BooleanToInt {
-                    //@ ensures \\result == 0 || \\result == 1;
                     public int toInt(boolean b) {
                         return b ? 1 : 0;
                     }
@@ -401,8 +358,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void ternaryMax() throws IOException {
         String source = """
                 public class TernaryMax {
-                    //@ ensures \\result >= a;
-                    //@ ensures \\result >= b;
                     public int max(int a, int b) {
                         return (a >= b) ? a : b;
                     }
@@ -433,9 +388,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void arrayContains() throws IOException {
         String source = """
                 public class ArrayContains {
-                    //@ requires arr != null;
                     public boolean contains(int[] arr, int target) {
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] == target) return true;
                         }
@@ -451,14 +404,8 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void countInRange() throws IOException {
         String source = """
                 public class CountInRange {
-                    //@ requires arr != null;
-                    //@ requires lo <= hi;
-                    //@ ensures \\result >= 0;
-                    //@ ensures \\result <= arr.length;
                     public int countInRange(int[] arr, int lo, int hi) {
                         int count = 0;
-                        //@ loop_invariant i >= 0 && i <= arr.length;
-                        //@ loop_invariant count >= 0 && count <= i;
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] >= lo && arr[i] <= hi) {
                                 count++;
@@ -476,9 +423,7 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void allPositive() throws IOException {
         String source = """
                 public class AllPositive {
-                    //@ requires arr != null;
                     public boolean allPositive(int[] arr) {
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] <= 0) return false;
                         }
@@ -500,11 +445,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                 public class BoundedCounterIncrement {
                     int count;
                     int max;
-                    //@ requires this.count >= 0;
-                    //@ requires this.max > 0;
-                    //@ assignable this.count;
-                    //@ ensures this.count <= this.max;
-                    //@ ensures this.count >= \\old(this.count);
                     public void increment() {
                         if (this.count < this.max) {
                             this.count++;
@@ -521,8 +461,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class ToggleBoolean {
                     boolean flag;
-                    //@ assignable this.flag;
-                    //@ ensures this.flag == !\\old(this.flag);
                     public void toggle() {
                         this.flag = !this.flag;
                     }
@@ -537,8 +475,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class AccumulateField {
                     int total;
-                    //@ assignable this.total;
-                    //@ ensures this.total == \\old(this.total) + amount;
                     public void addToTotal(int amount) {
                         this.total += amount;
                     }
@@ -553,8 +489,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class ScaleField {
                     int value;
-                    //@ assignable this.value;
-                    //@ ensures this.value == \\old(this.value) * factor;
                     public void scale(int factor) {
                         this.value *= factor;
                     }
@@ -613,12 +547,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void swapArrayElements() throws IOException {
         String source = """
                 public class SwapArrayElements {
-                    //@ requires arr != null;
-                    //@ requires i >= 0 && i < arr.length;
-                    //@ requires j >= 0 && j < arr.length;
-                    //@ assignable arr[i], arr[j];
-                    //@ ensures arr[i] == \\old(arr[j]);
-                    //@ ensures arr[j] == \\old(arr[i]);
                     public void swap(int[] arr, int i, int j) {
                         int tmp = arr[i];
                         arr[i] = arr[j];
@@ -634,12 +562,8 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void arrayCopyPostcondition() throws IOException {
         String source = """
                 public class ArrayCopyPostcondition {
-                    //@ requires src != null;
-                    //@ ensures \\result != null;
-                    //@ ensures \\result.length == src.length;
                     public int[] copyOf(int[] src) {
                         int[] dst = new int[src.length];
-                        //@ loop_invariant i >= 0 && i <= src.length;
                         for (int i = 0; i < src.length; i++) {
                             dst[i] = src[i];
                         }
@@ -658,10 +582,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                     int r;
                     int g;
                     int b;
-                    //@ assignable this.r, this.g, this.b;
-                    //@ ensures this.r == red;
-                    //@ ensures this.g == green;
-                    //@ ensures this.b == blue;
                     public void setColor(int red, int green, int blue) {
                         this.r = red;
                         this.g = green;
@@ -677,9 +597,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void positiveModuloPostcondition() throws IOException {
         String source = """
                 public class PositiveModuloPostcondition {
-                    //@ requires mod > 0;
-                    //@ ensures \\result >= 0;
-                    //@ ensures \\result < mod;
                     public int posMod(int val, int mod) {
                         int r = val % mod;
                         if (r < 0) r += mod;
@@ -697,12 +614,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
                 public class StackPushPostcondition {
                     int[] data;
                     int size;
-                    //@ requires this.data != null;
-                    //@ requires this.size >= 0;
-                    //@ requires this.size < this.data.length;
-                    //@ assignable this.data[this.size], this.size;
-                    //@ ensures this.size == \\old(this.size) + 1;
-                    //@ ensures this.data[\\old(this.size)] == value;
                     public void push(int value) {
                         this.data[this.size] = value;
                         this.size++;
@@ -717,10 +628,6 @@ class PostconditionVerificationTest extends FormalVerificationTestBase {
     void saturatingAdd() throws IOException {
         String source = """
                 public class SaturatingAdd {
-                    //@ requires a >= 0;
-                    //@ requires b >= 0;
-                    //@ ensures \\result >= a;
-                    //@ ensures \\result >= b;
                     public int saturatingAdd(int a, int b) {
                         long sum = (long)a + (long)b;
                         if (sum > Integer.MAX_VALUE) return Integer.MAX_VALUE;

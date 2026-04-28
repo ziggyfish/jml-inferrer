@@ -17,9 +17,20 @@ class SymbolicExecutor {
     static class SymbolicReturn {
         final String pathCondition; // null = unconditional
         final String resolvedExpr;
+        // Original return-statement expression text, BEFORE substituteEnv.
+        // Used downstream to detect "captured-and-resolved" returns (where the
+        // resolvedExpr came from a local that captured a pre-mutation field
+        // reference) vs "direct" returns (the source expression IS the
+        // resolvedExpr, so its field references are post-state by JML semantics
+        // and should NOT be \old-wrapped).
+        final String originalExpr;
         SymbolicReturn(String pathCondition, String resolvedExpr) {
+            this(pathCondition, resolvedExpr, resolvedExpr);
+        }
+        SymbolicReturn(String pathCondition, String resolvedExpr, String originalExpr) {
             this.pathCondition = pathCondition;
             this.resolvedExpr = resolvedExpr;
+            this.originalExpr = originalExpr;
         }
     }
 
@@ -351,8 +362,10 @@ class SymbolicExecutor {
                                 AnalysisUtils.negateCondition(ternary.getCondition()), env, paramNames);
                         String thenResolved = substituteEnv(ternary.getThenExpr().toString(), env, paramNames);
                         String elseResolved = substituteEnv(ternary.getElseExpr().toString(), env, paramNames);
-                        results.add(new SymbolicReturn(conjoin(pathCondition, condStr), thenResolved));
-                        results.add(new SymbolicReturn(conjoin(pathCondition, negCondStr), elseResolved));
+                        results.add(new SymbolicReturn(conjoin(pathCondition, condStr), thenResolved,
+                                ternary.getThenExpr().toString()));
+                        results.add(new SymbolicReturn(conjoin(pathCondition, negCondStr), elseResolved,
+                                ternary.getElseExpr().toString()));
                         return;
                     }
 
@@ -369,14 +382,14 @@ class SymbolicExecutor {
                                     tempEnv.put(var, ca.resolvedExpr);
                                     String condResolved = substituteEnv(rawReturn, tempEnv, paramNames);
                                     String combinedCond = conjoin(pathCondition, ca.pathCondition);
-                                    results.add(new SymbolicReturn(combinedCond, condResolved));
+                                    results.add(new SymbolicReturn(combinedCond, condResolved, rawReturn));
                                 }
                                 return; // handled via conditional assignments
                             }
                         }
                     }
 
-                    results.add(new SymbolicReturn(pathCondition, resolved));
+                    results.add(new SymbolicReturn(pathCondition, resolved, rawReturn));
                 }
                 return; // return always terminates this path
             }

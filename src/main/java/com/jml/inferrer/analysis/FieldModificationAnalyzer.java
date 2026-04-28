@@ -300,10 +300,28 @@ class FieldModificationAnalyzer {
             }
             BinaryExpr bin = (BinaryExpr) value;
             if (isSimpleJMLExpression(bin.getLeft()) && isSimpleJMLExpression(bin.getRight())) {
+                // BitXor1.xorSwap fix: when the assignment's RHS reads any field
+                // that has already been written earlier in the method, per-statement
+                // ensures don't compose. The intermediate-state value of the read
+                // field can't be referred to from a post-state ensures (which only
+                // sees method-entry `\old` and method-exit `this.f`), so emitting
+                // `this.b == (a ^ b)` (where `a` was just mutated) is at best
+                // loose and frequently outright false (xorSwap dies here). Suppress
+                // in that case — the assignable clause still constrains modification
+                // to the named fields, and other analyzers may recover whole-method
+                // semantics if the pattern is recognised elsewhere.
+                if (rhsReferencesPreviouslyModifiedField(bin, value, methodDecl)) {
+                    return null;
+                }
+                // Position-aware-old wrapping: every bare reference to a mutated
+                // field on the RHS becomes `\old(this.f)` (the field is fresh as
+                // of this assignment, since the rhs-references-previously-mutated
+                // check above guarantees no earlier write).
+                String wrappedRhs = wrapBinaryExprFieldRefs(bin, fieldName, value, methodDecl);
                 // Parenthesize the RHS — `==` binds tighter than `|`, `^`, `&`, `&&`, `||`,
                 // so emitting `this.b == a ^ b` parses as `(this.b == a) ^ b`, producing
                 // the OpenJML error "boolean ^ int". Parens are harmless for arithmetic.
-                return "this." + fieldName + " == (" + value + ")";
+                return "this." + fieldName + " == (" + wrappedRhs + ")";
             }
         } else if (value instanceof ConditionalExpr) {
             return null;
@@ -359,6 +377,97 @@ class FieldModificationAnalyzer {
         return null;
     }
 
+    /**
+     * True when any field referenced anywhere inside {@code rhs} (bare or
+     * {@code this.}-qualified, including the LHS field of the enclosing
+     * assignment) has been written earlier in the method body in source order.
+     * Such cross-statement reads-of-just-written-fields can't be expressed
+     * as per-statement ensures because JML postconditions only see method-
+     * entry (`\old`) and method-exit (`this.f`) snapshots, not intermediate
+     * state.
+     */
+    private boolean rhsReferencesPreviouslyModifiedField(Expression rhs,
+            Expression assignNode, MethodDeclaration methodDecl) {
+        Set<String> fieldNames = methodDecl.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(com.github.javaparser.ast.body.VariableDeclarator::getNameAsString)
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)))
+                .orElseGet(LinkedHashSet::new);
+        Set<String> referencedFields = new LinkedHashSet<>();
+        for (NameExpr ne : rhs.findAll(NameExpr.class)) {
+            String n = ne.getNameAsString();
+            if (fieldNames.contains(n)) referencedFields.add(n);
+        }
+        for (FieldAccessExpr fa : rhs.findAll(FieldAccessExpr.class)) {
+            if (fa.getScope().toString().equals("this") && fieldNames.contains(fa.getNameAsString())) {
+                referencedFields.add(fa.getNameAsString());
+            }
+        }
+        for (String f : referencedFields) {
+            if (isFieldModifiedBefore(methodDecl, f, assignNode)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns the RHS of an assignment with each bare field reference replaced by
+     * either {@code \old(this.f)} (the field was NOT written before this
+     * assignment in source order — pre-state semantics) or {@code this.f}
+     * (the field was written earlier — post-state semantics).
+     *
+     * <p>For the LHS field itself, the RHS occurrence is always pre-state of
+     * <em>this</em> assignment ({@code \old}). If an earlier statement also
+     * wrote to it, the caller has already suppressed via
+     * {@link #rhsReferencesPreviouslyModifiedField}, so reaching here means
+     * this is the first write to the LHS field.</p>
+     *
+     * <p>Local variables, parameters, and literals pass through unchanged.</p>
+     */
+    private String wrapBinaryExprFieldRefs(BinaryExpr bin, String lhsFieldName,
+                                            Expression assignNode, MethodDeclaration methodDecl) {
+        Set<String> fieldNames = methodDecl.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(com.github.javaparser.ast.body.VariableDeclarator::getNameAsString)
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)))
+                .orElseGet(LinkedHashSet::new);
+        Set<String> paramNames = new LinkedHashSet<>();
+        methodDecl.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+        String result = bin.toString();
+        for (String f : fieldNames) {
+            if (paramNames.contains(f)) continue;     // shadowed by parameter
+            String replacement;
+            // For the LHS field itself, the RHS reference is always pre-state of
+            // *this* assignment. If an earlier statement wrote to it, the caller
+            // has already suppressed (via rhsReferencesPreviouslyModifiedField),
+            // so reaching here means this is the first write to the LHS — wrap
+            // with `\old`. For other fields, decide post-state vs pre-state by
+            // whether they were written earlier in source order.
+            if (f.equals(lhsFieldName)) {
+                replacement = "\\old(this." + f + ")";
+            } else if (isFieldModifiedBefore(methodDecl, f, assignNode)) {
+                replacement = "this." + f;            // post-state of an earlier write
+            } else {
+                replacement = "\\old(this." + f + ")"; // pre-state — never written before this point
+            }
+            // Bare-name `f` (skip occurrences already inside `\old`, qualified by
+            // `this.`, or part of another identifier).
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![\\w.\\\\])" + java.util.regex.Pattern.quote(f) + "(?!\\w)");
+            java.util.regex.Matcher m = p.matcher(result);
+            StringBuffer sb = new StringBuffer();
+            while (m.find()) {
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
+            }
+            m.appendTail(sb);
+            result = sb.toString();
+        }
+        return result;
+    }
+
     String getEnclosingBranchCondition(com.github.javaparser.ast.Node node, MethodDeclaration methodDecl) {
         // Guard-return pattern: if the node sits after an `if (cond) return ...;` at the
         // same block level, it only executes when `!cond`. Collect those implicit guards
@@ -391,7 +500,16 @@ class FieldModificationAnalyzer {
                     // skip the condition rather than emit an invalid JML identifier.
                     return null;
                 }
-                String wrapped = wrapFieldRefsWithOld(substituted, methodDecl);
+                // Countdown.tick fix: when this IfStmt is nested inside another
+                // statement that already mutated a field (e.g. `remaining--; if
+                // (remaining == 0) { ... }`), the bare `remaining` in the inner
+                // condition refers to the POST-decrement value. Substitute each
+                // such field with its `\old(this.f) ± delta` form before wrapping
+                // so the emitted guard reads `\old(this.remaining) - 1 == 0`
+                // rather than the wrong `\old(this.remaining) == 0`.
+                String deltaSubstituted = substituteFieldDeltasBeforeNode(
+                        substituted, ifStmt, methodDecl);
+                String wrapped = wrapFieldRefsWithOld(deltaSubstituted, methodDecl);
                 if (!guardNegations.isEmpty()) {
                     List<String> parts = new ArrayList<>(guardNegations);
                     parts.add(wrapped);
@@ -576,9 +694,18 @@ class FieldModificationAnalyzer {
         if (methodDecl.getBody().isEmpty()) return false;
         int beforeLine = beforeNode.getBegin().map(p -> p.line).orElse(Integer.MAX_VALUE);
         int beforeCol = beforeNode.getBegin().map(p -> p.column).orElse(Integer.MAX_VALUE);
+        // Identify the enclosing statement of `beforeNode` so we can skip writes
+        // that happen WITHIN the same statement. For `a = a ^ b`, the LHS write
+        // to `a` happens *after* the RHS evaluates, so it's not a pre-state
+        // mutation of the RHS reference.
+        com.github.javaparser.ast.stmt.Statement beforeStmt =
+                beforeNode.findAncestor(com.github.javaparser.ast.stmt.Statement.class).orElse(null);
 
         for (AssignExpr ae : methodDecl.getBody().get().findAll(AssignExpr.class)) {
             if (!isBefore(ae, beforeLine, beforeCol)) continue;
+            if (beforeStmt != null
+                    && ae.findAncestor(com.github.javaparser.ast.stmt.Statement.class).orElse(null)
+                            == beforeStmt) continue;
             Expression target = ae.getTarget();
             if (target instanceof NameExpr ne && ne.getNameAsString().equals(fieldName)) return true;
             if (target instanceof FieldAccessExpr fa
@@ -587,6 +714,9 @@ class FieldModificationAnalyzer {
         }
         for (UnaryExpr ue : methodDecl.getBody().get().findAll(UnaryExpr.class)) {
             if (!isBefore(ue, beforeLine, beforeCol)) continue;
+            if (beforeStmt != null
+                    && ue.findAncestor(com.github.javaparser.ast.stmt.Statement.class).orElse(null)
+                            == beforeStmt) continue;
             UnaryExpr.Operator op = ue.getOperator();
             if (op != UnaryExpr.Operator.PREFIX_INCREMENT
                     && op != UnaryExpr.Operator.POSTFIX_INCREMENT
@@ -607,6 +737,148 @@ class FieldModificationAnalyzer {
         if (pos.line < beforeLine) return true;
         if (pos.line > beforeLine) return false;
         return pos.column < beforeCol;
+    }
+
+    /**
+     * Replaces bare field identifiers in {@code condition} with their accumulated
+     * delta-from-pre-state expression, when the field has been modified by a
+     * literal-delta {@code ++}, {@code --}, {@code += K}, or {@code -= K} in a
+     * statement that appears strictly before {@code ifStmt} in source order
+     * AND is at an enclosing block of {@code ifStmt} (so the modification is
+     * guaranteed to have executed before the {@code if} condition is evaluated).
+     *
+     * <p>For Countdown.tick:
+     * <pre>{@code
+     *   if (remaining > 0) {
+     *       remaining--;          // delta = -1 for `remaining`
+     *       if (remaining == 0) { // bare `remaining` here means \old(remaining) - 1
+     *           done = true;
+     *       }
+     *   }
+     * }</pre>
+     * The inner condition resolves to {@code (\old(this.remaining) - 1) == 0},
+     * which {@link #wrapFieldRefsWithOld} then leaves alone (the field name
+     * {@code remaining} is already inside an {@code \old(...)} envelope).</p>
+     *
+     * <p>Conservative: only literal-delta {@code ++}/{@code --}/{@code += N}/{@code -= N}
+     * operations contribute. Non-additive writes (assigns, multiplies, etc.) are skipped
+     * because they would require a different substitution scheme.</p>
+     */
+    private String substituteFieldDeltasBeforeNode(String condition, IfStmt ifStmt,
+                                                    MethodDeclaration methodDecl) {
+        if (condition == null || condition.isEmpty()) return condition;
+        Set<String> fieldNames = methodDecl.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(com.github.javaparser.ast.body.VariableDeclarator::getNameAsString)
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)))
+                .orElseGet(LinkedHashSet::new);
+        if (fieldNames.isEmpty()) return condition;
+
+        // Compute deltas for fields modified strictly before ifStmt and in an
+        // ancestor block of ifStmt. Walk from ifStmt's parent block upward and
+        // collect earlier siblings that contain a literal-delta modification.
+        Map<String, Long> deltas = collectFieldDeltasBefore(ifStmt, fieldNames, methodDecl);
+        if (deltas.isEmpty()) return condition;
+
+        Set<String> paramNames = new LinkedHashSet<>();
+        methodDecl.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+
+        String result = condition;
+        for (Map.Entry<String, Long> e : deltas.entrySet()) {
+            String field = e.getKey();
+            long delta = e.getValue();
+            if (delta == 0) continue;
+            if (paramNames.contains(field)) continue;
+            String op = delta > 0 ? "+" : "-";
+            String replacement = "(\\old(this." + field + ") " + op + " " + Math.abs(delta) + ")";
+            // Replace bare-name `field` (skip occurrences already inside `\old`,
+            // already qualified by `this.`, or part of another identifier).
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![\\w.\\\\])" + java.util.regex.Pattern.quote(field) + "(?!\\w)");
+            java.util.regex.Matcher m = p.matcher(result);
+            StringBuffer sb = new StringBuffer();
+            while (m.find()) {
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
+            }
+            m.appendTail(sb);
+            result = sb.toString();
+        }
+        return result;
+    }
+
+    /**
+     * Walks all statements that appear before {@code ifStmt} in source order
+     * inside any enclosing block ancestor of {@code ifStmt}, accumulating
+     * literal-delta modifications to each field. Stops at the method body.
+     */
+    private Map<String, Long> collectFieldDeltasBefore(IfStmt ifStmt, Set<String> fieldNames,
+                                                        MethodDeclaration methodDecl) {
+        Map<String, Long> deltas = new LinkedHashMap<>();
+        Set<String> nonAdditive = new HashSet<>();
+        com.github.javaparser.ast.Node body = methodDecl.getBody().orElse(null);
+        if (body == null) return deltas;
+
+        com.github.javaparser.ast.Node current = ifStmt;
+        while (current.getParentNode().isPresent()) {
+            com.github.javaparser.ast.Node parent = current.getParentNode().get();
+            if (parent instanceof com.github.javaparser.ast.stmt.BlockStmt block) {
+                int idx = block.getStatements().indexOf(current);
+                if (idx > 0) {
+                    for (int i = 0; i < idx; i++) {
+                        accumulateDeltas(block.getStatement(i), fieldNames, deltas, nonAdditive);
+                    }
+                }
+            }
+            if (parent == body || parent == methodDecl) break;
+            current = parent;
+        }
+        // Drop any field that has been touched by a non-additive op — substitution
+        // by a fixed delta would be unsound.
+        for (String f : nonAdditive) deltas.remove(f);
+        return deltas;
+    }
+
+    private void accumulateDeltas(com.github.javaparser.ast.stmt.Statement stmt,
+                                   Set<String> fieldNames, Map<String, Long> deltas,
+                                   Set<String> nonAdditive) {
+        for (UnaryExpr ue : stmt.findAll(UnaryExpr.class)) {
+            String name = fieldRefName(ue.getExpression(), fieldNames);
+            if (name == null) continue;
+            UnaryExpr.Operator op = ue.getOperator();
+            if (op == UnaryExpr.Operator.PREFIX_INCREMENT || op == UnaryExpr.Operator.POSTFIX_INCREMENT) {
+                deltas.merge(name, 1L, Long::sum);
+            } else if (op == UnaryExpr.Operator.PREFIX_DECREMENT || op == UnaryExpr.Operator.POSTFIX_DECREMENT) {
+                deltas.merge(name, -1L, Long::sum);
+            } else {
+                nonAdditive.add(name);
+            }
+        }
+        for (AssignExpr ae : stmt.findAll(AssignExpr.class)) {
+            String name = fieldRefName(ae.getTarget(), fieldNames);
+            if (name == null) continue;
+            AssignExpr.Operator op = ae.getOperator();
+            if ((op == AssignExpr.Operator.PLUS || op == AssignExpr.Operator.MINUS)
+                    && ae.getValue() instanceof IntegerLiteralExpr lit) {
+                long delta = (op == AssignExpr.Operator.PLUS ? 1 : -1) * (long) lit.asInt();
+                deltas.merge(name, delta, Long::sum);
+            } else {
+                nonAdditive.add(name);
+            }
+        }
+    }
+
+    private String fieldRefName(Expression e, Set<String> fieldNames) {
+        if (e instanceof FieldAccessExpr fa
+                && fa.getScope().toString().equals("this")
+                && fieldNames.contains(fa.getNameAsString())) {
+            return fa.getNameAsString();
+        }
+        if (e instanceof NameExpr ne && fieldNames.contains(ne.getNameAsString())) {
+            return ne.getNameAsString();
+        }
+        return null;
     }
 
     String wrapFieldRefsWithOld(String condition, MethodDeclaration methodDecl) {

@@ -77,6 +77,12 @@ class PreconditionAnalyzer {
         // analyzeFieldArrayIndexConstraints but the index is a field, not a param.
         analyzeFieldIndexFieldArrayBounds(methodDecl, preconditions, collector);
 
+        // Modular index arithmetic `arr[(i + offset) % arr.length]` — the `%` makes
+        // the result in [0, arr.length-1] by Java semantics, but OpenJML needs
+        // arr.length > 0 (to prove the modulo divisor is non-zero) and the offset
+        // to be non-negative (Java's `%` follows the dividend's sign).
+        analyzeModularIndexAccess(methodDecl, preconditions, spec, collector);
+
         // Analyze parameter relationships
         analyzeParameterRelationships(methodDecl, preconditions, collector);
 
@@ -258,6 +264,13 @@ class PreconditionAnalyzer {
                 // which, turned into a JML clause, is
                 //   (pre >= netShift) AND (pre < length + netShift).
                 String shiftStr = (netShift >= 0 ? "+ " : "- ") + Math.abs(netShift);
+                // Null-safety prelude: emit `this.arrField != null` BEFORE any
+                // bound that dereferences it. OpenJML evaluates preconditions
+                // in source order — without this leading null check the bound
+                // raises UndefinedNullDeReference before the null precondition
+                // fires. See analyzeFieldArrayIndexConstraints for the
+                // same pattern on parameter-indexed accesses.
+                preconditions.add("this." + arrField + " != null");
                 if (netShift == 0) {
                     preconditions.add("this." + idxField + " >= 0");
                     preconditions.add("this." + idxField + " < this." + arrField + ".length");
@@ -282,6 +295,8 @@ class PreconditionAnalyzer {
                     String indexStr = "this." + baseField + " "
                             + (be.getOperator() == BinaryExpr.Operator.PLUS ? "+" : "-")
                             + " " + be.getRight().asIntegerLiteralExpr().asInt();
+                    // Null-safety prelude — same rationale as above branches.
+                    preconditions.add("this." + arrField + " != null");
                     preconditions.add("(" + indexStr + ") >= 0");
                     preconditions.add("(" + indexStr + ") < this." + arrField + ".length");
                 }
@@ -372,9 +387,24 @@ class PreconditionAnalyzer {
                 if (fieldName != null && innerAae.getIndex() instanceof NameExpr rowNe
                         && methodDecl.getParameters().stream()
                                 .anyMatch(p -> p.getNameAsString().equals(rowNe.getNameAsString()))) {
+                    // Emit the full well-definedness chain for `this.field[row][paramName]`
+                    // in left-to-right order. JML evaluates preconditions sequentially;
+                    // each precondition's well-definedness uses only earlier ones, so the
+                    // chain has to land in this exact order. Without this, OpenJML fires
+                    // UndefinedNullDeReference / UndefinedNegativeIndex on the col bound
+                    // even when later preconditions would have proved each step. The
+                    // existing analyzer passes (analyzeInstanceFieldNullPreconditions for
+                    // the 2D guarded null check, analyzeNumericConstraints for the row
+                    // bounds) emit duplicates afterwards, but LinkedHashSet de-dupes by
+                    // value, so the first insertion's position wins.
+                    String rowName = rowNe.getNameAsString();
+                    preconditions.add("this." + fieldName + " != null");
+                    preconditions.add(rowName + " >= 0");
+                    preconditions.add(rowName + " < this." + fieldName + ".length");
+                    preconditions.add("this." + fieldName + "[" + rowName + "] != null");
                     preconditions.add(paramName + " >= 0");
                     preconditions.add(paramName + " < this." + fieldName
-                            + "[" + rowNe.getNameAsString() + "].length");
+                            + "[" + rowName + "].length");
                     continue;
                 }
             }
@@ -389,6 +419,8 @@ class PreconditionAnalyzer {
             }
             if (fieldName == null) continue;
 
+            // Null-safety prelude — see the 2D branch above for the rationale.
+            preconditions.add("this." + fieldName + " != null");
             preconditions.add(paramName + " >= 0");
             preconditions.add(paramName + " < this." + fieldName + ".length");
         }
@@ -523,6 +555,18 @@ class PreconditionAnalyzer {
         Set<String> paramNames = new java.util.LinkedHashSet<>();
         for (Parameter p : methodDecl.getParameters()) paramNames.add(p.getNameAsString());
         SymbolicExecutor scopeChecker = new SymbolicExecutor();
+        // Collect names of all instance reference-typed fields. Used below to
+        // prepend `this.field != null` whenever an inverted-guard precondition
+        // dereferences such a field via `.length`, `.size()`, or `[...]`.
+        // Mirrors the gathering pattern in analyzeInstanceFieldNullPreconditions.
+        Set<String> refFieldNames = methodDecl.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .filter(f -> !f.getCommonType().isPrimitiveType())
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(com.github.javaparser.ast.body.VariableDeclarator::getNameAsString)
+                        .collect(java.util.stream.Collectors.toSet()))
+                .orElseGet(java.util.HashSet::new);
 
         collector.ifStmts.forEach(ifStmt -> {
             // An if-throw nested inside a loop refers to loop-local variables
@@ -542,6 +586,7 @@ class PreconditionAnalyzer {
                     String invertedCondition = invertCondition(binExpr);
                     if (invertedCondition != null && !invertedCondition.isEmpty()
                             && scopeChecker.isMethodScopeSafe(invertedCondition, methodDecl, paramNames)) {
+                        addNullPreludeForFieldDereferences(invertedCondition, refFieldNames, preconditions);
                         preconditions.add(invertedCondition);
                     }
                 } else if (condition instanceof UnaryExpr) {
@@ -550,12 +595,38 @@ class PreconditionAnalyzer {
                         // !(condition) in if-throw means condition must be true
                         String inner = unaryExpr.getExpression().toString();
                         if (scopeChecker.isMethodScopeSafe(inner, methodDecl, paramNames)) {
+                            addNullPreludeForFieldDereferences(inner, refFieldNames, preconditions);
                             preconditions.add(inner);
                         }
                     }
                 }
             }
         });
+    }
+
+    /**
+     * For every reference field `f` whose dereference appears in {@code condition}
+     * (as `f.length`, `this.f.length`, `f.size()`, `this.f.size()`, or `f[...]`),
+     * inserts `this.f != null` into {@code preconditions} BEFORE the caller adds
+     * the dereferencing condition. Without this prelude, the dereferencing
+     * precondition fires UndefinedNullDeReference when the field is null —
+     * even if a `this.f != null` precondition is later emitted by another
+     * analyzer, OpenJML evaluates preconditions in source-order so the prelude
+     * has to come first. LinkedHashSet preserves first-insertion order, so the
+     * later analyzer's duplicate add is silently dropped.
+     */
+    private void addNullPreludeForFieldDereferences(String condition, Set<String> refFieldNames,
+                                                     Set<String> preconditions) {
+        for (String field : refFieldNames) {
+            // Match `field.` or `field[` (qualified or bare). Word-boundary on the
+            // left avoids false positives on prefix overlaps like `count` matching
+            // `accountant`.
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![\\w.])" + java.util.regex.Pattern.quote(field) + "[\\.\\[]");
+            if (p.matcher(condition).find()) {
+                preconditions.add("this." + field + " != null");
+            }
+        }
     }
 
     static boolean isInsideLoop(com.github.javaparser.ast.Node node) {
@@ -741,11 +812,164 @@ class PreconditionAnalyzer {
             for (ArrayAccessExpr aa : fs.getBody().findAll(ArrayAccessExpr.class)) {
                 if (!(aa.getName() instanceof NameExpr arrNe)) continue;
                 if (!arrayParams.contains(arrNe.getNameAsString())) continue;
-                if (!(aa.getIndex() instanceof NameExpr idxNe)) continue;
-                if (!idxNe.getNameAsString().equals(counter)) continue;
-                preconditions.add(startParam + " >= 0");
-                preconditions.add(endParam + " " + endOp + " " + arrNe.getNameAsString() + ".length");
+                String accessedArr = arrNe.getNameAsString();
+                Expression idx = aa.getIndex();
+                // Direct counter index `arr[i]` — original shape.
+                if (idx instanceof NameExpr idxNe
+                        && idxNe.getNameAsString().equals(counter)) {
+                    preconditions.add(startParam + " >= 0");
+                    preconditions.add(endParam + " " + endOp + " "
+                            + accessedArr + ".length");
+                    continue;
+                }
+                // Offset-shifted index `arr[i - startParam]` (the copy-range case):
+                // the index ranges over [0, end - start), so the access requires
+                // `dst.length >= end - start` AND `start >= 0`. The comparison
+                // operator carries through (`<` → `>=`, `<=` → `>`).
+                if (idx instanceof BinaryExpr be
+                        && be.getOperator() == BinaryExpr.Operator.MINUS
+                        && be.getLeft() instanceof NameExpr leftNe
+                        && leftNe.getNameAsString().equals(counter)
+                        && be.getRight() instanceof NameExpr rightNe
+                        && rightNe.getNameAsString().equals(startParam)) {
+                    String shiftedOp = endOp.equals("<=") ? ">=" : ">";
+                    preconditions.add(startParam + " >= 0");
+                    preconditions.add(accessedArr + ".length " + shiftedOp + " "
+                            + endParam + " - " + startParam);
+                }
+                // Offset-shifted index `arr[startParam + i]` — symmetric to the
+                // copy-range case, target is `dst[dstStart + i]` style.
+                if (idx instanceof BinaryExpr be2
+                        && be2.getOperator() == BinaryExpr.Operator.PLUS) {
+                    boolean leftIsCounter = be2.getLeft() instanceof NameExpr lne2
+                            && lne2.getNameAsString().equals(counter);
+                    boolean rightIsCounter = be2.getRight() instanceof NameExpr rne2
+                            && rne2.getNameAsString().equals(counter);
+                    Expression offsetExpr = leftIsCounter ? be2.getRight()
+                            : (rightIsCounter ? be2.getLeft() : null);
+                    if (offsetExpr instanceof NameExpr offNe
+                            && paramNames.contains(offNe.getNameAsString())) {
+                        String off = offNe.getNameAsString();
+                        // Index range: [off + start, off + end). Need
+                        // `arr.length >= off + end` and `off + start >= 0`.
+                        String shiftedOp = endOp.equals("<=") ? ">=" : ">";
+                        preconditions.add(off + " + " + startParam + " >= 0");
+                        preconditions.add(accessedArr + ".length " + shiftedOp + " "
+                                + off + " + " + endParam);
+                    }
+                }
             }
+        }
+    }
+
+    /**
+     * Recognises array accesses indexed by a modular expression — {@code arr[(EXPR) % N]}
+     * — and emits the preconditions that make the access provably in-bounds.
+     *
+     * <p>Specifically, for every {@code accessedArr[X % divisor]} where {@code divisor}
+     * resolves (either directly or via a local) to {@code accessedArr.length}, emit:</p>
+     * <ul>
+     *   <li>{@code accessedArr.length > 0} as a precondition (the divisor must be non-zero),
+     *       and as a loop invariant when the access is inside a loop.</li>
+     *   <li>For every parameter referenced positively in {@code EXPR}, emit
+     *       {@code param >= 0} (Java's {@code %} follows the dividend's sign, so a
+     *       negative dividend yields a negative result and an out-of-bounds index).</li>
+     * </ul>
+     *
+     * <p>Handles two divisor shapes:</p>
+     * <ul>
+     *   <li>{@code arr[X % arr.length]} — divisor is the array's own length.</li>
+     *   <li>{@code int n = arr.length; ...; arr[X % n] = ...;} — divisor is a local
+     *       initialised from the array's length (the rotate pattern).</li>
+     * </ul>
+     */
+    private void analyzeModularIndexAccess(MethodDeclaration methodDecl,
+                                            Set<String> preconditions,
+                                            com.jml.inferrer.model.MethodSpecification spec,
+                                            ASTCollector collector) {
+        Set<String> paramNames = new java.util.LinkedHashSet<>();
+        Set<String> arrayParams = new java.util.LinkedHashSet<>();
+        for (Parameter p : methodDecl.getParameters()) {
+            paramNames.add(p.getNameAsString());
+            if (p.getType().asString().contains("[]")) arrayParams.add(p.getNameAsString());
+        }
+        // Map: local name -> array name, when `int local = array.length;` is in scope.
+        Map<String, String> lengthLocalToArray = new java.util.LinkedHashMap<>();
+        methodDecl.findAll(com.github.javaparser.ast.expr.VariableDeclarationExpr.class).forEach(vde ->
+                vde.getVariables().forEach(v -> v.getInitializer().ifPresent(init -> {
+                    if (init instanceof FieldAccessExpr fae
+                            && fae.getNameAsString().equals("length")
+                            && fae.getScope() instanceof NameExpr ne
+                            && arrayParams.contains(ne.getNameAsString())) {
+                        lengthLocalToArray.put(v.getNameAsString(), ne.getNameAsString());
+                    }
+                })));
+
+        for (ArrayAccessExpr aae : methodDecl.findAll(ArrayAccessExpr.class)) {
+            // Index must be a `%` binary expression.
+            if (!(aae.getIndex() instanceof BinaryExpr modExpr)) continue;
+            if (modExpr.getOperator() != BinaryExpr.Operator.REMAINDER) continue;
+
+            // Divisor must resolve to a parameter array's length, either directly or via
+            // a local. The accessed array can be any array (parameter, field, or local) —
+            // what matters is the divisor: when divisor > 0, Java's `%` produces a result
+            // in [-(divisor-1), divisor-1], and additionally non-negative iff the dividend
+            // is non-negative. Drives ArrayRotation.rotate where the access target is a
+            // freshly-allocated local but the divisor `n = arr.length` ties to the param.
+            Expression divisor = modExpr.getRight();
+            String resolvedDivisorArray = null;
+            if (divisor instanceof FieldAccessExpr divFae
+                    && divFae.getNameAsString().equals("length")
+                    && divFae.getScope() instanceof NameExpr divNe
+                    && arrayParams.contains(divNe.getNameAsString())) {
+                resolvedDivisorArray = divNe.getNameAsString();
+            } else if (divisor instanceof NameExpr divNe
+                    && lengthLocalToArray.containsKey(divNe.getNameAsString())) {
+                resolvedDivisorArray = lengthLocalToArray.get(divNe.getNameAsString());
+            }
+            if (resolvedDivisorArray == null) continue;
+
+            preconditions.add(resolvedDivisorArray + ".length > 0");
+
+            // Inside a loop, also emit as loop invariant so the body can prove the access.
+            Optional<com.github.javaparser.ast.stmt.ForStmt> forOpt =
+                    aae.findAncestor(com.github.javaparser.ast.stmt.ForStmt.class);
+            if (forOpt.isPresent() && spec != null) {
+                int line = forOpt.get().getBegin().map(p -> p.line).orElse(0);
+                spec.addLoopInvariant(resolvedDivisorArray + ".length > 0", line);
+            }
+
+            // For every parameter that appears in the dividend additively (e.g. shift in
+            // `(i + shift) % n`), require it to be non-negative so the dividend stays >= 0.
+            // Conservative: only require `>= 0` for parameters added positively.
+            collectAdditiveParams(modExpr.getLeft(), paramNames).forEach(p ->
+                    preconditions.add(p + " >= 0"));
+        }
+    }
+
+    /**
+     * Collects parameter names that appear in {@code expr} as positive operands of
+     * {@code +} (so the overall sign of the expression is bounded below by their values
+     * being non-negative). Conservative: bails on subtraction or unrecognised shapes.
+     */
+    private Set<String> collectAdditiveParams(Expression expr, Set<String> paramNames) {
+        Set<String> out = new java.util.LinkedHashSet<>();
+        collectAdditiveParamsHelper(expr, paramNames, out);
+        return out;
+    }
+
+    private void collectAdditiveParamsHelper(Expression expr, Set<String> paramNames, Set<String> out) {
+        if (expr instanceof EnclosedExpr enc) {
+            collectAdditiveParamsHelper(enc.getInner(), paramNames, out);
+            return;
+        }
+        if (expr instanceof BinaryExpr be && be.getOperator() == BinaryExpr.Operator.PLUS) {
+            collectAdditiveParamsHelper(be.getLeft(), paramNames, out);
+            collectAdditiveParamsHelper(be.getRight(), paramNames, out);
+            return;
+        }
+        if (expr instanceof NameExpr ne && paramNames.contains(ne.getNameAsString())) {
+            out.add(ne.getNameAsString());
         }
     }
 

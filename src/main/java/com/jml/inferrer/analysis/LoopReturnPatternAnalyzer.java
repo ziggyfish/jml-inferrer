@@ -75,7 +75,8 @@ class LoopReturnPatternAnalyzer {
         if (isIntegerLiteral(init, 0) && isPlainAccumulator(loop, varName, AssignExpr.Operator.PLUS)) {
             String emptyCond = emptyLoopCondition(loop, methodDecl);
             if (emptyCond != null) {
-                postconditions.add(emptyCond + " ==> \\result == 0");
+                String guarded = guardWithFieldNullChecks(emptyCond, methodDecl);
+                postconditions.add(guarded + " ==> \\result == 0");
             }
             return;
         }
@@ -84,7 +85,8 @@ class LoopReturnPatternAnalyzer {
         if (isIntegerLiteral(init, 1) && isPlainAccumulator(loop, varName, AssignExpr.Operator.MULTIPLY)) {
             String emptyCond = emptyLoopCondition(loop, methodDecl);
             if (emptyCond != null) {
-                postconditions.add(emptyCond + " ==> \\result == 1");
+                String guarded = guardWithFieldNullChecks(emptyCond, methodDecl);
+                postconditions.add(guarded + " ==> \\result == 1");
             }
             return;
         }
@@ -654,6 +656,60 @@ class LoopReturnPatternAnalyzer {
      *   {@code i >= end} → {@code start < end}.
      * Both {@code start} and {@code end} must be method-scope safe (no loop-locals).
      */
+    /**
+     * Wraps {@code condition} with not-null preconditions for any instance fields it
+     * dereferences (e.g. {@code data.length} requires {@code this.data != null}).
+     * Without these, a postcondition like {@code data.length == 0 ==> \result == 0}
+     * is unprovable when the method has a {@code signals} clause for {@code data == null}
+     * (the spec is checked against all states, not just the throw paths). Drives the
+     * exception-flow split for ExcFlow2.sum.
+     *
+     * <p>If no field dereferences appear in the condition, returns the condition as-is.</p>
+     */
+    private String guardWithFieldNullChecks(String condition, MethodDeclaration methodDecl) {
+        if (condition == null || condition.isEmpty()) return condition;
+        Set<String> classFields = methodDecl.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(v -> v.getNameAsString())
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)))
+                .orElseGet(LinkedHashSet::new);
+        Set<String> referenceFields = methodDecl.findAncestor(
+                        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(cls -> cls.getFields().stream()
+                        .filter(f -> {
+                            String t = f.getCommonType().asString();
+                            return t.endsWith("[]") || (!t.equals("int") && !t.equals("long")
+                                    && !t.equals("short") && !t.equals("byte")
+                                    && !t.equals("char") && !t.equals("boolean")
+                                    && !t.equals("float") && !t.equals("double"));
+                        })
+                        .flatMap(f -> f.getVariables().stream())
+                        .map(v -> v.getNameAsString())
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)))
+                .orElseGet(LinkedHashSet::new);
+        // Skip params with the same name (parameter shadows field).
+        Set<String> paramNames = new LinkedHashSet<>();
+        methodDecl.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+
+        List<String> nullGuards = new ArrayList<>();
+        for (String f : referenceFields) {
+            if (paramNames.contains(f)) continue;
+            // Field is referenced if `f.` appears (with no preceding identifier char) in
+            // the condition — captures both bare `f.length` and qualified `this.f.length`.
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?<![\\w.])" + java.util.regex.Pattern.quote(f) + "\\.");
+            java.util.regex.Pattern pq = java.util.regex.Pattern.compile(
+                    "this\\." + java.util.regex.Pattern.quote(f) + "\\.");
+            if (p.matcher(condition).find() || pq.matcher(condition).find()) {
+                nullGuards.add("this." + f + " != null");
+            }
+        }
+        if (nullGuards.isEmpty()) return condition;
+        return String.join(" && ", nullGuards) + " && " + condition;
+    }
+
     private String emptyLoopCondition(Statement loop, MethodDeclaration methodDecl) {
         if (loop instanceof ForEachStmt fes) {
             String iterable = fes.getIterable().toString();

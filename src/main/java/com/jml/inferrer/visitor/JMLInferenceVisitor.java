@@ -360,9 +360,23 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
 
         // Add @LoopInvariant annotations, tagged with the source line of the loop they
         // attach to so AnnotationToJMLConverter can place each one above the right loop.
-        for (String loopInvariant : specification.getLoopInvariants()) {
-            int loopLine = specification.getLoopInvariantLine(loopInvariant);
+        // Use indexed access via getLoopInvariantLineAt — the same invariant string can
+        // appear multiple times in the list (one per attaching loop), and the legacy
+        // string-keyed getLoopInvariantLine() returns only the first attribution.
+        java.util.List<String> invs = specification.getLoopInvariants();
+        for (int idx = 0; idx < invs.size(); idx++) {
+            String loopInvariant = invs.get(idx);
+            int loopLine = specification.getLoopInvariantLineAt(idx);
             AnnotationExpr annotation = createLoopInvariantAnnotation(loopInvariant, loopLine);
+            methodDecl.addAnnotation(annotation);
+        }
+
+        // Add @LoopDecreases annotations (termination measures). Same per-loop tagging
+        // mechanism as @LoopInvariant; the converter emits them as `loop_decreases`
+        // clauses adjacent to the matching `loop_invariant` block.
+        for (String expr : specification.getLoopDecreases()) {
+            int loopLine = specification.getLoopDecreasesLine(expr);
+            AnnotationExpr annotation = createLoopDecreasesAnnotation(expr, loopLine);
             methodDecl.addAnnotation(annotation);
         }
 
@@ -458,6 +472,26 @@ public class JMLInferenceVisitor extends VoidVisitorAdapter<Void> {
                 "loopLine", new com.github.javaparser.ast.expr.IntegerLiteralExpr(String.valueOf(loopLine))));
         return new com.github.javaparser.ast.expr.NormalAnnotationExpr(
                 new Name("com.jml.inferrer.annotations.LoopInvariant"), members);
+    }
+
+    /**
+     * Creates a @LoopDecreases(value="...", loopLine=N) annotation. Mirrors
+     * createLoopInvariantAnnotation; emitted as `//@ loop_decreases ...;` by the
+     * AnnotationToJMLConverter.
+     */
+    private AnnotationExpr createLoopDecreasesAnnotation(String value, int loopLine) {
+        if (loopLine == 0) {
+            return createAnnotation("com.jml.inferrer.annotations.LoopDecreases", value);
+        }
+        String escapedValue = value.replace("\\", "\\\\").replace("\"", "\\\"");
+        com.github.javaparser.ast.NodeList<com.github.javaparser.ast.expr.MemberValuePair> members =
+                new com.github.javaparser.ast.NodeList<>();
+        members.add(new com.github.javaparser.ast.expr.MemberValuePair(
+                "value", new StringLiteralExpr(escapedValue)));
+        members.add(new com.github.javaparser.ast.expr.MemberValuePair(
+                "loopLine", new com.github.javaparser.ast.expr.IntegerLiteralExpr(String.valueOf(loopLine))));
+        return new com.github.javaparser.ast.expr.NormalAnnotationExpr(
+                new Name("com.jml.inferrer.annotations.LoopDecreases"), members);
     }
 
     /**

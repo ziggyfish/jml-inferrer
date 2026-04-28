@@ -33,7 +33,7 @@ public class AnnotationToJMLConverter {
 
     // Annotations that map to JML method-level spec comments
     private static final Set<String> METHOD_SPEC_ANNOTATIONS = Set.of(
-            "Requires", "Ensures", "Signals", "Assignable", "LoopInvariant"
+            "Requires", "Ensures", "Signals", "Assignable", "LoopInvariant", "LoopDecreases"
     );
 
     // Annotations that map to JML method modifiers
@@ -122,6 +122,10 @@ public class AnnotationToJMLConverter {
             // Loop invariants tagged by their owning loop's source line. line 0 means
             // "default to the first loop" (legacy single-loop behaviour).
             Map<Integer, List<String>> invariantsByLoop = new java.util.LinkedHashMap<>();
+            // Termination measures, keyed the same way as invariantsByLoop. Emitted as
+            // `loop_decreases` clauses immediately after the loop_invariant block for
+            // the same loop, so OpenJML sees the variant in the same spec context.
+            Map<Integer, List<String>> decreasesByLoop = new java.util.LinkedHashMap<>();
             boolean isPure = false;
             List<int[]> annotationLineRanges = new ArrayList<>();
             // Collect assignable values so we can merge multiple `@Assignable` annotations
@@ -150,6 +154,10 @@ public class AnnotationToJMLConverter {
                             int loopLine = extractLoopLineMember(ann);
                             invariantsByLoop.computeIfAbsent(loopLine, k -> new ArrayList<>())
                                     .add(normalizeJMLExpression(value));
+                        } else if (name.equals("LoopDecreases")) {
+                            int loopLine = extractLoopLineMember(ann);
+                            decreasesByLoop.computeIfAbsent(loopLine, k -> new ArrayList<>())
+                                    .add(normalizeJMLExpression(value));
                         } else if (name.equals("Assignable")) {
                             String normalized = normalizeJMLExpression(value);
                             if (!assignableValues.contains(normalized)) {
@@ -163,6 +171,17 @@ public class AnnotationToJMLConverter {
                                 String cond = normalized.substring(whenIdx + 6).trim();
                                 signalsByType.computeIfAbsent(excType, k -> new ArrayList<>())
                                         .add(cond);
+                            } else if (normalized.matches("(?:[\\w.]+\\.)?[A-Z]\\w*")) {
+                                // Bare exception-type passthrough — comes from a wrap-and-rethrow
+                                // catch (ThrowStmt with no enclosing IfStmt). The exception is
+                                // thrown when execution reaches the catch, which can happen on
+                                // any path that doesn't take an explicit guard. Fold this into
+                                // the per-type group with `true` so it disjuncts with any guard
+                                // clauses; otherwise the conjunction `(guard) AND (true)` would
+                                // restrict the exception to only the guard's condition, which
+                                // is wrong when there's a separate catch path.
+                                signalsByType.computeIfAbsent(normalized, k -> new ArrayList<>())
+                                        .add("true");
                             } else {
                                 String jmlClause = convertMethodAnnotation(name, value);
                                 if (jmlClause != null) {
@@ -225,16 +244,24 @@ public class AnnotationToJMLConverter {
                 for (String c : conditions) {
                     if (!unique.contains(c)) unique.add(c);
                 }
-                String joined = unique.size() == 1
-                        ? unique.get(0)
-                        : unique.stream()
-                                .map(c -> "(" + c + ")")
-                                .collect(java.util.stream.Collectors.joining(" || "));
+                // If any disjunct is a tautology (`true`), the whole disjunction reduces
+                // to `true` — collapse to avoid a noisy `(guard) || (true)` form that
+                // adds no information but can confuse the prover.
+                String joined;
+                if (unique.contains("true")) {
+                    joined = "true";
+                } else if (unique.size() == 1) {
+                    joined = unique.get(0);
+                } else {
+                    joined = unique.stream()
+                            .map(c -> "(" + c + ")")
+                            .collect(java.util.stream.Collectors.joining(" || "));
+                }
                 specComments.add("signals (" + excType + " e) " + joined + ";");
             }
             specComments.addAll(signalsPassthrough);
 
-            if (!specComments.isEmpty() || isPure || !invariantsByLoop.isEmpty()) {
+            if (!specComments.isEmpty() || isPure || !invariantsByLoop.isEmpty() || !decreasesByLoop.isEmpty()) {
                 // Build JML spec block to insert before method declaration
                 String indent = "";
                 if (methodDecl.getBegin().isPresent()) {
@@ -268,14 +295,20 @@ public class AnnotationToJMLConverter {
                 }
                 replacements.add(new Replacement(insertLine, insertLine, jmlBlock.toString(), true));
 
-                // Handle loop invariants: insert each tagged group above its loop. Tag 0 means
-                // "first loop" (legacy fallback for invariants the analyzer didn't attribute).
-                if (!invariantsByLoop.isEmpty() && methodDecl.getBody().isPresent()) {
+                // Handle loop invariants and loop_decreases: insert each tagged group
+                // above its loop. Tag 0 means "first loop" (legacy fallback for entries
+                // the analyzer didn't attribute). Both clause types share the same
+                // ordinal-to-loop mapping; loop_decreases lines follow the
+                // loop_invariant block for the same loop.
+                if ((!invariantsByLoop.isEmpty() || !decreasesByLoop.isEmpty())
+                        && methodDecl.getBody().isPresent()) {
                     BlockStmt body = methodDecl.getBody().get();
                     List<Statement> loopsByOrdinal = collectLoopsInVisitOrder(body);
 
-                    for (Map.Entry<Integer, List<String>> entry : invariantsByLoop.entrySet()) {
-                        int ordinal = entry.getKey();
+                    java.util.Set<Integer> allOrdinals = new java.util.LinkedHashSet<>();
+                    allOrdinals.addAll(invariantsByLoop.keySet());
+                    allOrdinals.addAll(decreasesByLoop.keySet());
+                    for (Integer ordinal : allOrdinals) {
                         // Ordinal 0 is the legacy/untagged form (and matches the first loop too).
                         // Out-of-range ordinals fall back to the first loop.
                         Statement targetLoop;
@@ -289,9 +322,13 @@ public class AnnotationToJMLConverter {
                         int loopLine = targetLoop.getBegin().get().line;
                         String loopIndent = getIndent(source, loopLine);
                         StringBuilder loopJml = new StringBuilder();
-                        for (String inv : entry.getValue()) {
+                        for (String inv : invariantsByLoop.getOrDefault(ordinal, List.of())) {
                             loopJml.append(loopIndent).append("//@ loop_invariant ")
                                     .append(inv).append(";\n");
+                        }
+                        for (String dec : decreasesByLoop.getOrDefault(ordinal, List.of())) {
+                            loopJml.append(loopIndent).append("//@ loop_decreases ")
+                                    .append(dec).append(";\n");
                         }
                         replacements.add(new Replacement(loopLine, loopLine,
                                 loopJml.toString(), true));

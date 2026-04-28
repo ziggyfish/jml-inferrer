@@ -21,7 +21,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void nullCheckOnMethodCall() throws IOException {
         String source = """
                 public class NullCheckMethodCall {
-                    //@ requires s != null;
                     public int compute(String s) {
                         return s.length();
                     }
@@ -35,8 +34,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void nullCheckOnArrayAccess() throws IOException {
         String source = """
                 public class NullCheckArrayAccess {
-                    //@ requires arr != null;
-                    //@ requires arr.length > 0;
                     public int first(int[] arr) {
                         return arr[0];
                     }
@@ -50,8 +47,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void multipleParamNullChecks() throws IOException {
         String source = """
                 public class MultipleParamNullChecks {
-                    //@ requires a != null;
-                    //@ requires b != null;
                     public int totalLength(String a, String b) {
                         return a.length() + b.length();
                     }
@@ -65,9 +60,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void threeParamNullChecks() throws IOException {
         String source = """
                 public class ThreeParamNullChecks {
-                    //@ requires a != null;
-                    //@ requires b != null;
-                    //@ requires c != null;
                     public int combinedLength(String a, String b, String c) {
                         return a.length() + b.length() + c.length();
                     }
@@ -85,8 +77,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void arrayBoundsCheck() throws IOException {
         String source = """
                 public class ArrayBoundsCheck {
-                    //@ requires arr != null;
-                    //@ requires arr.length > 0;
                     public int first(int[] arr) {
                         return arr[0];
                     }
@@ -100,8 +90,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void arraySpecificIndex() throws IOException {
         String source = """
                 public class ArraySpecificIndex {
-                    //@ requires arr != null;
-                    //@ requires arr.length > 2;
                     public int third(int[] arr) {
                         return arr[2];
                     }
@@ -115,8 +103,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void combinedNullAndBounds() throws IOException {
         String source = """
                 public class CombinedNullAndBounds {
-                    //@ requires arr != null;
-                    //@ requires arr.length > 0;
                     public int firstElement(int[] arr) {
                         return arr[0];
                     }
@@ -130,9 +116,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void arrayIndexFromParam() throws IOException {
         String source = """
                 public class ArrayIndexFromParam {
-                    //@ requires arr != null;
-                    //@ requires idx >= 0;
-                    //@ requires idx < arr.length;
                     public int getAt(int[] arr, int idx) {
                         return arr[idx];
                     }
@@ -146,12 +129,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void twoArraysSameLength() throws IOException {
         String source = """
                 public class TwoArraysSameLength {
-                    //@ requires a != null;
-                    //@ requires b != null;
-                    //@ requires a.length == b.length;
-                    //@ requires idx >= 0;
-                    //@ requires idx < a.length;
-                    //@ assignable a[idx], b[idx];
                     public void swap(int[] a, int[] b, int idx) {
                         int tmp = a[idx];
                         a[idx] = b[idx];
@@ -171,7 +148,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void numericGuardThrow() throws IOException {
         String source = """
                 public class NumericGuardThrow {
-                    //@ requires n >= 0;
                     public int process(int n) {
                         if (n < 0) throw new IllegalArgumentException();
                         return n * 2;
@@ -186,7 +162,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void equalityGuardThrow() throws IOException {
         String source = """
                 public class EqualityGuardThrow {
-                    //@ requires n != 0;
                     public int divide(int a, int n) {
                         if (n == 0) throw new ArithmeticException();
                         return a / n;
@@ -201,7 +176,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void positiveIntegerPrecondition() throws IOException {
         String source = """
                 public class PositiveIntegerPrecondition {
-                    //@ requires n > 0;
                     public int reciprocal(int n) {
                         return 100 / n;
                     }
@@ -215,7 +189,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void paramRelationship() throws IOException {
         String source = """
                 public class ParamRelationship {
-                    //@ requires lo <= hi;
                     public int range(int lo, int hi) {
                         return hi - lo;
                     }
@@ -233,11 +206,8 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void guardThenLoop() throws IOException {
         String source = """
                 public class GuardThenLoop {
-                    //@ requires arr != null;
-                    //@ requires arr.length > 0;
                     public int sumPositive(int[] arr) {
                         int sum = 0;
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] > 0) {
                                 sum += arr[i];
@@ -255,11 +225,8 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void findMaxInArray() throws IOException {
         String source = """
                 public class FindMaxInArray {
-                    //@ requires arr != null;
-                    //@ requires arr.length > 0;
                     public int findMax(int[] arr) {
                         int max = arr[0];
-                        //@ loop_invariant i >= 1 && i <= arr.length;
                         for (int i = 1; i < arr.length; i++) {
                             if (arr[i] > max) {
                                 max = arr[i];
@@ -277,11 +244,8 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void countNegatives() throws IOException {
         String source = """
                 public class CountNegatives {
-                    //@ requires arr != null;
                     public int countNeg(int[] arr) {
                         int count = 0;
-                        //@ loop_invariant i >= 0 && i <= arr.length;
-                        //@ loop_invariant count >= 0;
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] < 0) {
                                 count++;
@@ -299,13 +263,8 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void rangeValidationSubarraySum() throws IOException {
         String source = """
                 public class RangeValidationSubarraySum {
-                    //@ requires arr != null;
-                    //@ requires from >= 0;
-                    //@ requires to >= from;
-                    //@ requires to <= arr.length;
                     public int subarraySum(int[] arr, int from, int to) {
                         int sum = 0;
-                        //@ loop_invariant i >= from && i <= to;
                         for (int i = from; i < to; i++) {
                             sum += arr[i];
                         }
@@ -325,9 +284,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void multipleGuardsValidatedDivision() throws IOException {
         String source = """
                 public class MultipleGuardsValidatedDivision {
-                    //@ requires b != 0;
-                    //@ requires a >= 0;
-                    //@ requires b > 0;
                     public int safeDivide(int a, int b) {
                         if (b == 0) throw new ArithmeticException();
                         if (a < 0) throw new IllegalArgumentException();
@@ -344,8 +300,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
         String source = """
                 public class CascadedNullChecks {
                     String name;
-                    //@ requires obj != null;
-                    //@ requires obj.name != null;
                     public int getNameLength(CascadedNullChecks obj) {
                         return obj.name.length();
                     }
@@ -359,11 +313,9 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void guardEarlyReturnThenCompute() throws IOException {
         String source = """
                 public class GuardEarlyReturnThenCompute {
-                    //@ requires arr != null;
                     public int sumOrZero(int[] arr) {
                         if (arr.length == 0) return 0;
                         int sum = 0;
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             sum += arr[i];
                         }
@@ -379,8 +331,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void booleanParamBranching() throws IOException {
         String source = """
                 public class BooleanParamBranching {
-                    //@ requires n >= 0;
-                    //@ ensures \\result >= 0;
                     public int process(int n, boolean doubleIt) {
                         if (doubleIt) {
                             return n * 2;
@@ -403,10 +353,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
                 public class FieldBasedPrecondition {
                     int size;
                     int capacity;
-                    //@ requires this.size < this.capacity;
-                    //@ requires this.capacity > 0;
-                    //@ assignable this.size;
-                    //@ ensures this.size == \\old(this.size) + 1;
                     public void add() {
                         this.size++;
                     }
@@ -422,9 +368,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
                 public class ArrayFieldNullAndBounds {
                     int[] data;
                     int size;
-                    //@ requires this.data != null;
-                    //@ requires idx >= 0;
-                    //@ requires idx < this.data.length;
                     public int get(int idx) {
                         return this.data[idx];
                     }
@@ -440,11 +383,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
                 public class StackPopPrecondition {
                     int[] data;
                     int size;
-                    //@ requires this.data != null;
-                    //@ requires this.size > 0;
-                    //@ requires this.size <= this.data.length;
-                    //@ assignable this.size;
-                    //@ ensures this.size == \\old(this.size) - 1;
                     public int pop() {
                         this.size--;
                         return this.data[this.size];
@@ -463,12 +401,7 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void copyArrayPreconditions() throws IOException {
         String source = """
                 public class CopyArrayPreconditions {
-                    //@ requires src != null;
-                    //@ requires dst != null;
-                    //@ requires src.length <= dst.length;
-                    //@ assignable dst[*];
                     public void copy(int[] src, int[] dst) {
-                        //@ loop_invariant i >= 0 && i <= src.length;
                         for (int i = 0; i < src.length; i++) {
                             dst[i] = src[i];
                         }
@@ -483,12 +416,8 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void dotProductPreconditions() throws IOException {
         String source = """
                 public class DotProductPreconditions {
-                    //@ requires a != null;
-                    //@ requires b != null;
-                    //@ requires a.length == b.length;
                     public int dotProduct(int[] a, int[] b) {
                         int result = 0;
-                        //@ loop_invariant i >= 0 && i <= a.length;
                         for (int i = 0; i < a.length; i++) {
                             result += a[i] * b[i];
                         }
@@ -504,12 +433,7 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void binarySearchPreconditions() throws IOException {
         String source = """
                 public class BinarySearchPreconditions {
-                    //@ requires arr != null;
-                    //@ requires lo >= 0;
-                    //@ requires hi <= arr.length;
-                    //@ requires lo <= hi;
                     public int binarySearch(int[] arr, int target, int lo, int hi) {
-                        //@ loop_invariant lo >= 0 && hi <= arr.length;
                         while (lo < hi) {
                             int mid = lo + (hi - lo) / 2;
                             if (arr[mid] == target) return mid;
@@ -531,13 +455,9 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void reverseArrayPreconditions() throws IOException {
         String source = """
                 public class ReverseArrayPreconditions {
-                    //@ requires arr != null;
-                    //@ assignable arr[*];
                     public void reverse(int[] arr) {
                         int left = 0;
                         int right = arr.length - 1;
-                        //@ loop_invariant left >= 0;
-                        //@ loop_invariant right >= -1 && right < arr.length;
                         while (left < right) {
                             int tmp = arr[left];
                             arr[left] = arr[right];
@@ -560,9 +480,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void clampMinMax() throws IOException {
         String source = """
                 public class ClampMinMax {
-                    //@ requires min <= max;
-                    //@ ensures \\result >= min;
-                    //@ ensures \\result <= max;
                     public int clamp(int value, int min, int max) {
                         if (value < min) return min;
                         if (value > max) return max;
@@ -578,9 +495,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void modularArithmetic() throws IOException {
         String source = """
                 public class ModularArithmetic {
-                    //@ requires mod > 0;
-                    //@ ensures \\result >= 0;
-                    //@ ensures \\result < mod;
                     public int positiveMod(int value, int mod) {
                         int r = value % mod;
                         if (r < 0) r += mod;
@@ -596,12 +510,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void matrixElementAccess() throws IOException {
         String source = """
                 public class MatrixElementAccess {
-                    //@ requires data != null;
-                    //@ requires cols > 0;
-                    //@ requires row >= 0;
-                    //@ requires col >= 0;
-                    //@ requires col < cols;
-                    //@ requires row * cols + col < data.length;
                     public int getElement(int[] data, int cols, int row, int col) {
                         return data[row * cols + col];
                     }
@@ -615,11 +523,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void percentageCalculation() throws IOException {
         String source = """
                 public class PercentageCalculation {
-                    //@ requires total > 0;
-                    //@ requires part >= 0;
-                    //@ requires part <= total;
-                    //@ ensures \\result >= 0;
-                    //@ ensures \\result <= 100;
                     public int percentage(int part, int total) {
                         return (part * 100) / total;
                     }
@@ -637,8 +540,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void stringComparisonNullGuard() throws IOException {
         String source = """
                 public class StringComparisonNullGuard {
-                    //@ requires a != null;
-                    //@ requires b != null;
                     public boolean longerThan(String a, String b) {
                         return a.length() > b.length();
                     }
@@ -652,11 +553,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void substringPreconditions() throws IOException {
         String source = """
                 public class SubstringPreconditions {
-                    //@ requires s != null;
-                    //@ requires start >= 0;
-                    //@ requires end >= start;
-                    //@ requires end <= s.length();
-                    //@ ensures \\result != null;
                     public String safeSubstring(String s, int start, int end) {
                         return s.substring(start, end);
                     }
@@ -670,9 +566,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void charAtIndex() throws IOException {
         String source = """
                 public class CharAtIndex {
-                    //@ requires s != null;
-                    //@ requires idx >= 0;
-                    //@ requires idx < s.length();
                     public char charAt(String s, int idx) {
                         return s.charAt(idx);
                     }
@@ -690,7 +583,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void absoluteDifference() throws IOException {
         String source = """
                 public class AbsoluteDifference {
-                    //@ ensures \\result >= 0;
                     public int absDiff(int a, int b) {
                         if (a >= b) return a - b;
                         return b - a;
@@ -707,10 +599,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
                 public class BoundedIncrement {
                     int value;
                     int maxValue;
-                    //@ requires this.value < this.maxValue;
-                    //@ assignable this.value;
-                    //@ ensures this.value == \\old(this.value) + 1;
-                    //@ ensures this.value <= this.maxValue;
                     public void increment() {
                         this.value++;
                     }
@@ -724,13 +612,7 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void safeArrayFill() throws IOException {
         String source = """
                 public class SafeArrayFill {
-                    //@ requires arr != null;
-                    //@ requires start >= 0;
-                    //@ requires end >= start;
-                    //@ requires end <= arr.length;
-                    //@ assignable arr[*];
                     public void fill(int[] arr, int start, int end, int value) {
-                        //@ loop_invariant i >= start && i <= end;
                         for (int i = start; i < end; i++) {
                             arr[i] = value;
                         }
@@ -745,11 +627,7 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void linearSearch() throws IOException {
         String source = """
                 public class LinearSearch {
-                    //@ requires arr != null;
-                    //@ ensures \\result >= -1;
-                    //@ ensures \\result < arr.length;
                     public int indexOf(int[] arr, int target) {
-                        //@ loop_invariant i >= 0 && i <= arr.length;
                         for (int i = 0; i < arr.length; i++) {
                             if (arr[i] == target) return i;
                         }
@@ -765,13 +643,8 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void factorialPrecondition() throws IOException {
         String source = """
                 public class FactorialPrecondition {
-                    //@ requires n >= 0;
-                    //@ requires n <= 12;
-                    //@ ensures \\result >= 1;
                     public int factorial(int n) {
                         int result = 1;
-                        //@ loop_invariant i >= 1 && i <= n + 1;
-                        //@ loop_invariant result >= 1;
                         for (int i = 1; i <= n; i++) {
                             result *= i;
                         }
@@ -783,15 +656,16 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     }
 
     @Test
-    @DisplayName("GCD: both params positive with while loop")
+    @DisplayName("GCD without validation: inferrer surfaces non-termination bug")
     void gcdPrecondition() throws IOException {
+        // Same shape as GCDLoop in LoopInvariantVerificationTest: subtractive Euclidean
+        // with no input validation, so gcd(0, -1) loops forever. Inferrer's
+        // loop_decreases inference correctly emits `loop_decreases a + b`, which
+        // OpenJML cannot discharge for non-positive inputs — the bug-detection signal.
+        // See user_phd_context.md, "Bug-detection framing".
         String source = """
                 public class GCDPrecondition {
-                    //@ requires a > 0;
-                    //@ requires b > 0;
-                    //@ ensures \\result > 0;
                     public int gcd(int a, int b) {
-                        //@ loop_invariant a > 0 && b > 0;
                         while (a != b) {
                             if (a > b) {
                                 a = a - b;
@@ -803,7 +677,7 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
                     }
                 }
                 """;
-        assertVerified(inferAndVerify(source, "GCDPrecondition", "gcd"));
+        assertFailed(inferAndVerify(source, "GCDPrecondition", "gcd"));
     }
 
     @Test
@@ -811,11 +685,8 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void powerPrecondition() throws IOException {
         String source = """
                 public class PowerPrecondition {
-                    //@ requires exp >= 0;
-                    //@ ensures \\result >= 0 || base < 0;
                     public int power(int base, int exp) {
                         int result = 1;
-                        //@ loop_invariant i >= 0 && i <= exp;
                         for (int i = 0; i < exp; i++) {
                             result *= base;
                         }
@@ -839,12 +710,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
                     int head;
                     int tail;
                     int size;
-                    //@ requires this.data != null;
-                    //@ requires this.data.length > 0;
-                    //@ requires this.size < this.data.length;
-                    //@ requires this.tail >= 0;
-                    //@ requires this.tail < this.data.length;
-                    //@ assignable this.data[this.tail], this.tail, this.size;
                     public void enqueue(int value) {
                         this.data[this.tail] = value;
                         this.tail = (this.tail + 1) % this.data.length;
@@ -860,17 +725,8 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void mergePreconditions() throws IOException {
         String source = """
                 public class MergePreconditions {
-                    //@ requires a != null;
-                    //@ requires b != null;
-                    //@ requires result != null;
-                    //@ requires result.length >= a.length + b.length;
-                    //@ assignable result[*];
                     public void merge(int[] a, int[] b, int[] result) {
                         int i = 0, j = 0, k = 0;
-                        //@ loop_invariant i >= 0 && i <= a.length;
-                        //@ loop_invariant j >= 0 && j <= b.length;
-                        //@ loop_invariant k >= 0 && k <= result.length;
-                        //@ loop_invariant k == i + j;
                         while (i < a.length && j < b.length) {
                             if (a[i] <= b[j]) {
                                 result[k++] = a[i++];
@@ -878,13 +734,9 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
                                 result[k++] = b[j++];
                             }
                         }
-                        //@ loop_invariant i >= 0 && i <= a.length;
-                        //@ loop_invariant k >= 0 && k <= result.length;
                         while (i < a.length) {
                             result[k++] = a[i++];
                         }
-                        //@ loop_invariant j >= 0 && j <= b.length;
-                        //@ loop_invariant k >= 0 && k <= result.length;
                         while (j < b.length) {
                             result[k++] = b[j++];
                         }
@@ -899,8 +751,6 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void safeDivisionChain() throws IOException {
         String source = """
                 public class SafeDivisionChain {
-                    //@ requires b != 0;
-                    //@ requires c != 0;
                     public int doubleDivide(int a, int b, int c) {
                         int first = a / b;
                         return first / c;
@@ -915,16 +765,9 @@ class PreconditionVerificationTest extends FormalVerificationTestBase {
     void arrayRotation() throws IOException {
         String source = """
                 public class ArrayRotation {
-                    //@ requires arr != null;
-                    //@ requires arr.length > 0;
-                    //@ requires shift >= 0;
-                    //@ requires shift < arr.length;
-                    //@ ensures \\result != null;
-                    //@ ensures \\result.length == arr.length;
                     public int[] rotate(int[] arr, int shift) {
                         int n = arr.length;
                         int[] result = new int[n];
-                        //@ loop_invariant i >= 0 && i <= n;
                         for (int i = 0; i < n; i++) {
                             result[(i + shift) % n] = arr[i];
                         }

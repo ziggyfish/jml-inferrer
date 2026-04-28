@@ -119,6 +119,19 @@ public class OpenJMLInvoker {
         command.add("--arithmetic-failure=hard");
         command.add("--nullable-by-default");
 
+        // Counter-example output: when verification fails and z3 returns SAT
+        // with a model, OpenJML pretty-prints the violating input bindings and
+        // an execution trace pointing at the failing assertion. Lets the test
+        // harness (and the inferrer's calibration analysis) tell apart
+        //   (a) "spec wrong on input X"   — counter-example present
+        //   (b) "solver gave up"          — "Validity is unknown - no model"
+        // Costs ~10-20% on the failing-test path; no cost when verification
+        // succeeds. See FormalVerificationTestBase for how the output is
+        // streamed into the test log.
+        command.add("--counterexample");
+        command.add("--trace");
+        command.add("--subexpressions");
+
         // The fork-built OpenJML emits `define-fun-rec` for \sum / \product /
         // \num_of; the default bundled z3-4.3.1 predates that command. Prefer
         // z3-4.7.1 or cvc5 (both support define-fun-rec) when available.

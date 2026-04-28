@@ -26,6 +26,11 @@ import java.util.Set;
  *       {@code p == (\product int k; LO <= k && k < I; factor(k))}</li>
  *   <li>{@code if (pred(I)) count++} (or {@code count += 1}) &rarr;
  *       {@code count == (\num_of int k; LO <= k && k < I; pred(k))}</li>
+ *   <li>{@code if (pred(I)) total += summand(I)} &rarr;
+ *       {@code total == (\sum int k; LO <= k && k < I; pred(k) ? summand(k) : 0)}
+ *       (the predicate is folded into the summand rather than the range so that
+ *       the {@code define-fun-rec} encoding stays in its supported simple-range
+ *       shape; analogously for {@code *=} the empty case is {@code 1})</li>
  * </ul>
  *
  * <p>The analyzer only emits invariants for loops with a single counter
@@ -37,17 +42,56 @@ final class SumInductionAnalyzer {
     private SumInductionAnalyzer() {}
 
     static void analyze(ForStmt forStmt, List<String> counterNames, Set<String> invariants) {
+        analyze(forStmt, counterNames, invariants, null);
+    }
+
+    /**
+     * Emits {@code \sum}/{@code \product}/{@code \num_of} loop invariants. When
+     * {@code spec} is provided, emission is GATED on the spec already containing a
+     * postcondition that references the same quantifier — without a discharge
+     * target, the invariant just forces z3 to expand the {@code define-fun-rec}
+     * encoding for nothing and the proof times out (the SOLVER_UNKNOWN bucket
+     * documented in docs/solver-unknown-analysis.md). Per the user's bug-detection
+     * directive, an unverifiable but correct spec is worse than no spec at all.
+     */
+    static void analyze(ForStmt forStmt, List<String> counterNames, Set<String> invariants,
+                        com.jml.inferrer.model.MethodSpecification spec) {
         if (counterNames.size() != 1) return;
         String counter = counterNames.get(0);
         String lo = extractLowBound(forStmt, counter);
         if (lo == null) return;
 
+        if (!hasMatchingQuantifierPostcondition(spec)) return;
+
         Statement body = forStmt.getBody();
 
         body.findAll(AssignExpr.class).forEach(ae ->
                 handleCompoundAssign(ae, counter, lo, body, invariants));
-        body.findAll(IfStmt.class).forEach(is ->
-                handleConditionalCounter(is, counter, lo, body, invariants));
+        body.findAll(IfStmt.class).forEach(is -> {
+            handleConditionalCounter(is, counter, lo, body, invariants);
+            handleConditionalAccumulator(is, counter, lo, body, invariants);
+        });
+    }
+
+    /**
+     * True when the spec already contains a postcondition referencing one of the
+     * three quantifiers this analyzer emits ({@code \sum}, {@code \product},
+     * {@code \num_of}). Without such a postcondition, the loop invariants this
+     * analyzer would emit have no discharge target — they just force z3 to
+     * expand the recursive function definitions and (in practice) hit
+     * `(possible timeout)` as documented in the SOLVER_UNKNOWN analysis.
+     *
+     * Returns {@code true} when {@code spec} is null (back-compat for tests that
+     * call the simpler overload without spec context).
+     */
+    private static boolean hasMatchingQuantifierPostcondition(com.jml.inferrer.model.MethodSpecification spec) {
+        if (spec == null) return true;
+        for (String post : spec.getPostconditions()) {
+            if (post.contains("\\sum") || post.contains("\\product") || post.contains("\\num_of")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String extractLowBound(ForStmt forStmt, String counter) {
@@ -178,6 +222,73 @@ final class SumInductionAnalyzer {
 
         invariants.add(incrTarget + " == (\\num_of int k; " + lo + " <= k && k < "
                 + counter + "; " + condK + ")");
+    }
+
+    /**
+     * Handles {@code if (pred) target += RHS} (and {@code *=}, plus the explicit
+     * {@code target = target + RHS} forms). Emits a {@code \sum}/{@code \product}
+     * invariant whose summand is a ternary that contributes only when the
+     * predicate held. The range is kept in the simple {@code lo <= k && k < counter}
+     * shape so that the fork's {@code define-fun-rec} encoding stays in its
+     * supported form.
+     *
+     * Only fires when the then-branch is a single accumulator statement and there
+     * is no else clause; mirrors the gating in handleConditionalCounter.
+     */
+    private static void handleConditionalAccumulator(IfStmt is, String counter, String lo,
+                                                     Statement body, Set<String> invariants) {
+        if (is.getElseStmt().isPresent()) return;
+        if (isInsideNestedLoop(is, body)) return;
+
+        Statement then = is.getThenStmt();
+        if (then instanceof BlockStmt) {
+            BlockStmt bs = (BlockStmt) then;
+            if (bs.getStatements().size() != 1) return;
+            then = bs.getStatements().get(0);
+        }
+        if (!(then instanceof ExpressionStmt)) return;
+        Expression e = ((ExpressionStmt) then).getExpression();
+        if (!(e instanceof AssignExpr ae)) return;
+        if (!(ae.getTarget() instanceof NameExpr)) return;
+
+        String target = ((NameExpr) ae.getTarget()).getNameAsString();
+        if (target.equals(counter)) return;
+        if (persistsAcrossEnclosingLoop(body, target)) return;
+
+        AssignExpr.Operator op = ae.getOperator();
+        String quant;
+        String identity;
+        String summand;
+
+        if (op == AssignExpr.Operator.PLUS || op == AssignExpr.Operator.MULTIPLY) {
+            boolean isSum = op == AssignExpr.Operator.PLUS;
+            quant = isSum ? "\\sum" : "\\product";
+            identity = isSum ? "0" : "1";
+            summand = rewriteCounterToK(ae.getValue().toString(), counter);
+        } else if (op == AssignExpr.Operator.ASSIGN && ae.getValue() instanceof BinaryExpr be) {
+            String rhs = extractAccumulatorRhs(be, target);
+            if (rhs == null) return;
+            boolean isSum;
+            if (be.getOperator() == BinaryExpr.Operator.PLUS) { isSum = true; }
+            else if (be.getOperator() == BinaryExpr.Operator.MULTIPLY) { isSum = false; }
+            else return;
+            quant = isSum ? "\\sum" : "\\product";
+            identity = isSum ? "0" : "1";
+            summand = rewriteCounterToK(rhs, counter);
+        } else {
+            return;
+        }
+        if (summand == null) return;
+
+        // Skip "+= 1" / "*= 1" — handleConditionalCounter already covers the +=1 case
+        // with \num_of, and a constant *=1 is a no-op summary not worth emitting.
+        if (summand.equals("1")) return;
+
+        String condK = rewriteCounterToK(is.getCondition().toString(), counter);
+        if (condK == null) return;
+
+        invariants.add(target + " == (" + quant + " int k; " + lo + " <= k && k < "
+                + counter + "; (" + condK + ") ? (" + summand + ") : " + identity + ")");
     }
 
     /**

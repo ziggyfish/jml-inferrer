@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Represents the inferred JML specifications for a method.
@@ -21,6 +22,18 @@ public class MethodSpecification {
     private final List<String> postconditions;
     private final List<String> loopInvariants;
     private final Map<String, Integer> loopInvariantLine; // invariant -> source line of its loop (0 = legacy/first)
+    // Tracks (loopLine, indexInLoopInvariants) per emission. Allows the same invariant
+    // string to attach to multiple distinct loops without being deduplicated. The
+    // legacy `loopInvariantLine` map only records the FIRST line per expr, which lost
+    // the per-loop attribution when the same invariant fired for multiple loops.
+    private final List<int[]> loopInvariantLines;
+    // Per-expression set of loop lines, used for (expr, line) deduplication.
+    private final Map<String, java.util.Set<Integer>> invariantLinesByExpr;
+    // Termination measures (loop_decreases). Parallel to loopInvariants but
+    // converted with the `loop_decreases` JML keyword instead of `loop_invariant`.
+    // Per-entry source-line attribution mirrors loopInvariantLine.
+    private final List<String> loopDecreases;
+    private final Map<String, Integer> loopDecreasesLine;
     private final List<String> exceptionSpecifications;
     private final List<String> assignableClauses;
 
@@ -52,12 +65,40 @@ public class MethodSpecification {
         this.postconditions = new ArrayList<>();
         this.loopInvariants = new ArrayList<>();
         this.loopInvariantLine = new HashMap<>();
+        this.loopInvariantLines = new ArrayList<>();
+        this.invariantLinesByExpr = new HashMap<>();
+        this.loopDecreases = new ArrayList<>();
+        this.loopDecreasesLine = new HashMap<>();
         this.exceptionSpecifications = new ArrayList<>();
         this.assignableClauses = new ArrayList<>();
         this.specificationConfidence = new HashMap<>();
         this.inheritedPreconditions = new HashMap<>();
         this.inheritedPostconditions = new HashMap<>();
         this.typeConstraints = new ArrayList<>();
+    }
+
+    /**
+     * Adds a termination measure for the loop at {@code loopLine}. The expression
+     * should be a non-negative integer that strictly decreases each iteration.
+     * Emitted as `//@ loop_decreases <expr>;` by AnnotationToJMLConverter.
+     * When the inferrer cannot prove this property, it is by design — OpenJML
+     * will surface a `LoopDecreases` failure with a counter-example, which is
+     * the intended bug-detection signal for non-terminating loops.
+     */
+    public void addLoopDecreases(String expr, int loopLine) {
+        if (expr == null || expr.isBlank()) return;
+        if (!this.loopDecreases.contains(expr)) {
+            this.loopDecreases.add(expr);
+            this.loopDecreasesLine.put(expr, loopLine);
+        }
+    }
+
+    public List<String> getLoopDecreases() {
+        return loopDecreases;
+    }
+
+    public int getLoopDecreasesLine(String expr) {
+        return loopDecreasesLine.getOrDefault(expr, 0);
     }
 
     public void addPrecondition(String precondition) {
@@ -104,14 +145,44 @@ public class MethodSpecification {
      */
     public void addLoopInvariant(String loopInvariant, int loopLine) {
         if (com.jml.inferrer.analysis.AnalysisUtils.isTriviallyTrueClause(loopInvariant)) return;
-        if (!this.loopInvariants.contains(loopInvariant)) {
-            this.loopInvariants.add(loopInvariant);
-            this.loopInvariantLine.put(loopInvariant, loopLine);
-        }
+        // Per-loop dedup: the same invariant string can attach to multiple distinct
+        // loops (e.g. `i >= 0` for each of three sequential while-loops in a merge).
+        // Dedup key is (expr, loopLine), not just expr — otherwise we drop the second
+        // loop's invariant and OpenJML can't discharge its index obligations.
+        //
+        // BUT: `loopLine == 0` is the legacy sentinel for "first loop / no
+        // attribution". When the same invariant is added once with line=0 (from a
+        // legacy analyzer path) and once with a real line (from an attributing
+        // analyzer), we must NOT emit it twice — the spec-quality check rejects
+        // duplicate spec lines. So treat line=0 as a wildcard: skip if any entry
+        // already exists with the same expr, and skip new (expr, X) if (expr, 0)
+        // already exists (the legacy entry already covers the first loop).
+        Set<Integer> linesForExpr = this.invariantLinesByExpr
+                .computeIfAbsent(loopInvariant, k -> new java.util.LinkedHashSet<>());
+        if (linesForExpr.contains(loopLine)) return;
+        if (loopLine == 0 && !linesForExpr.isEmpty()) return;
+        if (loopLine != 0 && linesForExpr.contains(0)) return;
+        linesForExpr.add(loopLine);
+        this.loopInvariants.add(loopInvariant);
+        this.loopInvariantLine.put(loopInvariant, loopLine);
+        this.loopInvariantLines.add(new int[]{loopLine, this.loopInvariants.size() - 1});
     }
 
     public int getLoopInvariantLine(String loopInvariant) {
         return loopInvariantLine.getOrDefault(loopInvariant, 0);
+    }
+
+    /**
+     * Returns the per-position line attribution for {@link #getLoopInvariants()}.
+     * Index {@code i} of this list gives the loop ordinal for the invariant at
+     * position {@code i} of {@code getLoopInvariants()}. Used by the JML emission
+     * pipeline so duplicate invariant strings can attach to different loops
+     * (otherwise the legacy {@code loopInvariantLine} map only remembers one line
+     * per expression — losing the per-loop attribution for repeated invariants).
+     */
+    public int getLoopInvariantLineAt(int index) {
+        if (index < 0 || index >= this.loopInvariantLines.size()) return 0;
+        return this.loopInvariantLines.get(index)[0];
     }
 
     public void addExceptionSpecification(String exceptionSpec) {

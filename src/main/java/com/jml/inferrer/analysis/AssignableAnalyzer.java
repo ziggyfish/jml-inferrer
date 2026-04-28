@@ -126,15 +126,23 @@ class AssignableAnalyzer {
             return extractArrayBase(inner, methodDecl);
         }
         if (name instanceof FieldAccessExpr fa) {
+            // For `this.data[...]` we want the assignable clause to read
+            // `this.data[*]` so it pairs cleanly with `this.size` (also
+            // `this.`-qualified) in a merged frame condition. Without the
+            // `this.` prefix on the array, OpenJML can produce a separate
+            // assignable line and the merged clause becomes inconsistent.
             if (fa.getScope().toString().equals("this")) {
-                return fa.getNameAsString();
+                return "this." + fa.getNameAsString();
             }
             return fa.toString();
         }
         if (name instanceof NameExpr nameExpr) {
             String varName = nameExpr.getNameAsString();
             if (AnalysisUtils.isFieldReference(methodDecl, varName)) {
-                return varName;
+                // Same rationale as the qualified-FieldAccessExpr branch above —
+                // emit the `this.`-qualified form so all field-array writes
+                // and field writes share one merged assignable clause.
+                return "this." + varName;
             }
             boolean isParam = methodDecl.getParameters().stream()
                     .anyMatch(p -> p.getNameAsString().equals(varName));

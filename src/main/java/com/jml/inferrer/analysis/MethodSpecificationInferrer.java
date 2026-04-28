@@ -31,6 +31,7 @@ public class MethodSpecificationInferrer {
     private final SwitchBitwiseAnalyzer switchBitwiseAnalyzer;
     private final InterproceduralAnalyzer interproceduralAnalyzer;
     private final OverflowPreconditionAnalyzer overflowPreconditionAnalyzer;
+    private final BinarySearchPatternAnalyzer binarySearchPatternAnalyzer;
 
     /**
      * Creates a new inferrer with a specification cache and call graph for interprocedural analysis.
@@ -59,6 +60,7 @@ public class MethodSpecificationInferrer {
         this.complexityAnalyzer = new ComplexityAnalyzer();
         this.switchBitwiseAnalyzer = new SwitchBitwiseAnalyzer();
         this.overflowPreconditionAnalyzer = new OverflowPreconditionAnalyzer();
+        this.binarySearchPatternAnalyzer = new BinarySearchPatternAnalyzer();
     }
 
     /**
@@ -94,6 +96,11 @@ public class MethodSpecificationInferrer {
         overflowPreconditionAnalyzer.inferOverflowPreconditions(methodDecl, spec, collector);
         postconditionAnalyzer.inferPostconditions(methodDecl, spec, collector);
         loopInvariantAnalyzer.inferLoopInvariants(methodDecl, spec);
+        // Binary-search bounds: emits 0 <= lo, lo <= hi + 1, hi <= arr.length - 1
+        // for the canonical mid = lo + (hi - lo) / 2 shape. Runs after the generic
+        // loop-invariant pass so it can append to existing invariants without
+        // duplicating them (MethodSpecification.addLoopInvariant deduplicates).
+        binarySearchPatternAnalyzer.analyze(methodDecl, spec);
         postconditionAnalyzer.promoteLoopInvariantsToPostconditions(methodDecl, spec);
 
         // Phase 1: Method properties

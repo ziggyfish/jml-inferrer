@@ -13,7 +13,17 @@ services:
   test:
     build:
       context: .
-      dockerfile: Dockerfile.test
+      # Use the fork-built OpenJML (with \sum/\product/\num_of define-fun-rec
+      # support and patched String/Integer specs). Falls back to vanilla via
+      # `--file Dockerfile.test`.
+      dockerfile: Dockerfile.test.fork
+    # Persist the per-test inferred JML and counter-example log to the host so
+    # post-run triage can use it. The file is truncated by FormalVerificationTestBase
+    # @BeforeAll, then appended to as each test runs. Pre-touch the host file
+    # (`touch inferred-specs.log`) before the first run so the bind mount sees
+    # a regular file, not a directory.
+    volumes:
+      - ./inferred-specs.log:/app/inferred-specs.log
     deploy:
       resources:
         limits:
