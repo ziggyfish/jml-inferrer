@@ -2,14 +2,17 @@
 # ==============================================================================
 # run-verification-tests.sh
 #
-# Builds and runs the formal verification test suite inside a Docker container
-# with OpenJML pre-installed.
+# Builds and runs the formal verification test suite inside a container with
+# the patched OpenJML pre-installed. Works on Linux (amd64 native, arm64 with
+# emulation), macOS (Apple Silicon via Rosetta 2, Intel native), and Windows
+# (via WSL2 / Git Bash). Auto-detects Docker vs Podman.
 #
 # Usage:
 #   ./run-verification-tests.sh              # build image + run tests
 #   ./run-verification-tests.sh --build      # build the Docker image only
 #   ./run-verification-tests.sh --test-only  # run tests only (assumes image built)
 #   ./run-verification-tests.sh --clean      # remove the Docker image
+#   ./run-verification-tests.sh --help       # show full help
 # ==============================================================================
 
 set -euo pipefail
@@ -20,13 +23,11 @@ IMAGE_NAME="jml-inferrer-tests"
 # Default to the fork-based dockerfile so the verification suite runs against
 # the patched OpenJML in openjml-dev/ (define-fun-rec for \sum/\product/\num_of,
 # pure-function determinism, ESC-visible String/Integer specs). Override with
-# DOCKERFILE=Dockerfile.test to fall back to vanilla OpenJML 21-0.23 — many
-# inferred specs will not discharge.
+# DOCKERFILE=Dockerfile.test (or --vanilla) to fall back to vanilla OpenJML
+# 21-0.23 — many inferred specs will not discharge.
 DOCKERFILE="${DOCKERFILE:-Dockerfile.test.fork}"
 FORK_IMAGE="openjml-fork-build:latest"
 FORK_DIR="$PROJECT_ROOT/openjml-dev"
-# Container runtime: set DOCKER=podman to use Podman instead of Docker
-DOCKER="${DOCKER:-docker}"
 
 # Colors (disable if not a terminal)
 if [ -t 1 ]; then
@@ -43,21 +44,97 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 step()  { echo -e "\n${BOLD}==> $*${NC}"; }
 
 # ==============================================================================
+# Container runtime detection (Docker vs Podman)
+# ==============================================================================
+
+# Prefer the explicit override (DOCKER=... or RUNTIME=...). Otherwise auto-detect:
+# pick whichever of docker or podman is on PATH. If both are present, prefer
+# docker (more common, consistent CLI) — set DOCKER=podman to flip.
+detect_runtime() {
+    if [ -n "${DOCKER:-}" ]; then
+        echo "$DOCKER"; return
+    fi
+    if [ -n "${RUNTIME:-}" ]; then
+        echo "$RUNTIME"; return
+    fi
+    if command -v docker &>/dev/null; then
+        echo "docker"; return
+    fi
+    if command -v podman &>/dev/null; then
+        echo "podman"; return
+    fi
+    echo ""
+}
+
+DOCKER="$(detect_runtime)"
+
+# ==============================================================================
+# Platform detection
+# ==============================================================================
+
+# OpenJML 21-0.23 ships with amd64-only z3 binaries in Solvers-linux/, so the
+# fork build and the test image both run as linux/amd64 even on arm64 hosts
+# (Apple Silicon, Linux aarch64). The override `PLATFORM=linux/arm64` is
+# accepted for users who have arranged arm64-native solvers.
+detect_platform() {
+    if [ -n "${PLATFORM:-}" ]; then
+        echo "$PLATFORM"; return
+    fi
+    # Default everywhere — works native on amd64, emulated on arm64.
+    echo "linux/amd64"
+}
+
+PLATFORM="$(detect_platform)"
+HOST_OS="$(uname -s)"
+HOST_ARCH="$(uname -m)"
+
+# ==============================================================================
 # Check prerequisites
 # ==============================================================================
 
-check_docker() {
-    if ! command -v $DOCKER &>/dev/null; then
-        error "Docker not found. Install Docker or podman and ensure it is on PATH."
+check_runtime() {
+    if [ -z "$DOCKER" ]; then
+        error "Neither docker nor podman found on PATH."
+        error "  Install Docker Desktop (https://www.docker.com/products/docker-desktop/),"
+        error "  Docker Engine, or Podman (https://podman.io/), or pass DOCKER=<binary>."
         exit 1
     fi
 
+    # `docker info` and `podman info` both return non-zero when the daemon /
+    # service isn't running. Podman in rootless mode doesn't need a daemon and
+    # `podman info` succeeds without one, so this check covers both runtimes.
     if ! $DOCKER info &>/dev/null; then
-        error "Docker daemon is not running. Start Docker Desktop or the Docker service."
+        error "$DOCKER is installed but not running."
+        if [ "$DOCKER" = "docker" ]; then
+            error "  Start Docker Desktop, or run \`sudo systemctl start docker\`."
+        else
+            error "  Run \`podman machine start\` (Mac/Win) or check the podman service."
+        fi
         exit 1
     fi
 
-    ok "Docker is available"
+    ok "Container runtime: $DOCKER ($($DOCKER --version 2>/dev/null | head -1))"
+}
+
+# Apple Silicon: amd64 emulation needs Rosetta 2 (or QEMU fallback). Warn if
+# absent — the run will still attempt via QEMU but be much slower.
+check_apple_silicon_emulation() {
+    if [ "$HOST_OS" = "Darwin" ] && [ "$HOST_ARCH" = "arm64" ] && [ "$PLATFORM" = "linux/amd64" ]; then
+        if /usr/bin/pgrep -q oahd 2>/dev/null || [ -d /Library/Apple/usr/libexec/oah ]; then
+            ok "Rosetta 2 detected (linux/amd64 emulation will be near-native)"
+        else
+            warn "Apple Silicon detected but Rosetta 2 does not appear installed."
+            warn "  Install with: softwareupdate --install-rosetta --agree-to-license"
+            warn "  Continuing — Docker Desktop / Podman will fall back to QEMU (slower)."
+        fi
+    fi
+}
+
+print_environment() {
+    info "Host OS:       $HOST_OS ($HOST_ARCH)"
+    info "Container:     $DOCKER"
+    info "Build platform: $PLATFORM"
+    info "Dockerfile:    $DOCKERFILE"
 }
 
 # ==============================================================================
@@ -80,15 +157,19 @@ ensure_fork_image() {
     if [ ! -d "$FORK_DIR" ]; then
         error "openjml-dev/ not found at $FORK_DIR"
         error "  The Dockerfile.test.fork variant depends on the patched OpenJML fork."
-        error "  Either git pull to fetch openjml-dev/, or set DOCKERFILE=Dockerfile.test"
-        error "  to fall back to vanilla OpenJML (many inferred specs will not discharge)."
+        error "  Either git pull to fetch openjml-dev/, or pass --vanilla to fall back"
+        error "  to upstream OpenJML (many inferred specs will not discharge)."
         exit 1
     fi
 
     step "Building OpenJML fork image: $FORK_IMAGE"
-    info "First-time fork build downloads + patches upstream OpenJML — ~10-15 minutes."
+    if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
+        info "First-time fork build downloads + patches upstream OpenJML — ~15-20 min on arm64 emulation."
+    else
+        info "First-time fork build downloads + patches upstream OpenJML — ~10-15 min."
+    fi
     cd "$FORK_DIR"
-    $DOCKER build --platform linux/amd64 -f Dockerfile.build -t "$FORK_IMAGE" .
+    $DOCKER build --platform "$PLATFORM" -f Dockerfile.build -t "$FORK_IMAGE" .
     cd "$PROJECT_ROOT"
     ok "Fork image '$FORK_IMAGE' built successfully"
 }
@@ -96,12 +177,11 @@ ensure_fork_image() {
 do_build() {
     ensure_fork_image
 
-    step "Building Docker image: $IMAGE_NAME (using $DOCKERFILE)"
+    step "Building Docker image: $IMAGE_NAME (using $DOCKERFILE, platform $PLATFORM)"
     info "This includes OpenJML (~350MB) and may take a few minutes on first build."
 
     cd "$PROJECT_ROOT"
-    $DOCKER build --platform linux/amd64 -f "$DOCKERFILE" -t "$IMAGE_NAME" .
-    # $DOCKER build --platform linux/arm64 -f "$DOCKERFILE" -t "$IMAGE_NAME" .
+    $DOCKER build --platform "$PLATFORM" -f "$DOCKERFILE" -t "$IMAGE_NAME" .
 
     ok "Docker image '$IMAGE_NAME' built successfully"
 }
@@ -111,7 +191,7 @@ do_build() {
 # ==============================================================================
 
 do_test() {
-    step "Running verification tests in Docker"
+    step "Running verification tests (platform $PLATFORM)"
 
     # Check if image exists
     if ! $DOCKER image inspect "$IMAGE_NAME" &>/dev/null; then
@@ -135,7 +215,7 @@ do_test() {
         info "Showing inferred JML output"
     fi
 
-    $DOCKER run --rm "$IMAGE_NAME" mvn test "${mvn_args[@]}"
+    $DOCKER run --rm --platform "$PLATFORM" "$IMAGE_NAME" mvn test "${mvn_args[@]}"
 
     local exit_code=$?
 
@@ -184,8 +264,6 @@ main() {
     echo -e "${BOLD} JML Inferrer - Formal Verification Test Suite${NC}"
     echo -e "${BOLD}=============================================${NC}"
 
-    check_docker
-
     local mode=""
     TEST_FILTER=""
     SHOW_JML=false
@@ -198,6 +276,16 @@ main() {
             --clean|-c)       mode="clean" ;;
             --clean-fork)     mode="clean"; CLEAN_FORK=true ;;
             --vanilla)        DOCKERFILE="Dockerfile.test" ;;
+            --podman)         DOCKER="podman" ;;
+            --docker)         DOCKER="docker" ;;
+            --platform)
+                shift
+                if [ -z "$1" ]; then
+                    error "--platform requires a value (e.g. linux/amd64, linux/arm64)"
+                    exit 1
+                fi
+                PLATFORM="$1"
+                ;;
             --help|-h)        mode="help" ;;
             --show-jml)       SHOW_JML=true ;;
             --test)
@@ -218,6 +306,12 @@ main() {
     done
 
     mode="${mode:-all}"
+
+    if [ "$mode" != "help" ]; then
+        check_runtime
+        check_apple_silicon_emulation
+        print_environment
+    fi
 
     case "$mode" in
         build)
@@ -243,17 +337,29 @@ main() {
             echo "                of Dockerfile.test.fork (patched fork). Many inferred"
             echo "                specs will not discharge under vanilla — only useful"
             echo "                for measuring the fork's contribution."
+            echo "  --podman      Force podman as container runtime"
+            echo "  --docker      Force docker as container runtime"
+            echo "  --platform P  Container platform (default linux/amd64; the OpenJML"
+            echo "                fork ships amd64-only z3 binaries, so amd64 is needed"
+            echo "                even on arm64 hosts — emulation runs near-native via"
+            echo "                Rosetta 2 on Apple Silicon and via QEMU elsewhere)"
             echo "  --show-jml    Print inferred JML specifications for each test"
             echo "  --test NAME   Run specific test suite or method, e.g.:"
             echo "                  --test 'com.jml.inferrer.verification.BitwiseSwitchVerificationTest'"
             echo "                  --test '...BitwiseSwitchVerificationTest#switchDispatchCalc'"
             echo "  --help        Show this help"
             echo ""
+            echo "Environment variables:"
+            echo "  DOCKER        Container runtime (docker | podman). Auto-detected."
+            echo "  DOCKERFILE    Override the Dockerfile (default Dockerfile.test.fork)."
+            echo "  PLATFORM      Override the platform (default linux/amd64)."
+            echo ""
             echo "Examples:"
             echo "  $0                                    # build + run all"
             echo "  $0 --test-only --show-jml             # run all, show JML output"
+            echo "  $0 --podman                           # use podman explicitly"
             echo "  $0 --test-only --test '...StringOperationVerificationTest'"
-            echo "  $0 --test-only --test '...BitwiseSwitchVerificationTest#popcount' --show-jml"
+            echo "  DOCKER=podman PLATFORM=linux/arm64 $0 --build   # custom env"
             echo ""
             ;;
         all)
