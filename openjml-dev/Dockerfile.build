@@ -81,6 +81,16 @@ RUN if [ -f /src/patches/scripts/patch_pure_determinism.py ]; then \
            /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/JmlSpecs.java; \
        fi
 
+# Fix the units of --timeout when passed to z3 (OpenJML treats it as seconds,
+# z3's `-t:` is milliseconds). See patches/scripts/patch_z3_timeout.py for
+# the full rationale. Without this, OpenJML's `--timeout=120` (intended as
+# 2 minutes) becomes 120 ms to z3, which is far too short for the harder
+# \sum / \product / \num_of obligations discharged by patch_smttranslator.py.
+RUN if [ -f /src/patches/scripts/patch_z3_timeout.py ]; then \
+         python3 /src/patches/scripts/patch_z3_timeout.py \
+           /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/smtlib/solvers/Solver_z3_4_5.java; \
+       fi
+
 # Patch the Specs/ tree (java/lang/String.jml + Integer.jml) so ESC mode sees
 # useful postconditions for the most common String/Integer methods. Without
 # this, half of the inferrers String-method tests can't discharge.

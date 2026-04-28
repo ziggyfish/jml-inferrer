@@ -14,25 +14,47 @@ import com.sun.tools.javac.util.*;
  *
  * <p>A JML quantifier has the shape
  * {@code (\sum int k; <range>; <value>)}. To translate the quantifier to an
- * SMTLIB {@code define-fun-rec} we need to recover the low and high endpoints
- * of {@code <range>} -- for example, from {@code 0 <= k && k < arr.length} we
- * need {@code lo = 0} and {@code hi = arr.length}.</p>
+ * SMTLIB function we need to recover the low and high endpoints of
+ * {@code <range>} -- for example, from {@code 0 <= k && k < arr.length} we
+ * need {@code lo = 0, hi = arr.length} with hi exclusive; from
+ * {@code 1 <= k && k <= n} we need {@code lo = 1, hi = n+1} (so the high end
+ * is uniformly exclusive in the SMT encoding).</p>
  *
  * <p>The extractor handles compound conjunctions ({@code &&} / {@code &}) and
  * the four relational operators ({@code <}, {@code <=}, {@code >},
  * {@code >=}). Disjunctive and non-binary ranges aren't supported -- those
  * typically indicate infinite or unioned ranges the SMT encoding can't express
- * as a single recursive function.</p>
+ * as a single function.</p>
  */
 public class JmlBoundsExtractor {
 
     protected static class Bounds {
         public JCExpression lo;
         public JCExpression hi;
+        /** When true, the user wrote {@code k <= hi} (inclusive). The SMT
+         *  encoding uses an exclusive upper bound, so the caller must add 1
+         *  when emitting the call site. We keep the raw user-supplied
+         *  expression here rather than synthesising a {@code hi + 1} JCExpression
+         *  because OpenJML's TreeMaker requires a Context to do so cleanly. */
+        public boolean hiInclusive;
+        /** When true, the user wrote {@code lo > k} or similar yielding an
+         *  exclusive lower bound; SMT encoding's lower bound is inclusive, so
+         *  add 1. The cases of {@code lo < k} can occur in normal-form
+         *  ranges -- e.g. {@code 0 < k && k < n} for a sum starting at 1. */
+        public boolean loExclusive;
 
         public Bounds(JCExpression lo, JCExpression hi) {
             this.lo = lo;
             this.hi = hi;
+            this.hiInclusive = false;
+            this.loExclusive = false;
+        }
+
+        public Bounds(JCExpression lo, JCExpression hi, boolean loExclusive, boolean hiInclusive) {
+            this.lo = lo;
+            this.hi = hi;
+            this.hiInclusive = hiInclusive;
+            this.loExclusive = loExclusive;
         }
     }
 
@@ -58,13 +80,20 @@ public class JmlBoundsExtractor {
     }
 
     /**
-     * Extracts low and high from a single comparison (e.g. {@code X <= Y}).
-     * For {@code <=} or {@code <}, lhs is the low and rhs is the high.
-     * For {@code >=} or {@code >}, the order is reversed.
+     * Extracts low and high from a single comparison. Marks inclusive/exclusive
+     * for the high bound and exclusive for the low bound when applicable.
      *
      * Returns null for comparisons that are just the auto-appended type
      * boundary assertions (e.g. {@code k >= -2147483648L}) so the caller
      * merge logic ignores them.
+     *
+     * Examples:
+     *   k <  hi  ->  Bounds(?, hi, false, false)   // hi exclusive (SMT default)
+     *   k <= hi  ->  Bounds(?, hi, false, true )   // hi inclusive (caller adds +1)
+     *   lo <= k  ->  Bounds(lo, ?, false, false)
+     *   lo <  k  ->  Bounds(lo, ?, true,  false)   // lo exclusive (caller adds +1)
+     *   hi >  k  ->  Bounds(?, hi, false, false)   // same as k < hi
+     *   hi >= k  ->  Bounds(?, hi, false, true )   // same as k <= hi
      */
     public static Bounds extractSingleBound(JCBinary expr) {
         JCTree.Tag tag = expr.getTag();
@@ -73,13 +102,35 @@ public class JmlBoundsExtractor {
             if (isIntegralTypeExtreme(expr.lhs) || isIntegralTypeExtreme(expr.rhs)) {
                 return null;
             }
-            return new Bounds(expr.lhs, expr.rhs);
+            // lhs <= rhs   means lhs is the lo-bound, rhs is the hi-bound.
+            // The hi side is inclusive iff <= ; the lo side is exclusive iff <
+            // (i.e. when lhs IS the bound being applied as a strict inequality).
+            // For lhs <  rhs : if lhs is the variable, lo = lhs is exclusive;
+            //                  if rhs is the variable, hi = rhs is exclusive.
+            // We don't know which side is the variable here -- the caller
+            // disambiguates via inDecls(). So we mark the bound flags
+            // syntactically: hi side is inclusive iff <= ; lo side is exclusive
+            // iff < . The caller selects the right flag based on which side
+            // is the bound variable.
+            boolean inclusive = (tag == JCTree.Tag.LE);
+            // hi (rhs) is inclusive iff op is <=
+            // lo (lhs) is exclusive iff op is <  (since k < lo means lo is excluded
+            //                                     -- but we'd need lhs to BE the
+            //                                     variable for that interpretation;
+            //                                     it's not the case here. Instead
+            //                                     "lhs < rhs" with lhs=lo means
+            //                                     "lo < k", i.e. lo is exclusive
+            //                                     for the variable's range.)
+            return new Bounds(expr.lhs, expr.rhs, !inclusive, inclusive);
         }
         if (tag == JCTree.Tag.GE || tag == JCTree.Tag.GT) {
             if (isIntegralTypeExtreme(expr.lhs) || isIntegralTypeExtreme(expr.rhs)) {
                 return null;
             }
-            return new Bounds(expr.rhs, expr.lhs);
+            // lhs >= rhs   <==>   rhs <= lhs    (lo=rhs, hi=lhs, hi inclusive)
+            // lhs >  rhs   <==>   rhs <  lhs    (lo=rhs, hi=lhs, hi exclusive)
+            boolean inclusive = (tag == JCTree.Tag.GE);
+            return new Bounds(expr.rhs, expr.lhs, !inclusive, inclusive);
         }
         return null;
     }
@@ -115,7 +166,7 @@ public class JmlBoundsExtractor {
      * requires a conjunctive combiner ({@code &&} or {@code &}) because a
      * single comparison alone yields an unbounded half-open range (e.g. just
      * {@code k < n}) which the SMT encoding can't represent as a finite
-     * recursive definition.
+     * function call.
      *
      * @param decls the quantifier-bound variable declarations (e.g. {@code int k})
      * @param range the range expression to extract bounds from
@@ -150,32 +201,45 @@ public class JmlBoundsExtractor {
             if (right == null) return left;
 
             JCExpression lo;
+            boolean loExclusive = false;
             if (left.lo == null) {
                 lo = right.lo;
+                loExclusive = right.loExclusive;
             } else if (!inDecls(decls, left.lo) && inDecls(decls, right.lo)) {
+                // left.lo is a real bound (not the variable), right.lo IS the variable
                 lo = left.lo;
+                loExclusive = left.loExclusive;
             } else if (inDecls(decls, left.lo) && !inDecls(decls, right.lo)) {
                 lo = right.lo;
+                loExclusive = right.loExclusive;
             } else if (!inDecls(decls, left.lo) && !inDecls(decls, right.lo)) {
                 lo = treeMaker.Conditional(treeMaker.Binary(JCTree.Tag.LT, left.lo, right.lo), left.lo, right.lo);
+                // For both-bounds, use the wider (less restrictive) flag:
+                // adding +1 to one side and not the other could over- or
+                // under-count. Keep loExclusive false; users who write multiple
+                // overlapping lo bounds get the disjunction semantics.
             } else {
                 lo = null;
             }
 
             JCExpression hi;
+            boolean hiInclusive = false;
             if (left.hi == null) {
                 hi = right.hi;
+                hiInclusive = right.hiInclusive;
             } else if (!inDecls(decls, left.hi) && inDecls(decls, right.hi)) {
                 hi = left.hi;
+                hiInclusive = left.hiInclusive;
             } else if (inDecls(decls, left.hi) && !inDecls(decls, right.hi)) {
                 hi = right.hi;
+                hiInclusive = right.hiInclusive;
             } else if (!inDecls(decls, left.hi) && !inDecls(decls, right.hi)) {
                 hi = treeMaker.Conditional(treeMaker.Binary(JCTree.Tag.GT, left.hi, right.hi), left.hi, right.hi);
             } else {
                 hi = null;
             }
 
-            return new Bounds(lo, hi);
+            return new Bounds(lo, hi, loExclusive, hiInclusive);
         }
 
         if (expr.getTag() == JCTree.Tag.LT ||
