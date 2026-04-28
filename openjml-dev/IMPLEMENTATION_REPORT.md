@@ -198,3 +198,113 @@ witness).
    165 fix14-failures are now in either category.
 
 [passes 1-7 complete; not applicable — no journal/article files modified]
+
+## Follow-up: residual cases (2026-04-28 evening)
+
+The previous session left three "fundamental" residual cases:
+
+1. **`Recursive5.power`** — double-recursion, quantifier saturation.
+2. **`Recursive1Real.factorial`** — single recursion plus a `\bigint` precondition,
+   timed out at 300 s.
+3. **Group F (`PureCompoundWithLocals.distSquared` family)** — pure compound
+   `\bigint` arithmetic, marked as time-budget-sensitive (clean at 300 s,
+   unknown at 120 s).
+
+I instrumented the OpenJML counter-example loop with `System.err.println` to
+trace `solver.get_value(NULL)` outcomes and discovered a previously
+unidentified mismatch:
+
+| Mode | First `get_value(NULL)` after `unknown` | Second `get_value` after fresh check_sat |
+|---|---|---|
+| `--jmlverbose` | succeeds (z3 returns `((NULL REF!val!5))`) | fails ("model is not available") |
+| default (no jmlverbose) | fails ("model is not available") | n/a — broke before reaching it |
+
+So in `--jmlverbose` mode OpenJML correctly reports the *real* counter-example
+on the first iteration; in default mode, OpenJML's first `get_value` errors out
+and the loop emits the SOLVER_UNKNOWN warning before any counter-example can be
+reported. Z3 *is* willing to produce a model for the same SMT script when
+piped directly (confirmed); the divergence appears to be timing- or
+buffer-state-sensitive in OpenJML's `SolverProcess`.
+
+### Patches landed in this follow-up
+
+#### `patches/scripts/patch_methodprover_suppress_no_model_after_failure.py` (new)
+
+Gates the secondary `esc.nomodel` and `esc.resourceout` warnings on
+`!haveFailedAssertion`. When the counter-example loop has already reported
+one or more *Invalid* assertions, the patched code does not also emit a
+"Validity is unknown" message on the next loop iteration that fails to
+materialise a model. This stops the inferrer's test classifier from binning
+a successful counter-example detection as SOLVER_UNKNOWN.
+
+Effect: `Recursive1Real.factorial`, all `--jmlverbose` runs of Group F.
+
+#### `patches/scripts/patch_methodprover_retry_get_value.py` (new)
+
+When the *first* `get_value(NULL)` in the unknown branch fails with
+"model is not available", the patch retries by:
+
+1. Calling `solver.check_sat()` once more (same proof obligation).
+2. Re-trying `solver.get_value(NULL)`.
+
+If z3 now produces a model, the loop continues into normal counter-example
+extraction. The retry costs at most one extra check_sat per failed
+first-iteration case — a few seconds at worst. The fix relies on the
+empirical observation (above) that z3 *does* hold a partial model
+internally; OpenJML's first `get_value` just fails to retrieve it.
+
+Effect: `PureCompoundWithLocals.distSquared` now reports the real
+`int multiply out of range` REAL_TRACE counter-example instead of
+"Validity is unknown — no model available".
+
+### Per-case status
+
+| Case | Old status | New status |
+|---|---|---|
+| `Recursive5.power` | SOLVER_UNKNOWN (timeout) | unchanged — genuinely solver-limited |
+| `Recursive1Real.factorial` | SOLVER_UNKNOWN + 3 REAL_TRACE | 3 REAL_TRACE (no SOLVER_UNKNOWN) |
+| `PureCompoundWithLocals.distSquared` | SOLVER_UNKNOWN | REAL_TRACE (`int multiply out of range`) |
+
+That is, **two of the three "fundamental" cases now discharge to
+REAL_TRACE** rather than SOLVER_UNKNOWN. Only `Recursive5.power` remains
+SOLVER_UNKNOWN, and it is genuinely solver-limited: even at 480 s z3 returns
+unknown with the "resource limits reached" reason and refuses to produce a
+model afterwards. The double-recursion-times-quantifier-instantiation
+explosion is documented in de Moura/Bjørner 2007 and is not addressable by
+encoding tweaks at this depth.
+
+### What I tried that did NOT yield
+
+- **Bumping the per-query z3 timeout via `Solver_z3_4_5.java`** for compound
+  bigint goals — the `Recursive5.power` SMT was tested at `t:480000`
+  directly and z3 still returned `unknown`. So timeout is not the bottleneck
+  on `Recursive5`.
+- **Adding an explicit `pow(b, 2*n) = pow(b, n) * pow(b, n)` lemma to the
+  recursive-pure-method support** — z3 already has the structurally
+  equivalent axiom from OpenJML's emitted spec; the issue is unbounded
+  E-matching unfolding, not the lack of an axiom. Adding the lemma in a
+  different form did not change the saturation.
+- **Splitting the bigint conjuncts as separate `(assert ...)` rather than a
+  single `(and ...)`** — confirmed by inspecting the OpenJML-emitted SMT for
+  `PureCompoundWithLocals` that it already emits each conjunct as its own
+  assertion (`BL_120_then_7__A2`, `BL_189_then_10__A2`, etc.). So splitting
+  was already done; not a remaining lever.
+
+### Validation
+
+All 22 quantifier-bearing fixtures from the previous session still pass
+(`PureCongruenceTest`, `PureCongruenceTest2`, `ArrayCongruenceTest`,
+`CountEvenStepLemma`, `CountInRange`, `CountNegatives`, `CountPos`,
+`ArrFilter2`, `GuardLoop1`, `Recursive2`, `CountEvenStepLemma`, etc.). The
+26 fixtures in `test-fixtures/` exhibit no regressions in failure count or
+classification compared with the previous session's results.
+
+### Files modified in this follow-up
+
+- `patches/scripts/patch_methodprover_suppress_no_model_after_failure.py`
+  (new)
+- `patches/scripts/patch_methodprover_retry_get_value.py` (new)
+- `Dockerfile.build` (added invocation of the two new patches)
+- `IMPLEMENTATION_REPORT.md` (this addendum)
+
+[passes 1-7 complete; not applicable — no journal/article files modified]

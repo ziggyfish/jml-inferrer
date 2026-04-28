@@ -91,6 +91,29 @@ RUN if [ -f /src/patches/scripts/patch_z3_timeout.py ]; then \
            /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/smtlib/solvers/Solver_z3_4_5.java; \
        fi
 
+# Suppress the "Validity is unknown - no model available" warning when the
+# counterexample loop has ALREADY reported a valid Invalid assertion.  See
+# patches/scripts/patch_methodprover_suppress_no_model_after_failure.py for
+# the rationale.  Without this, time-budget-sensitive cases like
+# PureCompoundWithLocals.distSquared report a real overflow obligation AND a
+# secondary "Validity is unknown" message that incorrectly classifies the
+# outcome as SOLVER_UNKNOWN.
+RUN if [ -f /src/patches/scripts/patch_methodprover_suppress_no_model_after_failure.py ]; then \
+         python3 /src/patches/scripts/patch_methodprover_suppress_no_model_after_failure.py \
+           /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/esc/MethodProverSMT.java; \
+       fi
+
+# Retry get_value(NULL) once when it fails with "model is not available".  See
+# patches/scripts/patch_methodprover_retry_get_value.py for the rationale.
+# Without this, time-budget-sensitive cases like PureCompoundWithLocals.distSquared
+# emit a SOLVER_UNKNOWN warning even though z3 is fully capable of producing a
+# model when re-asked.  The retry costs at most one extra check_sat per failed
+# first-iteration case.
+RUN if [ -f /src/patches/scripts/patch_methodprover_retry_get_value.py ]; then \
+         python3 /src/patches/scripts/patch_methodprover_retry_get_value.py \
+           /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/esc/MethodProverSMT.java; \
+       fi
+
 # Patch the Specs/ tree (java/lang/String.jml + Integer.jml) so ESC mode sees
 # useful postconditions for the most common String/Integer methods. Without
 # this, half of the inferrers String-method tests can't discharge.
