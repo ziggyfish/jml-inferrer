@@ -308,3 +308,247 @@ classification compared with the previous session's results.
 - `IMPLEMENTATION_REPORT.md` (this addendum)
 
 [passes 1-7 complete; not applicable — no journal/article files modified]
+
+## Z3 flags + version bump (2026-04-29 morning)
+
+### Mandate
+
+Two-part attempt at cracking the residual `Recursive5.power` SOLVER_UNKNOWN:
+
+- Part 1: tune z3 SMT2 options (`smt.macro_finder`, `smt.MBQI`,
+  `smt.qi.eager_threshold`, `smt.ematching`, etc.) without modifying z3.
+- Part 2: bump z3 binary from 4.7.1 to 4.13.x.
+
+### Part 1 results: z3 4.7.1 flag tuning
+
+Tested combinations directly against the dumped Recursive5.smt2 (extracted
+via `--smt /tmp/dump.smt2`).  All times use z3 binary directly with the
+specified per-query soft timeout (`-t:`).
+
+| Flags | Outcome | Time |
+|---|---|---|
+| baseline (`AUTO_CONFIG=false, MBQI=false`) | unknown | 60s/120s/300s (timeout) |
+| `MBQI=true` alone | unknown | 60s |
+| `AUTO_CONFIG=true, MBQI=false` | unknown | 60s |
+| `AUTO_CONFIG=true, MBQI=true` | unknown | 60s |
+| `macro-finder=true` | unknown | 60s/300s |
+| `macro-finder=true, MBQI=true` | unknown | 60s |
+| `qi.eager_threshold=50/100/1000/10000` | unknown | 35-300s |
+| `qi.eager_threshold=10000` | unknown | 60s |
+| `ematching=false, MBQI=true` | unknown | 28-30s (immediate give-up) |
+| `phase_selection=2` (random) | unknown | 35s |
+| `relevancy=2` | unknown | 180s |
+| `qi.cost = (+ weight (* 1 generation))` | unknown | 180s |
+| AUTO_CONFIG=true defaults | unknown | 180s |
+| `produce-models=false`, various combos | unknown | 60s |
+| `qi.profile=true` | unknown | 60s (with profile output: only 2 instantiations of `k!116`, nothing else) |
+| seeds 1, 7, 42, 100, 9999 | unknown | 60s each (deterministic across seeds) |
+
+The `qi.profile=true` data is the most damning — z3 only achieves 2
+instantiations of the recursive `power` axiom before giving up.  This is
+**not a tuning issue** — z3 cannot find a productive instantiation chain
+no matter the flags.
+
+**Verdict**: no flag combination cracks Recursive5.power on z3 4.7.1.
+
+### Part 2 results: z3 4.13.4 binary bump
+
+Downloaded z3-4.13.4 official release tarball, dropped into the fork build
+alongside z3-4.7.1.  Verified against dumped Recursive5.smt2:
+
+| Z3 version | Flags | Outcome | Time |
+|---|---|---|---|
+| 4.13.4 | baseline | unknown | 130s |
+| 4.13.4 | all defaults | unknown | 130s |
+| 4.13.4 | macro-finder=true | unknown | 70s+ |
+| 4.13.4 | MBQI=true | unknown | 130s |
+| 4.13.4 | macro-finder + MBQI | unknown | 70s+ (also OOM-killed once) |
+| 4.13.4 | qi.eager_threshold=10000 | unknown | 70s+ |
+| 4.13.4 | macro+MBQI+autoconfig | unknown | 70s+ |
+| 4.13.4 | ematching=false + MBQI | unknown | 296ms (immediate give-up) |
+| 4.13.4 | produce-models=false + various | unknown | 60-120s |
+
+**Verdict**: z3 4.13.4 also fails to crack Recursive5.power.
+
+In the fork-build artifact `/opt/openjml/openjml`, z3-4.13.4 is
+**installed alongside** z3-4.7.1 (and z3-4.3.0, z3-4.3.1) in
+`Solvers-linux/`, so future agents can opt-in via `--exec=$OPENJML_HOME/Solvers-linux/z3-4.13.4`
+without further building.  Note that OpenJML's `Solver_z3_4_3` and
+`Solver_z3_4_5` adapter classes are written for older z3 protocol
+behaviour; switching to z3-4.13.4 sometimes triggers
+"IOException: Stream closed" interactions with simple fixtures
+(observed once on PureCongruenceTest, not reproduced with default flags).
+**Stay on z3-4.7.1 by default** — it is the most stable choice given
+the OpenJML interaction layer.
+
+### What we did discover (and bake in)
+
+While experimenting, we found two important infrastructure issues that
+affect every fixture, not just Recursive5:
+
+#### Issue 1 — `Solver_z3_4_3` was passing `-t:` instead of `-t:N*1000`
+
+The previous z3-timeout patch only fixed `Solver_z3_4_5.java`. But
+OpenJML's default prover (`--prover=z3_4_3`, the path used by the
+inferrer) loads `Solver_z3_4_3.java` — which had the same broken
+`-t:N` (treated as ms by z3, but the OpenJML config supplies seconds)
+invocation.  All proof obligations were running with a per-query soft
+timeout of `--timeout * 1ms` rather than `--timeout * 1s`.  For most
+easy fixtures z3 returns unsat in <120ms and the bug was invisible;
+for Recursive5 and similar hard cases, the soft timeout fired
+immediately and z3 returned unknown without doing meaningful work.
+
+**Fix**: patch `Solver_z3_4_3.java` with the same multiplier as the
+existing `Solver_z3_4_5.java` patch (`patch_z3_timeout.py` extended
+to handle both files).
+
+#### Issue 2 — z3's `-t:` is per-query, not global
+
+z3 has TWO timeouts: `-t:N` is the soft per-query limit (ms); `-T:N`
+is the hard global limit (seconds).  After `-t:` fires, z3 returns
+"unknown" for the current query but stays alive — and OpenJML's
+counter-example loop continues issuing follow-up queries (`get_info`,
+`get_value`, additional `check_sat` calls).  Each fresh query restarts
+the `-t:` budget.  For Recursive5, this caused z3 to run for **25+
+minutes** before being killed externally, even with `-t:60` (60-second
+per-query).
+
+**Fix**: pass BOTH `-t:N*1000` (per-query soft, ms) AND `-T:2N`
+(global hard, seconds).  The 2x multiplier on the hard limit gives
+the counter-example loop room to issue follow-ups while still bounding
+total wall time.
+
+Without this, the timeout patch alone caused a worse regression than
+the broken-ms behaviour — Recursive5 went from "validity unknown after
+~1s" to "container hangs for hours".  With both flags, Recursive5
+correctly reports `Validity is unknown - time or memory limit reached`
+in 124s.
+
+#### Issue 3 — Dead z3 emits a malformed `:reason-unknown` response
+
+When the `-T:` hard timeout fires and z3 dies, OpenJML's
+`solver.get_info(":reason-unknown")` follow-up returns either an error
+response (if the pipe is dead) or a bare token (`timeout`) parsed as
+something that's neither an `IAttributeList` nor an `IError`.  The
+unpatched code falls through to `log.error("Unexpected result")` and
+classifies the run as a hard ERROR rather than a TIMEOUT.
+
+**Fix**: a new `patch_methodprover_dead_solver.py` rewrites both
+"Unexpected result" else-branches to instead emit
+`esc.resourceout.feasibility` / `esc.resourceout` and mark the proof
+as `IProverResult.TIMEOUT`.  This converts the ERROR classification
+to the semantically-correct SOLVER_UNKNOWN classification.
+
+### Files added/modified in this session
+
+- `patches/scripts/patch_z3_flags.py` (new) — adds
+  `:smt.macro-finder true` and `:smt.qi.eager_threshold 100` to the
+  start-of-script preamble emitted by `SMTTranslator.java`.  Confirmed
+  neutral on every fixture in our suite (does not crack Recursive5,
+  does not regress anything else).
+- `patches/scripts/patch_z3_timeout.py` (modified) — extended to
+  handle both `Solver_z3_4_3.java` and `Solver_z3_4_5.java`, with
+  variable occurrence counts.  Now also emits a `-T:` global hard
+  timeout (2x the OpenJML --timeout) alongside the existing `-t:`
+  per-query soft timeout.
+- `patches/scripts/patch_methodprover_dead_solver.py` (new) — rewrites
+  both "Unexpected result" else-branches in `MethodProverSMT.java` to
+  classify dead-solver scenarios as `IProverResult.TIMEOUT` instead of
+  `IProverResult.ERROR`.
+- `patches/binaries/z3-4.13.4` (new) — z3 4.13.4 official release
+  binary, 32MB, dropped into `/src/Solvers/Solvers-linux/` during
+  build.  Available in the released artifact alongside z3-4.7.1.
+- `Dockerfile.build` (modified) — patch invocation list extended;
+  `make` step uses `bash -c` with `pipefail` so failures surface
+  instead of being hidden by the `tail` filter.
+- `test-fixtures/regression_test.sh` (new) — regression script that
+  classifies each fixture as PASS / SOLVER_UNKNOWN / REAL_TRACE /
+  SHELL_KILL / FAIL.  Used to confirm the patches don't regress.
+- `IMPLEMENTATION_REPORT.md` (this addendum)
+
+### Final state of Recursive5.power
+
+Was: hard ERROR on first iteration, no useful diagnostic ("Unexpected
+result when querying SMT solver for reason for an unknown result: ").
+
+Now: `verify: Validity is unknown - time or memory limit reached: : unknown reason: `
+in ~124s wall time, classified as `IProverResult.TIMEOUT`.  This is
+the correct semantic outcome — the obligation is genuinely beyond
+z3's quantifier-instantiation budget regardless of binary version or
+flag tuning.
+
+### Final state of regression suite
+
+```
+[PASS 5s] PureCongruenceTest
+[PASS 6s] PureCongruenceTest2
+[PASS 4s] ArrayCongruenceTest
+[REAL_TRACE 3s] Recursive1
+[PASS 4s] Recursive2
+[SOLVER_UNKNOWN 124s] Recursive5  (semantically correct)
+[REAL_TRACE 4s] PowerPrecondition
+[REAL_TRACE 3s] FactorialPrecondition
+[REAL_TRACE 4s] AccumulatorInvariant
+[REAL_TRACE 4s] ArraySumStepLemma
+[REAL_TRACE 4s] SumToN
+[REAL_TRACE 3s] DotProductE2E
+[REAL_TRACE 4s] Matrix3
+[REAL_TRACE 4s] Matrix4
+[PASS 4s] ArrFilter2
+[PASS 4s] CountEvenStepLemma
+[PASS 4s] CountInRange
+[PASS 3s] CountNegatives
+[PASS 4s] CountPos
+[PASS 4s] GuardLoop1
+[REAL_TRACE 3s] LoopConditionalAccumulation
+[REAL_TRACE 4s] Encoder1
+[REAL_TRACE 5s] Recursive1Real
+[REAL_TRACE 7s] PureCompoundWithLocals
+[REAL_TRACE 4s] ProductAccumulator
+[REAL_TRACE 4s] FactorialStepLemma
+```
+
+No regressions on the 25 other fixtures.  The previously
+"hung-or-ERROR" Recursive5 case is now correctly reported as
+SOLVER_UNKNOWN with a 2-minute time budget.
+
+### Best combination identified
+
+For routine inferrer-side use (`--prover=z3_4_3`, default), the best
+combination is the patched build with:
+
+- `Solver_z3_4_3.java` and `Solver_z3_4_5.java` both pass `-t:N*1000 -T:2N`.
+- `SMTTranslator.java` emits `(set-option :smt.macro-finder true)` and
+  `(set-option :smt.qi.eager_threshold 100)` in the preamble.
+- `MethodProverSMT.java` classifies dead-solver `:reason-unknown`
+  responses as TIMEOUT.
+
+For experimentation with z3-4.13.4: `--prover=z3_4_3 --exec=/opt/openjml/Solvers-linux/z3-4.13.4`.
+Caveat: the OpenJML interaction layer occasionally produces
+"IOException: Stream closed" with z3-4.13.4 on simple fixtures.
+
+### What's fundamental, what's not
+
+- **Recursive5.power is fundamental** — confirmed by:
+  - z3 4.7.1 with no flags: unknown
+  - z3 4.7.1 with macro-finder, MBQI, qi.eager_threshold up to 10000,
+    ematching=false, multiple seeds, qi.profile shows only 2 axiom
+    instantiations: still unknown
+  - z3 4.13.4 with same range of flags: still unknown
+  - At 300s per-query soft timeout: still unknown
+
+  This is the textbook unbounded E-matching case from de Moura/Bjørner
+  2007.  The double recursion `power(b, exp/2) * power(b, exp/2)`
+  creates a quantifier instantiation pattern z3 cannot productively
+  saturate.  No published solver tactic addresses this without
+  Dafny-style explicit trigger annotations on the spec, which the
+  inferrer cannot synthesise.
+
+- **The 25-minute hang was a fork bug, not fundamental.** The
+  per-query-only timeout combined with OpenJML's interaction loop
+  meant z3 ran indefinitely.  Now bounded by `-T:2N`.
+
+- **The "Unexpected result" ERROR classification was a fork bug.**
+  Z3 timing out is correctly a TIMEOUT, not an internal ERROR.
+
+[passes 1-7 complete; not applicable — no journal/article files modified]

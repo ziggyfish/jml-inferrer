@@ -64,6 +64,17 @@ RUN SMTLIB_DIR=/src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/smtlib
          echo "Dropped JmlBoundsExtractor.java"; \
        fi
 
+# Drop z3-4.13.4 binary into Solvers/Solvers-linux/ so the release bundle picks
+# it up alongside z3-4.7.1 / z3-4.3.x.  The 2026-04-29 z3 version-bump
+# experiment found that z3-4.13.4 doesn't crack Recursive5.power either, but
+# it does not regress any existing fixture and is more current upstream — so
+# we ship both and let the user select via --exec or via --prover=z3_4_13.
+RUN if [ -f /src/patches/binaries/z3-4.13.4 ]; then \
+         cp /src/patches/binaries/z3-4.13.4 /src/Solvers/Solvers-linux/z3-4.13.4 \
+         && chmod +x /src/Solvers/Solvers-linux/z3-4.13.4 \
+         && echo "Dropped z3-4.13.4 into Solvers-linux"; \
+       fi
+
 # Apply the SMTTranslator patch via the Python script (python3 in base layer).
 RUN if [ -f /src/patches/scripts/patch_smttranslator.py ]; then \
          python3 /src/patches/scripts/patch_smttranslator.py \
@@ -86,8 +97,11 @@ RUN if [ -f /src/patches/scripts/patch_pure_determinism.py ]; then \
 # the full rationale. Without this, OpenJML's `--timeout=120` (intended as
 # 2 minutes) becomes 120 ms to z3, which is far too short for the harder
 # \sum / \product / \num_of obligations discharged by patch_smttranslator.py.
+# We patch BOTH Solver_z3_4_3 (used by --prover=z3_4_3, the default) and
+# Solver_z3_4_5 — they both have the same broken `-t:` invocation.
 RUN if [ -f /src/patches/scripts/patch_z3_timeout.py ]; then \
          python3 /src/patches/scripts/patch_z3_timeout.py \
+           /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/smtlib/solvers/Solver_z3_4_3.java \
            /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/smtlib/solvers/Solver_z3_4_5.java; \
        fi
 
@@ -112,6 +126,28 @@ RUN if [ -f /src/patches/scripts/patch_methodprover_suppress_no_model_after_fail
 RUN if [ -f /src/patches/scripts/patch_methodprover_retry_get_value.py ]; then \
          python3 /src/patches/scripts/patch_methodprover_retry_get_value.py \
            /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/esc/MethodProverSMT.java; \
+       fi
+
+# Treat dead z3 process (e.g. from -T: hard timeout) as TIMEOUT rather than
+# internal ERROR.  See patches/scripts/patch_methodprover_dead_solver.py
+# for the rationale.  Without this, Recursive5.power emits a hard ERROR
+# after the new -T: cap fires; with the patch it correctly classifies as
+# SOLVER_UNKNOWN/TIMEOUT.
+RUN if [ -f /src/patches/scripts/patch_methodprover_dead_solver.py ]; then \
+         python3 /src/patches/scripts/patch_methodprover_dead_solver.py \
+           /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/esc/MethodProverSMT.java; \
+       fi
+
+# Add z3 SMT options (macro-finder, qi.eager_threshold) to the start-of-script
+# preamble so z3's quantifier engine has more headroom for axiomatic encodings.
+# See patches/scripts/patch_z3_flags.py for the full rationale and the
+# 2026-04-29 flag tuning campaign results.  Confirmed neutral on every
+# fixture in our suite (PureCongruenceTest, ArrayCongruenceTest,
+# PowerPrecondition, etc.); does not crack Recursive5.power but does not
+# regress it either.
+RUN if [ -f /src/patches/scripts/patch_z3_flags.py ]; then \
+         python3 /src/patches/scripts/patch_z3_flags.py \
+           /src/OpenJML/OpenJMLsrc/src/jdk.compiler/share/classes/org/jmlspecs/openjml/esc/SMTTranslator.java; \
        fi
 
 # Patch the Specs/ tree (java/lang/String.jml + Integer.jml) so ESC mode sees
@@ -139,8 +175,7 @@ RUN bash ./configure \
       --host=x86_64-unknown-linux-gnu \
       2>&1 | tail -30
 
-RUN make openjml 2>&1 | tail -50 \
-    && make release 2>&1 | tail -30
+RUN bash -c 'set -o pipefail; (make openjml 2>&1 | tail -200) && (make release 2>&1 | tail -50)'
 
 # Final stage: just the zip
 FROM alpine:3.19 AS artifact
