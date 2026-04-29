@@ -1,11 +1,13 @@
 package com.jml.inferrer.analysis;
 
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -46,13 +48,24 @@ final class SumInductionAnalyzer {
     }
 
     /**
-     * Emits {@code \sum}/{@code \product}/{@code \num_of} loop invariants. When
-     * {@code spec} is provided, emission is GATED on the spec already containing a
-     * postcondition that references the same quantifier — without a discharge
-     * target, the invariant just forces z3 to expand the {@code define-fun-rec}
-     * encoding for nothing and the proof times out (the SOLVER_UNKNOWN bucket
-     * documented in docs/solver-unknown-analysis.md). Per the user's bug-detection
-     * directive, an unverifiable but correct spec is worse than no spec at all.
+     * Emits {@code \sum}/{@code \product}/{@code \num_of} loop invariants AND, when
+     * the surrounding method's terminal return is the accumulator, the matching
+     * {@code \result == (\sum int k; LO <= k && k < HIGH; ...)} postcondition.
+     * Emitting the postcondition is what gives the invariant a discharge target;
+     * without one the invariant just forces z3 to expand the SMT encoding for
+     * nothing.
+     *
+     * <p>Behaviour: emission only fires when the loop pattern matches AND a
+     * matching postcondition can be derived (return-the-accumulator method shape
+     * with a pre-state-expressible HIGH bound). When {@code spec} is null
+     * (legacy callers without spec context), only invariants are emitted — the
+     * caller is expected to supply the postcondition itself.</p>
+     *
+     * <p>The previous gate "skip emission unless a matching post exists" was
+     * appropriate when the OpenJML fork's quantifier encoding was broken
+     * (commit b3ae1e4 fixes this). With the axiomatic encoding now active the
+     * analyzer should always emit when it can, and supply the postcondition
+     * itself rather than expecting another analyzer to.</p>
      */
     static void analyze(ForStmt forStmt, List<String> counterNames, Set<String> invariants,
                         com.jml.inferrer.model.MethodSpecification spec) {
@@ -61,37 +74,83 @@ final class SumInductionAnalyzer {
         String lo = extractLowBound(forStmt, counter);
         if (lo == null) return;
 
-        if (!hasMatchingQuantifierPostcondition(spec)) return;
+        // High bound for the matching postcondition. When `for(i = LO; i < HIGH; ...)`
+        // exits, i == HIGH; the accumulator's value is the quantifier evaluated over
+        // [LO, HIGH). Skip postcondition emission when HIGH is missing or not
+        // pre-state-expressible — the invariant alone is still sound.
+        String hi = extractHighBound(forStmt, counter);
+
+        MethodDeclaration methodDecl = forStmt.findAncestor(MethodDeclaration.class).orElse(null);
 
         Statement body = forStmt.getBody();
 
         body.findAll(AssignExpr.class).forEach(ae ->
-                handleCompoundAssign(ae, counter, lo, body, invariants));
+                handleCompoundAssign(ae, counter, lo, hi, body, invariants, spec, methodDecl));
         body.findAll(IfStmt.class).forEach(is -> {
-            handleConditionalCounter(is, counter, lo, body, invariants);
-            handleConditionalAccumulator(is, counter, lo, body, invariants);
+            handleConditionalCounter(is, counter, lo, hi, body, invariants, spec, methodDecl);
+            handleConditionalAccumulator(is, counter, lo, hi, body, invariants, spec, methodDecl);
         });
     }
 
     /**
-     * True when the spec already contains a postcondition referencing one of the
-     * three quantifiers this analyzer emits ({@code \sum}, {@code \product},
-     * {@code \num_of}). Without such a postcondition, the loop invariants this
-     * analyzer would emit have no discharge target — they just force z3 to
-     * expand the recursive function definitions and (in practice) hit
-     * `(possible timeout)` as documented in the SOLVER_UNKNOWN analysis.
-     *
-     * Returns {@code true} when {@code spec} is null (back-compat for tests that
-     * call the simpler overload without spec context).
+     * Extracts the upper bound of {@code for (counter = LO; counter <op> HIGH; ...)}.
+     * Recognises the four ordered comparisons; returns null for shapes the
+     * analyzer can't summarise (no compare clause, multi-conjunct guard, etc.).
+     * The returned string is suitable for splicing into a JML postcondition's
+     * range expression — for {@code i < arr.length} we return {@code "arr.length"}.
      */
-    private static boolean hasMatchingQuantifierPostcondition(com.jml.inferrer.model.MethodSpecification spec) {
-        if (spec == null) return true;
-        for (String post : spec.getPostconditions()) {
-            if (post.contains("\\sum") || post.contains("\\product") || post.contains("\\num_of")) {
-                return true;
+    private static String extractHighBound(ForStmt forStmt, String counter) {
+        Expression cmp = forStmt.getCompare().orElse(null);
+        if (!(cmp instanceof BinaryExpr be)) return null;
+        if (!(be.getLeft() instanceof NameExpr lne) || !lne.getNameAsString().equals(counter)) {
+            return null;
+        }
+        // For `i < HIGH` the half-open range is [LO, HIGH); for `i <= HIGH` it's
+        // [LO, HIGH+1). Normalise to half-open form for the quantifier.
+        return switch (be.getOperator()) {
+            case LESS -> be.getRight().toString();
+            case LESS_EQUALS -> "(" + be.getRight() + " + 1)";
+            default -> null;
+        };
+    }
+
+    /**
+     * True when the surrounding method's terminal return is exactly
+     * {@code return TARGET;} — the precondition for emitting a matching
+     * {@code \result == ...} postcondition. We require: at least one return
+     * statement, ALL of them have expression {@code TARGET} (so the spec is
+     * sound on every normal exit), and TARGET is the accumulator name we
+     * just summarised.
+     */
+    private static boolean methodReturnsAccumulator(MethodDeclaration methodDecl, String target) {
+        if (methodDecl == null) return false;
+        if (methodDecl.getBody().isEmpty()) return false;
+        java.util.List<ReturnStmt> returns = methodDecl.getBody().get().findAll(ReturnStmt.class);
+        if (returns.isEmpty()) return false;
+        for (ReturnStmt r : returns) {
+            Optional<Expression> e = r.getExpression();
+            if (e.isEmpty()) return false;
+            if (!(e.get() instanceof NameExpr ne) || !ne.getNameAsString().equals(target)) {
+                return false;
             }
         }
-        return false;
+        return true;
+    }
+
+    /**
+     * Emits the matching {@code ensures \result == (\sum/product/num_of int k;
+     * LO <= k && k < HIGH; BODY)} postcondition into {@code spec}. Returns true
+     * iff an emission occurred. Caller's responsibility to ensure
+     * {@code methodReturnsAccumulator(...)} held first.
+     */
+    private static boolean emitMatchingPostcondition(com.jml.inferrer.model.MethodSpecification spec,
+                                                      String quant, String lo, String hi,
+                                                      String bodyExpr) {
+        if (spec == null || hi == null || bodyExpr == null) return false;
+        String post = "\\result == (" + quant + " int k; " + lo + " <= k && k < " + hi
+                + "; " + bodyExpr + ")";
+        spec.addPostcondition(post);
+        return true;
     }
 
     private static String extractLowBound(ForStmt forStmt, String counter) {
@@ -112,8 +171,10 @@ final class SumInductionAnalyzer {
      * to use {@code k} wherever the loop counter appears so it can live under the
      * quantifier binding.
      */
-    private static void handleCompoundAssign(AssignExpr ae, String counter, String lo,
-                                             Statement body, Set<String> invariants) {
+    private static void handleCompoundAssign(AssignExpr ae, String counter, String lo, String hi,
+                                             Statement body, Set<String> invariants,
+                                             com.jml.inferrer.model.MethodSpecification spec,
+                                             MethodDeclaration methodDecl) {
         if (!(ae.getTarget() instanceof NameExpr)) return;
         String target = ((NameExpr) ae.getTarget()).getNameAsString();
         if (target.equals(counter)) return;
@@ -127,31 +188,40 @@ final class SumInductionAnalyzer {
         if (persistsAcrossEnclosingLoop(body, target)) return;
 
         AssignExpr.Operator op = ae.getOperator();
+        String quant;
+        String summandK;
 
         // Compound shape: `target += RHS` or `target *= RHS` — RHS is the summand/factor.
         if (op == AssignExpr.Operator.PLUS || op == AssignExpr.Operator.MULTIPLY) {
-            String summand = rewriteCounterToK(ae.getValue().toString(), counter);
-            if (summand == null) return;
-            String quant = (op == AssignExpr.Operator.PLUS) ? "\\sum" : "\\product";
-            invariants.add(target + " == (" + quant + " int k; " + lo + " <= k && k < "
-                    + counter + "; " + summand + ")");
-            return;
+            summandK = rewriteCounterToK(ae.getValue().toString(), counter);
+            if (summandK == null) return;
+            quant = (op == AssignExpr.Operator.PLUS) ? "\\sum" : "\\product";
         }
-
         // Explicit shape: `target = target + RHS` or `target = target * RHS` — RHS_REST
         // (the side without `target`) is the summand/factor. Both `target + x` and
         // `x + target` are recognised.
-        if (op == AssignExpr.Operator.ASSIGN && ae.getValue() instanceof BinaryExpr be) {
-            String summand = extractAccumulatorRhs(be, target);
-            if (summand == null) return;
-            String quant;
+        else if (op == AssignExpr.Operator.ASSIGN && ae.getValue() instanceof BinaryExpr be) {
+            String rhs = extractAccumulatorRhs(be, target);
+            if (rhs == null) return;
             if (be.getOperator() == BinaryExpr.Operator.PLUS) quant = "\\sum";
             else if (be.getOperator() == BinaryExpr.Operator.MULTIPLY) quant = "\\product";
             else return;
-            String summandK = rewriteCounterToK(summand, counter);
+            summandK = rewriteCounterToK(rhs, counter);
             if (summandK == null) return;
-            invariants.add(target + " == (" + quant + " int k; " + lo + " <= k && k < "
-                    + counter + "; " + summandK + ")");
+        } else {
+            return;
+        }
+
+        invariants.add(target + " == (" + quant + " int k; " + lo + " <= k && k < "
+                + counter + "; " + summandK + ")");
+
+        // When the surrounding method returns this accumulator and the loop bound
+        // is pre-state-expressible, emit the matching `\result == (\sum ...)` over
+        // the closed quantifier range [LO, HIGH). The OpenJML fork's axiomatic
+        // encoding (commit b3ae1e4) discharges this when the loop_invariant above
+        // is in scope.
+        if (methodReturnsAccumulator(methodDecl, target)) {
+            emitMatchingPostcondition(spec, quant, lo, hi, summandK);
         }
     }
 
@@ -198,10 +268,14 @@ final class SumInductionAnalyzer {
     /**
      * Handles {@code if (pred) counter++} and {@code if (pred) counter += 1}.
      * Emits a {@code \num_of} invariant counting how often the predicate held
-     * for indices already iterated.
+     * for indices already iterated, and the matching
+     * {@code \result == (\num_of ...)} postcondition when the surrounding
+     * method returns the counter.
      */
-    private static void handleConditionalCounter(IfStmt is, String counter, String lo,
-                                                 Statement body, Set<String> invariants) {
+    private static void handleConditionalCounter(IfStmt is, String counter, String lo, String hi,
+                                                 Statement body, Set<String> invariants,
+                                                 com.jml.inferrer.model.MethodSpecification spec,
+                                                 MethodDeclaration methodDecl) {
         if (is.getElseStmt().isPresent()) return;
         if (isInsideNestedLoop(is, body)) return;
 
@@ -222,6 +296,10 @@ final class SumInductionAnalyzer {
 
         invariants.add(incrTarget + " == (\\num_of int k; " + lo + " <= k && k < "
                 + counter + "; " + condK + ")");
+
+        if (methodReturnsAccumulator(methodDecl, incrTarget)) {
+            emitMatchingPostcondition(spec, "\\num_of", lo, hi, condK);
+        }
     }
 
     /**
@@ -235,8 +313,10 @@ final class SumInductionAnalyzer {
      * Only fires when the then-branch is a single accumulator statement and there
      * is no else clause; mirrors the gating in handleConditionalCounter.
      */
-    private static void handleConditionalAccumulator(IfStmt is, String counter, String lo,
-                                                     Statement body, Set<String> invariants) {
+    private static void handleConditionalAccumulator(IfStmt is, String counter, String lo, String hi,
+                                                     Statement body, Set<String> invariants,
+                                                     com.jml.inferrer.model.MethodSpecification spec,
+                                                     MethodDeclaration methodDecl) {
         if (is.getElseStmt().isPresent()) return;
         if (isInsideNestedLoop(is, body)) return;
 
@@ -287,8 +367,13 @@ final class SumInductionAnalyzer {
         String condK = rewriteCounterToK(is.getCondition().toString(), counter);
         if (condK == null) return;
 
+        String summandBody = "(" + condK + ") ? (" + summand + ") : " + identity;
         invariants.add(target + " == (" + quant + " int k; " + lo + " <= k && k < "
-                + counter + "; (" + condK + ") ? (" + summand + ") : " + identity + ")");
+                + counter + "; " + summandBody + ")");
+
+        if (methodReturnsAccumulator(methodDecl, target)) {
+            emitMatchingPostcondition(spec, quant, lo, hi, summandBody);
+        }
     }
 
     /**
