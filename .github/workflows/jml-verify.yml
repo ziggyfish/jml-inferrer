@@ -1,0 +1,134 @@
+# RQ4 Phase 3.2 — Reusable GitHub Actions workflow for JML inference + verification
+#
+# Per `journal/rq4_cicd_design.md` §3 (failure-mode tree): inference output is
+# informational, not gating. Failures here log to the PR comment but do not
+# block the merge. To opt into gating, set the `infer-clean-required` label on
+# the PR — a separate workflow can then read the report and fail if needed.
+#
+# Usage from a consumer repo's own workflow:
+#
+#   jobs:
+#     jml:
+#       uses: jml-inferrer/.github/workflows/jml-verify.yml@v1
+#       with:
+#         java-version: '21'
+
+name: JML Inference and Verification
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: 'Java version to set up'
+        type: string
+        default: '21'
+      cache-key-suffix:
+        description: 'Suffix appended to cache keys for namespace isolation'
+        type: string
+        default: ''
+      strict:
+        description: 'Exit non-zero on inference / verify failures'
+        type: boolean
+        default: false
+      verify:
+        description: 'Run OpenJML verification step (requires OPENJML_HOME on the runner)'
+        type: boolean
+        default: false
+
+jobs:
+  jml:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          # Full history so the diff resolver can compare to the base ref.
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: 'maven'
+
+      - name: Restore JML inference cache
+        uses: actions/cache@v4
+        with:
+          path: .jml-cache
+          key: jml-${{ inputs.cache-key-suffix }}-${{ hashFiles('src/**/*.java') }}
+          restore-keys: |
+            jml-${{ inputs.cache-key-suffix }}-
+
+      - name: Build inferrer
+        run: ./mvnw -B -q package -DskipTests
+
+      - name: Run inference (diff-only on PRs, full on push)
+        env:
+          DIFF_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}..HEAD', github.base_ref) || '' }}
+        run: |
+          ARGS=( "infer" "--root" "src/main/java" "--cache-dir" ".jml-cache" )
+          if [ -n "${DIFF_REF}" ]; then
+            ARGS+=( "--diff" "${DIFF_REF}" )
+          fi
+          if [ "${{ inputs.strict }}" = "true" ]; then
+            ARGS+=( "--strict" )
+          fi
+          java -cp target/jml-inferrer-1.0.0-jar-with-dependencies.jar com.jml.inferrer.ci.JmlCi "${ARGS[@]}"
+
+      - name: Run verification
+        if: inputs.verify == true
+        run: |
+          java -cp target/jml-inferrer-1.0.0-jar-with-dependencies.jar com.jml.inferrer.ci.JmlCi \
+            verify --root src/main/java --report .jml-cache/verify-report.json
+
+      - name: Build PR comment
+        run: |
+          java -cp target/jml-inferrer-1.0.0-jar-with-dependencies.jar com.jml.inferrer.ci.JmlCi \
+            summary \
+            --infer-report .jml-cache/infer-report.json \
+            --verify-report .jml-cache/verify-report.json \
+            --format markdown \
+            --out .jml-cache/summary.md
+
+      - name: Post PR comment (in place)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('.jml-cache/summary.md', 'utf8');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.startsWith('## JML inference summary'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: summary,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: summary,
+              });
+            }
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jml-reports
+          path: |
+            .jml-cache/infer-report.json
+            .jml-cache/verify-report.json
+            .jml-cache/summary.md
+          retention-days: 14
