@@ -1,0 +1,18 @@
+\section{Threats to Validity}
+\label{sec:threats}
+
+\paragraph{Internal validity.}
+The 100\% roundtrip-fidelity figure depends on the writer covering every method shape that ASM emits. Section~\ref{sec:empirical} discusses the original 3\% gap that arose when the writer's lazy emission missed the abstract / interface case (only \texttt{visitEnd} fires for them). Adding \texttt{visitEnd} to the trigger set closed the gap on the libraries tested. The same risk pattern applies to method shapes specific to future JVM features --- e.g., abstract record components, hidden classes (JEP~371) --- which would need their own triggers if they exhibit different visit-call orderings. The mitigation is the same: a corpus-scale validation per JVM release.
+
+The byte-overhead figure is measured under a deliberately bulky synthetic-spec workload (one annotation per parameter for every method). Real inferred specifications are typically smaller per method, so the reported 11.76\%--13.49\% range should be read as an upper bound for the embedder's contribution to JAR size. The 13.49\% figure on Commons IO reflects its higher proportion of interfaces (each abstract method receives an embedded annotation just like a concrete method); a workload-aware embedder that elides annotations on abstract methods whose specs are pure pass-throughs would lower the figure further.
+
+\paragraph{External validity.}
+The two libraries reported are mature, well-structured, and ship through Maven Central. Generalisation to less-tidy code (older artefacts, vendored dependencies, hand-tuned ProGuard-stripped JARs) will need separate validation. The negative test confirms that the consumer-side contract (load classes without the annotation type) holds at JDK 21; older JDKs (8, 11, 17) and ahead-of-time compilation paths (GraalVM \texttt{native-image}) are deferred.
+
+The OpenAPI extension is validated by construction (it is a JSON Schema valid against OpenAPI 3.x's extension rules). Empirical validation against a real microservice is part of the planned follow-up evaluation but does not appear in the present article.
+
+\paragraph{Construct validity.}
+"Roundtrip fidelity" is operationalised as set-equality on \texttt{(internalName, methodName, descriptor)} keys. Two methods with identical signatures but different bytecode bodies (for example, the same constructor compiled with different optimisation levels) appear identical to the harness. This is the right construct for the embedder's job --- the embedder carries metadata, not bytecode --- but a reader that needs to attach annotations to a specific compilation of a method would need additional disambiguation.
+
+\paragraph{Conclusion validity.}
+The empirical claims are point measurements on two libraries; no statistical significance test is meaningful. The claims are robust in the sense that the gap-causing patterns are identified and fixable, and the absolute throughput numbers are well above the thresholds CI/CD workflows require, but a wider corpus (the protocol's full ten libraries) is required before the claims generalise.
