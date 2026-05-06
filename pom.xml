@@ -46,6 +46,13 @@
             <version>2.10.1</version>
         </dependency>
 
+        <!-- JML spec embedding (RQ2 — see jml-embedder/) -->
+        <dependency>
+            <groupId>com.jml</groupId>
+            <artifactId>jml-embedder</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
