@@ -1,3 +1,6 @@
 commons-io-2.13.0 | methods=2677 matched=2677 mismatches=0 originalBytes=483954 embeddedBytes=549218 overhead=13.49% embedThroughput=10480 m/s readThroughput=146147 m/s
 commons-lang3-3.14.0 | methods=4029 matched=4029 mismatches=0 originalBytes=657952 embeddedBytes=736548 overhead=11.95% embedThroughput=28022 m/s readThroughput=216068 m/s
 guava-33.3.0-jre | methods=13840 matched=13840 mismatches=0 originalBytes=3078245 embeddedBytes=3440222 overhead=11.76% embedThroughput=22353 m/s readThroughput=235144 m/s
+commons-io-2.13.0 | methods=2677 matched=2677 mismatches=0 originalBytes=483954 embeddedBytes=549218 overhead=13.49% embedThroughput=19228 m/s readThroughput=186478 m/s
+commons-lang3-3.14.0 | methods=4029 matched=4029 mismatches=0 originalBytes=657952 embeddedBytes=736548 overhead=11.95% embedThroughput=30288 m/s readThroughput=315693 m/s
+guava-33.3.0-jre | methods=13840 matched=13840 mismatches=0 originalBytes=3078245 embeddedBytes=3440222 overhead=11.76% embedThroughput=22429 m/s readThroughput=227680 m/s

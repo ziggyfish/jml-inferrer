@@ -1,0 +1,19 @@
+\section{Threats to Validity}
+\label{sec:threats}
+
+\paragraph{Internal validity.}
+The reference workflow's correctness rests on the cache key being deterministic and content-sensitive. The CLI's unit tests cover both properties (same content $\to$ same key; different content $\to$ different key; callee-spec change $\to$ caller's key changes). What is not tested is the per-method cache invalidation under interprocedural updates: a future commit that changes a callee in a different file should invalidate every caller's cache entry. This is straightforward to verify but is part of the planned empirical study, not the present article.
+
+\paragraph{External validity.}
+The self-test is on a single repository --- the inferrer's own. The generalisation to repositories of different size, language idiom, and contributor pattern is the explicit purpose of the planned external study (Section~\ref{sec:empirical}). The ``less-tidy'' subject is the chief mitigation against the Apache-style-codebase bias.
+
+The three CI platforms covered (GitHub Actions, GitLab CI, Jenkins) span the dominant deployment surface but exclude smaller players (CircleCI, Travis, Buildkite, Azure DevOps). The pattern of the templates is mechanical to port; the missing platforms are an effort question, not a design question.
+
+\paragraph{Construct validity.}
+The metrics in Section~\ref{sec:empirical} measure pipeline behaviour, not developer behaviour. The reportable claims of the planned study are about overhead and cache effectiveness; the question of whether these workflows actually \emph{help} developers is the qualitative dimension's job, and a ten-week trial with 2--3 colleagues is at the lower bound of what would let the article say anything substantive about developer experience.
+
+\paragraph{Conclusion validity.}
+The self-test reports timings on a single GitHub-hosted runner; ``ubuntu-latest'' has known per-job variance. The planned study's metrics are reported with 95\% confidence intervals across the 24-week replay; the present article's self-test timings are point estimates reported as approximate.
+
+\paragraph{Heuristic-soundness.}
+The CI workflow inherits the inferrer's heuristic limitations from Articles~1 and~3. A clause that the inferrer emits but that turns out to be unsound under OpenJML is flagged in the PR comment, not silently embedded; this is the design choice from Section~\ref{sec:workflow}'s failure-mode tree. The threat is that a developer reading the PR comment dismisses ``flagged'' clauses as noise and misses a real soundness issue. The mitigation is the verification step itself: when a clause is flagged, the comment shows the OpenJML output, not just a flag count.

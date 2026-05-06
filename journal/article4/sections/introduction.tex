@@ -1,0 +1,16 @@
+\section{Introduction}
+\label{sec:introduction}
+
+The case for inferred specifications has been made in three previous articles in this thesis. Article~1 showed that specifications materially improve LLM-generated tests (272\% more tests, 40.7~pp higher mutation score). Article~2 showed the specifications can be embedded in compiled artefacts and OpenAPI descriptions with 100\% roundtrip fidelity. Article~3 showed that compositional refinement across method boundaries strictly extends the isolated-inference precondition set. The unaddressed question is operational: \emph{can the inference pipeline be deployed inside a real Agile development workflow without introducing significant overhead or process disruption?}
+
+This is RQ4 of the thesis. Its conventional answer is that formal methods are too slow and too brittle for routine CI: typical formal-verification toolchains demand minutes to hours per analysis run, fail loudly on edge cases, and force the developer to chase down false positives during their normal pull-request cycle. The claim of this article is that an inference-based approach with three deliberate design choices changes that calculus:
+
+\begin{enumerate}
+    \item \emph{Per-PR diff-only analysis with content-hash caching.} Whole-codebase re-inference is performed once per merge to main; per-PR work is restricted to changed methods, with unchanged methods served from cache. The cache key is a SHA-256 of the method source plus its callees' canonical-form specs plus the inferrer version, so cache invalidation is precise (a callee's spec change invalidates only its callers, not the rest of the codebase).
+    \item \emph{Fail-open semantics.} Inference output is informational, not gating. A failed inference, an OpenJML timeout, or a malformed inferred clause logs to the PR comment but never blocks the merge. The merge decision stays with the human reviewer; the pipeline's job is to surface what it found.
+    \item \emph{In-place PR comment updates.} A PR sees one persistent JML summary that is updated on each push, not a thread of N comments that the reviewer must wade through.
+\end{enumerate}
+
+The article presents the reference workflow design (Section~\ref{sec:workflow}), the CLI driver that implements it (Section~\ref{sec:cli}), the platform-specific implementations for GitHub Actions, GitLab CI, and Jenkins (Section~\ref{sec:platforms}), and a self-test applying the workflow to the inferrer's own repository (Section~\ref{sec:selftest}). Section~\ref{sec:empirical} specifies the empirical evaluation that the planned follow-up will run against external production codebases. Sections~\ref{sec:threats}--\ref{sec:related} cover threats to validity and related work; Section~\ref{sec:conclusion} concludes.
+
+The contribution is the design + reference implementation, not yet a full empirical evaluation. The CLI driver and three platform templates are working artefacts (90~unit tests in this article's accompanying source distribution); the empirical study against five real OSS Java repositories is planned but unrun.

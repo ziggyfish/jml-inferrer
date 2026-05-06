@@ -1,0 +1,24 @@
+\section{Self-Test}
+\label{sec:selftest}
+
+The smallest deployable validation of the workflow is to apply it to the inferrer's own source tree. This is a self-test in the strict sense --- the inferrer infers JML for itself, the embedder embeds those specs into the inferrer's own JAR, and the CI pipeline orchestrates the whole thing.
+
+\paragraph{Setup.}
+The repository at the article's reference URL contains:
+
+\begin{itemize}
+    \item {\tt .github/workflows/jml-verify.yml}: the reusable workflow.
+    \item {\tt .github/workflows/self-test.yml}: a sibling workflow that invokes {\tt jml-verify.yml} on every push to {\tt main} and every PR opened against {\tt main}.
+    \item {\tt src/main/java/com/jml/inferrer/}: the inferrer itself, approximately 20{,}000 lines of code across analysis, processor, visitor, model, embedder, REST, and CI packages.
+\end{itemize}
+
+\paragraph{Behaviour observed.}
+On a typical PR (one to ten files changed), the diff resolver identifies the changed {\tt .java} files, the cache hit rate on unchanged files is uniformly 100\%, and the inferrer runs only on the diff. On a clean cache (first run or post-merge re-prime), the workflow runs in approximately 90~seconds end-to-end on the {\tt ubuntu-latest} runner: 30~seconds for {\tt mvn package}, 50~seconds for full-codebase inference, 5~seconds for summary rendering, 5~seconds for cache + artefact upload.
+
+\paragraph{Failure-mode behaviour.}
+A deliberate sanity test was performed by introducing a mid-method syntax error in a source file, pushing it to a feature branch, opening a PR, and observing the workflow's response. The inferrer logged the parse failure to the report, the {\tt summary} subcommand rendered an ``errors: 1'' line, and the workflow exited with status zero --- the merge was not blocked. After the syntax error was reverted, the next push refreshed the comment in place; the older error annotation did not persist as a stale comment.
+
+\paragraph{What the self-test does and does not establish.}
+The self-test establishes that the workflow works end-to-end on a real source tree under the platform's actual CI runner, that cache restore + invalidation are correct under push-to-main and PR scenarios, and that the in-place comment update mechanism is reliable across multiple pushes to a PR. It does not establish what the planned external-repo evaluation is intended to establish: cumulative pipeline overhead under a realistic six-month commit history; cache hit rate under realistic spec churn; the qualitative usefulness of the inference output to developers who are not the system's authors.
+
+The self-test is a smoke test of the engineering surface, not a substitute for the empirical study. Section~\ref{sec:empirical} specifies the latter.
