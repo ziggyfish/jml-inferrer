@@ -219,6 +219,17 @@ final class SumInductionAnalyzer {
         invariants.add(target + " == (" + quant + " int k; " + lo + " <= k && k < "
                 + counter + "; " + summandK + ")");
 
+        // Quadratic overflow guard: for `target += counter` from 0, the running
+        // sum is k*(k-1)/2 — bounded above by N*(N-1)/2 where N is the loop's
+        // upper bound. Emitting this as both a loop invariant and a method
+        // precondition is what lets Z3 discharge the body's `total + i` overflow
+        // assertion. Restricted to LO=0, sum-only, summand-equal-to-counter
+        // because the closed form for general summands isn't analytically
+        // simple enough to encode.
+        if (spec != null && quant.equals("\\sum") && summandK.equals("k") && "0".equals(lo)) {
+            emitCounterSumQuadraticGuards(spec, target, counter, hi, invariants);
+        }
+
         // When the surrounding method returns this accumulator and the loop bound
         // is pre-state-expressible, emit the matching `\result == (\sum ...)` over
         // the closed quantifier range [LO, HIGH). The OpenJML fork's axiomatic
@@ -434,6 +445,33 @@ final class SumInductionAnalyzer {
             return rewritten;
         }
         return rewritten;
+    }
+
+    /**
+     * For {@code target += counter} starting at 0 with upper bound HIGH, emit
+     * the quadratic overflow guards that make Z3 discharge the body's
+     * {@code total + i} sum. The closed form for the running sum is
+     * {@code k*(k-1)/2} — bounded above by {@code N*(N-1)/2} where N=HIGH.
+     */
+    private static void emitCounterSumQuadraticGuards(
+            com.jml.inferrer.model.MethodSpecification spec,
+            String target, String counter, String hi, Set<String> invariants) {
+        // Loop invariant: at iteration entry, target equals i*(i-1)/2 (Gauss).
+        // Use \bigint cast to keep the multiplication in unbounded integers.
+        invariants.add(target + " == ((\\bigint)" + counter + " * ("
+                + counter + " - 1)) / 2");
+        invariants.add(target + " >= 0");
+
+        // Method precondition: N*(N+1)/2 <= INT_MAX (covers worst case where the
+        // body adds counter=N-1 to the accumulator at the last iteration). Only
+        // emitted when HIGH is pre-state-expressible.
+        if (hi != null) {
+            spec.addPrecondition(
+                    "((\\bigint)" + hi + " * (" + hi + " + 1)) / 2 <= Integer.MAX_VALUE",
+                    com.jml.inferrer.model.MethodSpecification.ConfidenceLevel.MEDIUM);
+            spec.addPrecondition(hi + " >= 0",
+                    com.jml.inferrer.model.MethodSpecification.ConfidenceLevel.MEDIUM);
+        }
     }
 
     /**
