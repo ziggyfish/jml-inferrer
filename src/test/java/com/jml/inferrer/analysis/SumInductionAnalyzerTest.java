@@ -104,6 +104,83 @@ class SumInductionAnalyzerTest extends InferrerTestBase {
     }
 
     @Test
+    @DisplayName("While-loop array accumulator emits \\sum induction invariant")
+    void whileLoopAccumulatorInvariant() {
+        MethodSpecification spec = infer("""
+            class T {
+                int sumWhile(int[] arr) {
+                    int i = 0;
+                    int total = 0;
+                    while (i < arr.length) {
+                        total += arr[i];
+                        i++;
+                    }
+                    return total;
+                }
+            }
+            """, "sumWhile");
+        assertTrue(
+                spec.getLoopInvariants().stream().anyMatch(inv ->
+                        inv.contains("total == (\\sum int k;")
+                        && inv.contains("0 <= k && k < i")
+                        && inv.contains("arr[k]")),
+                "Expected while-loop \\sum invariant. Got: " + spec.getLoopInvariants());
+        assertTrue(
+                spec.getPostconditions().stream().anyMatch(post ->
+                        post.contains("\\result == (\\sum int k;")
+                        && post.contains("0 <= k && k < arr.length")
+                        && post.contains("arr[k]")),
+                "Expected while-loop matching postcondition. Got: " + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("For-each over array emits \\sum postcondition with arr[k] substitution")
+    void forEachAccumulatorPostcondition() {
+        MethodSpecification spec = infer("""
+            class T {
+                int sumArray(int[] arr) {
+                    int total = 0;
+                    for (int val : arr) {
+                        total += val;
+                    }
+                    return total;
+                }
+            }
+            """, "sumArray");
+        assertTrue(
+                spec.getPostconditions().stream().anyMatch(post ->
+                        post.contains("\\result == (\\sum int k;")
+                        && post.contains("0 <= k && k < arr.length")
+                        && post.contains("arr[k]")),
+                "Expected for-each substituted-summand postcondition. Got: "
+                        + spec.getPostconditions());
+    }
+
+    @Test
+    @DisplayName("Counter-from-zero `total += i` emits quadratic Gauss invariant")
+    void counterSumQuadraticGuard() {
+        MethodSpecification spec = infer("""
+            class T {
+                int sumTo(int n) {
+                    int total = 0;
+                    for (int i = 0; i < n; i++) {
+                        total += i;
+                    }
+                    return total;
+                }
+            }
+            """, "sumTo");
+        assertTrue(
+                spec.getLoopInvariants().stream().anyMatch(inv ->
+                        inv.contains("total == ((\\bigint)i * (i - 1)) / 2")),
+                "Expected Gauss closed-form invariant. Got: " + spec.getLoopInvariants());
+        assertTrue(
+                spec.getPreconditions().stream().anyMatch(pre ->
+                        pre.contains("((\\bigint)n * (n + 1)) / 2 <= Integer.MAX_VALUE")),
+                "Expected quadratic precondition. Got: " + spec.getPreconditions());
+    }
+
+    @Test
     @DisplayName("Accumulator persisting outside outer loop is NOT emitted")
     void nestedLoopPersistenceSuppresses() {
         MethodSpecification spec = infer("""
