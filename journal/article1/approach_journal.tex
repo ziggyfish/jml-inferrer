@@ -64,7 +64,7 @@ The empirical study in Section~\ref{sec:results} requires specifications to be a
 
 \subsection{Implementation}
 
-JML-Inferrer is implemented in Java~21 (approximately 11{,}600 lines of code) and uses JavaParser~\cite{javaparser} for AST construction. The pipeline comprises three phases: parsing, specification inference, and formatting. Source files are processed recursively, with annotations inserted in place, at an average of 88\,ms per file. The system is released under the Apache License 2.0; the present section describes only Phase~2, which contains the core inference logic. Phase~1 and Phase~3 are standard.
+JML-Inferrer is implemented in Java~21 (approximately 20{,}000 lines of code at the time of submission) and uses JavaParser~\cite{javaparser} for AST construction. The pipeline comprises three phases: parsing, specification inference, and formatting. Source files are processed recursively, with annotations inserted in place, at an average of 88\,ms per file. The system is released under the Apache License 2.0; the present section describes only Phase~2, which contains the core inference logic. Phase~1 and Phase~3 are standard.
 
 \subsection{Specification Inference}
 
@@ -121,7 +121,9 @@ A lightweight symbolic executor records a \emph{path condition} for each return 
 \subsection{Formal Validation}
 \label{subsec:validation}
 
-To distinguish heuristic plausibility from semantic correctness, JML-Inferrer integrates with OpenJML's Extended Static Checker (ESC)~\cite{openjml}. Following inference, OpenJML may be invoked on the annotated source (via the \texttt{--validate} and \texttt{--validate-only} command-line flags); each clause is discharged independently, and clauses that fail verification are flagged rather than silently retained. The validation pipeline is distributed as a containerised toolchain to support reproducibility across operating systems, and provides the substrate for the regression test suite (237 end-to-end verification tests over the inference pipeline) that gates engine changes against the formal oracle.
+To distinguish heuristic plausibility from semantic correctness, JML-Inferrer integrates with OpenJML's Extended Static Checker (ESC)~\cite{openjml}. Following inference, OpenJML may be invoked on the annotated source (via the \texttt{--validate} and \texttt{--validate-only} command-line flags); each clause is discharged independently, and clauses that fail verification are flagged rather than silently retained. The validation pipeline is distributed as a containerised toolchain to support reproducibility across operating systems, and provides the substrate for a regression test suite of 576 end-to-end verification tests over the inference pipeline that gates engine changes against the formal oracle.
+
+The discharge layer uses a forked OpenJML build that emits SMT-LIB \texttt{define-fun-rec} for the \texttt{\textbackslash sum}, \texttt{\textbackslash product}, and \texttt{\textbackslash num\_of} quantifiers; upstream OpenJML reports these as \emph{not yet supported}, which would otherwise leave loop accumulator postconditions undischargeable. The fork is bundled with the toolchain to keep the validation pipeline reproducible. The strictness configuration is settled at \texttt{--code-math=safe} (operational integer semantics with overflow checks), \texttt{--spec-math=bigint} (mathematical integers in specifications), \texttt{--arithmetic-failure=hard} (arithmetic exceptions are verification failures rather than warnings), and \texttt{--nullable-by-default} (unannotated reference types are treated as potentially null). The default solver is z3 4.13.4; z3 4.7.1 and z3 4.16.0 are bundled and selectable through an environment variable. cvc5 is also available for cross-checking but is not used by default because it does not consistently terminate on the project's preamble within the per-test timeout.
 
 \subsection{Method Categorisation}
 \label{subsec:categorization}
