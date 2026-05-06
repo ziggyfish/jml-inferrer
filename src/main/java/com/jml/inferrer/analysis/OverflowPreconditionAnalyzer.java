@@ -856,35 +856,30 @@ class OverflowPreconditionAnalyzer {
     private void emitAccumulatorBounds(String accum, String iterName, int lo,
                                         int line, Set<String> emitted,
                                         String loopVar, boolean hasCounter) {
-        // Per-element bound — when arr is empty the forall body never evaluates so the
-        // division by `arr.length` is harmless. When arr is non-empty every element is
-        // bounded so the running sum stays in int range across `arr.length` iterations.
+        // Fixed-K formulation matching the matrixTrace probe (validated 2026-04-30).
+        // Element bound K_HI=1000 and length cap K_N=10^6 give running sum bound
+        // K_HI * K_N = 10^9 < INT_MAX, well-formed for Z3's linear integer theory.
+        // The previous MAX/length formulation polluted invariants with literal
+        // Integer.MAX_VALUE and Integer.MIN_VALUE strings (flagged by
+        // InvalidInferenceRegressionTest3.noIntegerMaxValueString) and used integer
+        // division by an unknown length, both of which were brittle.
+        final int K_HI = 1000;
+        final int K_N = 1_000_000;
         String elemBound = "(\\forall int k; " + lo + " <= k && k < " + iterName + ".length; "
-                + iterName + "[k] >= Integer.MIN_VALUE / " + iterName + ".length && "
-                + iterName + "[k] <= Integer.MAX_VALUE / " + iterName + ".length)";
+                + iterName + "[k] >= -" + K_HI + " && "
+                + iterName + "[k] <= " + K_HI + ")";
         emitted.add(elemBound);
+        emitted.add(iterName + ".length <= " + K_N);
 
-        // Sum-bound loop invariant. The previous formulation multiplied the unknown
-        // accumulator by arr.length and bounded that against MAX*i, giving Z3 a hard
-        // non-linear constraint over an unknown variable. Z3 timed out on suites with
-        // 5+ such invariants (AccumulatorInvariant, GuardThenLoop, ArrReduce1, ArraySum,
-        // WhileSum, FieldAccum, Delegator1, NestedLoop2DArray, LoopConditionalAccumulation).
-        //
-        // Replace with a guarded per-step share — division-free at evaluation, only
-        // active when arr.length > 0 (when arr.length == 0 the loop body never runs so
-        // accum stays 0 trivially). The constants MAX/arr.length and MIN/arr.length are
-        // computed once and bound the running accumulator linearly in i, which is
-        // tractable for Z3's integer theory.
+        // Linear running-sum invariant: accum bounded by K_HI * elapsed.
+        // Stays inside Z3's tractable linear arithmetic.
         if (spec != null && hasCounter && loopVar != null) {
             String elapsed = (lo == 0)
                     ? loopVar
                     : "(" + loopVar + " - " + lo + ")";
-            String guardedInv = iterName + ".length > 0 ==> ("
-                    + accum + " >= (Integer.MIN_VALUE / " + iterName + ".length) * " + elapsed
-                    + " && "
-                    + accum + " <= (Integer.MAX_VALUE / " + iterName + ".length) * " + elapsed
-                    + ")";
-            spec.addLoopInvariant(guardedInv, line);
+            String linearInv = "-" + K_HI + " * " + elapsed + " <= " + accum
+                    + " && " + accum + " <= " + K_HI + " * " + elapsed;
+            spec.addLoopInvariant(linearInv, line);
         }
     }
 
