@@ -193,7 +193,9 @@ final class SumInductionAnalyzer {
 
         // Compound shape: `target += RHS` or `target *= RHS` — RHS is the summand/factor.
         if (op == AssignExpr.Operator.PLUS || op == AssignExpr.Operator.MULTIPLY) {
-            summandK = rewriteCounterToK(ae.getValue().toString(), counter);
+            String inlinedRhs = inlineBlockScopedLocals(ae.getValue().toString(), body, target);
+            if (inlinedRhs == null) return;
+            summandK = rewriteCounterToK(inlinedRhs, counter);
             if (summandK == null) return;
             quant = (op == AssignExpr.Operator.PLUS) ? "\\sum" : "\\product";
         }
@@ -206,7 +208,9 @@ final class SumInductionAnalyzer {
             if (be.getOperator() == BinaryExpr.Operator.PLUS) quant = "\\sum";
             else if (be.getOperator() == BinaryExpr.Operator.MULTIPLY) quant = "\\product";
             else return;
-            summandK = rewriteCounterToK(rhs, counter);
+            String inlinedRhs = inlineBlockScopedLocals(rhs, body, target);
+            if (inlinedRhs == null) return;
+            summandK = rewriteCounterToK(inlinedRhs, counter);
             if (summandK == null) return;
         } else {
             return;
@@ -430,6 +434,46 @@ final class SumInductionAnalyzer {
             return rewritten;
         }
         return rewritten;
+    }
+
+    /**
+     * Substitutes references to block-scoped locals declared inside the loop
+     * body with their initialiser expressions. Returns null when any
+     * NameExpr in the result still refers to a body-scoped declarator
+     * (i.e. the substitution would leave an undefined variable in the
+     * emitted spec). The {@code accumulatorTarget} is excluded — it's the
+     * variable being accumulated into and is in scope at the spec level.
+     */
+    private static String inlineBlockScopedLocals(String summand, Statement body,
+                                                   String accumulatorTarget) {
+        java.util.Map<String, String> bodyLocalInits = new java.util.HashMap<>();
+        for (VariableDeclarator vd : body.findAll(VariableDeclarator.class)) {
+            String n = vd.getNameAsString();
+            if (n.equals(accumulatorTarget)) continue;
+            vd.getInitializer().ifPresent(init -> bodyLocalInits.put(n, init.toString()));
+        }
+        // Collect declarator names without initialiser too — they're still
+        // body-scoped and can't appear in the emitted spec.
+        java.util.Set<String> bodyLocalNames = new java.util.HashSet<>();
+        for (VariableDeclarator vd : body.findAll(VariableDeclarator.class)) {
+            String n = vd.getNameAsString();
+            if (!n.equals(accumulatorTarget)) bodyLocalNames.add(n);
+        }
+        // Substitute one level (initialisers themselves may reference other
+        // body-locals in chained shape; for safety we only inline once and
+        // then validate no body-locals remain).
+        String result = summand;
+        for (java.util.Map.Entry<String, String> e : bodyLocalInits.entrySet()) {
+            String pattern = "\\b" + java.util.regex.Pattern.quote(e.getKey()) + "\\b";
+            result = result.replaceAll(pattern, "(" + e.getValue() + ")");
+        }
+        // Reject if any body-local survived substitution.
+        for (String n : bodyLocalNames) {
+            if (result.matches(".*\\b" + java.util.regex.Pattern.quote(n) + "\\b.*")) {
+                return null;
+            }
+        }
+        return result;
     }
 
     private static boolean isInsideNestedLoop(Node node, Statement outerBody) {
