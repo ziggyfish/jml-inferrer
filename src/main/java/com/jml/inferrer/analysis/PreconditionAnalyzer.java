@@ -73,6 +73,12 @@ class PreconditionAnalyzer {
         // analyzeCrossArrayLoopBounds for the field-as-bound case (matrix shapes).
         analyzeFieldBoundedLoopArrayLength(methodDecl, preconditions, collector);
 
+        // 2D-diagonal null/length forall: `for(i=0; i<size; i++) data[i][i]` needs
+        // `(\forall int k; 0 <= k < size; data[k] != null && k < data[k].length)`
+        // so the inner access is well-defined per element. Companion of P3 in
+        // OverflowPreconditionAnalyzer; together they make matrixTrace verify.
+        analyzeTwoDimensionalDiagonalAccess(methodDecl, preconditions, collector);
+
         // Param-bounded loop bounds for `for(i=start; i<end; i++) arr[i] = ...` style.
         // Without `start >= 0` and `end <= arr.length` the access is unproveable.
         analyzeRangeLoopArrayBounds(methodDecl, preconditions, collector);
@@ -739,6 +745,62 @@ class PreconditionAnalyzer {
     }
 
     /**
+     * Emits the 2D-diagonal null/length forall when a method body contains
+     * {@code FIELD2D[i][i]} access inside a for-loop bounded by a numeric
+     * instance field. Without this, the inner access is ill-defined and any
+     * downstream forall over diagonal elements (e.g. the overflow bound from
+     * {@code OverflowPreconditionAnalyzer}) cannot be proven well-formed.
+     *
+     * <p>Emitted shape:
+     * {@code (\forall int k; LO <= k < FIELD; FIELD2D[k] != null && k < FIELD2D[k].length)}.
+     * </p>
+     */
+    private void analyzeTwoDimensionalDiagonalAccess(MethodDeclaration methodDecl,
+                                                      Set<String> preconditions,
+                                                      ASTCollector collector) {
+        for (com.github.javaparser.ast.stmt.ForStmt fs
+                : methodDecl.findAll(com.github.javaparser.ast.stmt.ForStmt.class)) {
+            if (fs.getInitialization().size() != 1) continue;
+            Expression init = fs.getInitialization().get(0);
+            if (!(init instanceof VariableDeclarationExpr vde)) continue;
+            if (vde.getVariables().size() != 1) continue;
+            String counter = vde.getVariables().get(0).getNameAsString();
+            Optional<Expression> initExprOpt = vde.getVariables().get(0).getInitializer();
+            if (initExprOpt.isEmpty()) continue;
+            Expression initExpr = initExprOpt.get();
+            if (!initExpr.isIntegerLiteralExpr()) continue;
+            int lo = initExpr.asIntegerLiteralExpr().asInt();
+            if (lo < 0) continue;
+
+            if (fs.getCompare().isEmpty()) continue;
+            if (!(fs.getCompare().get() instanceof BinaryExpr cmp)) continue;
+            if (cmp.getOperator() != BinaryExpr.Operator.LESS) continue;
+            if (!(cmp.getLeft() instanceof NameExpr lne)
+                    || !lne.getNameAsString().equals(counter)) continue;
+
+            String boundField = fieldName(cmp.getRight(), methodDecl);
+            if (boundField == null) continue;
+
+            // Find a 2D-diagonal access in the body: `<field>[counter][counter]`.
+            for (ArrayAccessExpr outer : fs.getBody().findAll(ArrayAccessExpr.class)) {
+                if (!(outer.getIndex() instanceof NameExpr outerIdx)
+                        || !outerIdx.getNameAsString().equals(counter)) continue;
+                if (!(outer.getName() instanceof ArrayAccessExpr inner)) continue;
+                if (!(inner.getIndex() instanceof NameExpr innerIdx)
+                        || !innerIdx.getNameAsString().equals(counter)) continue;
+                String diagField = fieldName(inner.getName(), methodDecl);
+                if (diagField == null) continue;
+
+                String diagPrefix = "this." + diagField;
+                String boundPrefix = "this." + boundField;
+                preconditions.add("(\\forall int k; " + lo + " <= k && k < " + boundPrefix
+                        + "; " + diagPrefix + "[k] != null && k < " + diagPrefix + "[k].length)");
+                break; // one forall is enough per loop
+            }
+        }
+    }
+
+    /**
      * For loops of the shape {@code for (int i = LO; i <op> FIELD; i++)} (where LO is a
      * non-negative literal and FIELD is a numeric instance field) whose body contains
      * an access {@code this.arrayField[i]} (1D or nested 2D), emit
@@ -781,27 +843,21 @@ class PreconditionAnalyzer {
             else continue;
 
             for (ArrayAccessExpr aa : fs.getBody().findAll(ArrayAccessExpr.class)) {
-                // Walk the access chain to the outermost field-array expression.
-                Expression name = aa.getName();
-                while (name instanceof ArrayAccessExpr inner) name = inner.getName();
-                String arrField = fieldName(name, methodDecl);
+                // P1 fires only when this access node IS the array's first
+                // dimension and ITS OWN index is the counter. For 2D access
+                // shapes like `data[row][counter]`, the OUTER access (whose
+                // index is the counter) has name `data[row]`, so the bound
+                // would be on `data[row].length` — that's a different shape
+                // handled by OverflowPreconditionAnalyzer's row-fixed
+                // accumulator. For 2D-diagonal `data[counter][counter]`, the
+                // INNER access (whose name is the field directly) has its
+                // index as the counter, which matches this trigger and emits
+                // the cross-field length on the outer dimension correctly.
+                if (!(aa.getIndex() instanceof NameExpr idxNe)
+                        || !idxNe.getNameAsString().equals(counter)) continue;
+                String arrField = fieldName(aa.getName(), methodDecl);
                 if (arrField == null) continue;
                 if (arrField.equals(boundField)) continue;
-
-                // Some access along the chain must use the counter as its index;
-                // otherwise the bound is unrelated to this loop's iteration.
-                boolean accessesAtCounter = false;
-                ArrayAccessExpr cursor = aa;
-                while (true) {
-                    if (cursor.getIndex() instanceof NameExpr idxNe
-                            && idxNe.getNameAsString().equals(counter)) {
-                        accessesAtCounter = true;
-                        break;
-                    }
-                    if (cursor.getName() instanceof ArrayAccessExpr inner) cursor = inner;
-                    else break;
-                }
-                if (!accessesAtCounter) continue;
 
                 preconditions.add("this." + arrField + " != null");
                 preconditions.add("this." + boundField + " " + op

@@ -214,6 +214,7 @@ class OverflowPreconditionAnalyzer {
         // For-loops with literal init and `i < arr.length` upper bound.
         for (ForStmt fs : methodDecl.findAll(ForStmt.class)) {
             handleForLoopAccumulator(fs, emitted);
+            handleFieldBoundedDiagonalAccumulator(fs, emitted);
         }
         // For-each loops `for (int val : arr)`.
         for (ForEachStmt fes : methodDecl.findAll(ForEachStmt.class)) {
@@ -454,6 +455,265 @@ class OverflowPreconditionAnalyzer {
         for (AssignExpr ae : fs.getBody().findAll(AssignExpr.class)) {
             tryEmitAccumulatorBounds(ae, loopVar, iterName, lo, line, emitted, fs, /*hasCounter=*/true);
         }
+    }
+
+    /**
+     * Pattern: {@code for (int i = LO; i < FIELD; i++) sum += FIELD2D[i][i];} where
+     * {@code FIELD} is a numeric instance field bounding the loop and
+     * {@code FIELD2D} is an int[][] instance field. Emits a per-element forall
+     * bound on the diagonal plus a guarded loop invariant pinning the running
+     * accumulator to a per-step share of the int range.
+     *
+     * <p>Companion of {@link #handleForLoopAccumulator}. The existing handler
+     * keys the bound to {@code arr.length} when the loop iterates a 1D array
+     * with {@code i < arr.length}; this handler keys the bound to a numeric
+     * field when the loop iterates a 2D-diagonal access {@code arr[i][i]} with
+     * {@code i < FIELD}.</p>
+     */
+    private void handleFieldBoundedDiagonalAccumulator(ForStmt fs, Set<String> emitted) {
+        // Header: `for (int i = literal; i < FIELD; i++)`.
+        if (fs.getInitialization().size() != 1) return;
+        if (!(fs.getInitialization().get(0) instanceof VariableDeclarationExpr vde)) return;
+        if (vde.getVariables().size() != 1) return;
+        String loopVar = vde.getVariables().get(0).getNameAsString();
+        Expression initExpr = vde.getVariables().get(0).getInitializer().orElse(null);
+        if (initExpr == null || !initExpr.isIntegerLiteralExpr()) return;
+        int lo = initExpr.asIntegerLiteralExpr().asInt();
+        if (lo < 0) return;
+
+        Expression cmpExpr = fs.getCompare().orElse(null);
+        if (!(cmpExpr instanceof BinaryExpr cmp)) return;
+        if (cmp.getOperator() != BinaryExpr.Operator.LESS) return;
+        if (!(cmp.getLeft() instanceof NameExpr cmpLeft)
+                || !cmpLeft.getNameAsString().equals(loopVar)) return;
+        // Upper bound must be a numeric instance field (e.g., size). The companion
+        // handler covers `arr.length`; here we want field-bounded loops only.
+        String boundField = fieldNameOf(cmp.getRight());
+        if (boundField == null) return;
+
+        int line = fs.getBegin().map(p -> p.line).orElse(0);
+
+        // For each accumulator assignment in the body whose RHS is a 2D-diagonal
+        // access of an int[][] field, emit per-element bound + running-sum invariant.
+        for (AssignExpr ae : fs.getBody().findAll(AssignExpr.class)) {
+            tryEmitDiagonalAccumulatorBounds(ae, loopVar, boundField, lo, line, emitted, fs);
+            tryEmitRowFixedAccumulatorBounds(ae, loopVar, boundField, lo, line, emitted, fs);
+        }
+    }
+
+    /**
+     * Emits the diagonal-accumulator overflow precondition + loop invariant
+     * for {@code accum += FIELD2D[loopVar][loopVar]} inside a loop bounded by
+     * {@code boundField}.
+     */
+    private void tryEmitDiagonalAccumulatorBounds(AssignExpr ae, String loopVar, String boundField,
+                                                   int lo, int line, Set<String> emitted,
+                                                   com.github.javaparser.ast.Node loopNode) {
+        if (!(ae.getTarget() instanceof NameExpr targetNe)) return;
+        String accum = targetNe.getNameAsString();
+        if (accum.equals(loopVar) || accum.equals(boundField)) return;
+        if (paramNames.contains(accum) || fieldNames.contains(accum)) return;
+        if (!isLocalIntAccum(accum, loopNode)) return;
+
+        boolean isPlus = ae.getOperator() == AssignExpr.Operator.PLUS;
+        boolean isPlainAssign = ae.getOperator() == AssignExpr.Operator.ASSIGN;
+        if (!isPlus && !isPlainAssign) return;
+
+        Expression rhs = ae.getValue();
+        if (isPlainAssign) {
+            if (!(rhs instanceof BinaryExpr be)) return;
+            if (be.getOperator() != BinaryExpr.Operator.PLUS) return;
+            boolean leftIsAccum = be.getLeft() instanceof NameExpr lne
+                    && lne.getNameAsString().equals(accum);
+            boolean rightIsAccum = be.getRight() instanceof NameExpr rne
+                    && rne.getNameAsString().equals(accum);
+            if (leftIsAccum == rightIsAccum) return;
+            rhs = leftIsAccum ? be.getRight() : be.getLeft();
+        }
+
+        // RHS must be a 2D-diagonal access `FIELD2D[loopVar][loopVar]` where
+        // FIELD2D is an int[][] field.
+        String diag2d = diagonal2DFieldName(rhs, loopVar);
+        if (diag2d == null) return;
+
+        // Use fixed bounds +/- K_HI with K_N = 1_000_000 so K_HI * K_N + K_HI
+        // stays well under Integer.MAX_VALUE (10^9 + 1000 < 2^31). The probe
+        // formulation (validated 2026-04-30) uses the same constants because
+        // the linear form is tractable for Z3 in a way that the alternative
+        // division-based MIN/size formulation is not.
+        final int K_HI = 1000;
+        final int K_N = 1_000_000;
+        String diagPrefix = "this." + diag2d;
+        String boundPrefix = "this." + boundField;
+        String elemBound = "(\\forall int k; " + lo + " <= k && k < " + boundPrefix + "; "
+                + diagPrefix + "[k][k] >= -" + K_HI + " && "
+                + diagPrefix + "[k][k] <= " + K_HI + ")";
+        emitted.add(elemBound);
+        // Cap the bound field so K_HI * boundField stays within int range.
+        emitted.add(boundPrefix + " <= " + K_N);
+
+        // Linear running-sum invariant. Unconditional because the right-hand
+        // side is well-defined for any non-negative iteration count.
+        if (spec != null) {
+            String elapsed = (lo == 0)
+                    ? loopVar
+                    : "(" + loopVar + " - " + lo + ")";
+            String linearInv = "-" + K_HI + " * " + elapsed + " <= " + accum
+                    + " && " + accum + " <= " + K_HI + " * " + elapsed;
+            spec.addLoopInvariant(linearInv, line);
+        }
+    }
+
+    /**
+     * Sister of {@link #tryEmitDiagonalAccumulatorBounds} for the row-fixed
+     * 2D accumulator pattern: {@code accum += FIELD2D[fixedRowExpr][loopVar]}
+     * where {@code fixedRowExpr} is a parameter or a constant (not dependent
+     * on the loop variable). The matrixRowSum shape from
+     * {@code DataStructureVerificationTest}.
+     */
+    private void tryEmitRowFixedAccumulatorBounds(AssignExpr ae, String loopVar, String boundField,
+                                                   int lo, int line, Set<String> emitted,
+                                                   com.github.javaparser.ast.Node loopNode) {
+        if (!(ae.getTarget() instanceof NameExpr targetNe)) return;
+        String accum = targetNe.getNameAsString();
+        if (accum.equals(loopVar) || accum.equals(boundField)) return;
+        if (paramNames.contains(accum) || fieldNames.contains(accum)) return;
+        if (!isLocalIntAccum(accum, loopNode)) return;
+
+        boolean isPlus = ae.getOperator() == AssignExpr.Operator.PLUS;
+        boolean isPlainAssign = ae.getOperator() == AssignExpr.Operator.ASSIGN;
+        if (!isPlus && !isPlainAssign) return;
+
+        Expression rhs = ae.getValue();
+        if (isPlainAssign) {
+            if (!(rhs instanceof BinaryExpr be)) return;
+            if (be.getOperator() != BinaryExpr.Operator.PLUS) return;
+            boolean leftIsAccum = be.getLeft() instanceof NameExpr lne
+                    && lne.getNameAsString().equals(accum);
+            boolean rightIsAccum = be.getRight() instanceof NameExpr rne
+                    && rne.getNameAsString().equals(accum);
+            if (leftIsAccum == rightIsAccum) return;
+            rhs = leftIsAccum ? be.getRight() : be.getLeft();
+        }
+
+        // RHS must be a row-fixed 2D access `FIELD2D[fixed][loopVar]` where
+        // FIELD2D is an int[][] field and `fixed` is independent of loopVar.
+        RowFixedAccess rowFixed = rowFixed2DFieldName(rhs, loopVar);
+        if (rowFixed == null) return;
+
+        // Same linear-bound formulation as the diagonal case for the same
+        // tractability reasons.
+        final int K_HI = 1000;
+        final int K_N = 1_000_000;
+        String diagPrefix = "this." + rowFixed.fieldName;
+        String boundPrefix = "this." + boundField;
+        // Inner-array length bound: the loop indexes data[fixed][j] for j up to
+        // boundField, so the inner row must have at least `boundField` entries.
+        String innerLengthBound = boundPrefix + " <= " + diagPrefix + "[" + rowFixed.fixedExpr + "].length";
+        emitted.add(innerLengthBound);
+        String elemBound = "(\\forall int k; " + lo + " <= k && k < " + boundPrefix + "; "
+                + diagPrefix + "[" + rowFixed.fixedExpr + "][k] >= -" + K_HI + " && "
+                + diagPrefix + "[" + rowFixed.fixedExpr + "][k] <= " + K_HI + ")";
+        emitted.add(elemBound);
+        emitted.add(boundPrefix + " <= " + K_N);
+
+        if (spec != null) {
+            String elapsed = (lo == 0)
+                    ? loopVar
+                    : "(" + loopVar + " - " + lo + ")";
+            String linearInv = "-" + K_HI + " * " + elapsed + " <= " + accum
+                    + " && " + accum + " <= " + K_HI + " * " + elapsed;
+            spec.addLoopInvariant(linearInv, line);
+        }
+    }
+
+    /**
+     * If {@code expr} is shaped {@code FIELD2D[fixedExpr][loopVar]} where
+     * {@code FIELD2D} is an int[][] instance field and {@code fixedExpr} is
+     * independent of {@code loopVar} (a parameter or another field),
+     * return the field name and the rendered fixedExpr. Otherwise null.
+     */
+    private RowFixedAccess rowFixed2DFieldName(Expression expr, String loopVar) {
+        if (expr instanceof EnclosedExpr enc) return rowFixed2DFieldName(enc.getInner(), loopVar);
+        if (!(expr instanceof ArrayAccessExpr outer)) return null;
+        if (!(outer.getIndex() instanceof NameExpr outerIdx)
+                || !outerIdx.getNameAsString().equals(loopVar)) return null;
+        if (!(outer.getName() instanceof ArrayAccessExpr inner)) return null;
+        // Inner index must be a parameter (fixed for the whole loop) or
+        // any expression that does not contain the loop var.
+        Expression innerIdxExpr = inner.getIndex();
+        if (innerIdxExpr instanceof NameExpr innerNe) {
+            String innerIdxName = innerNe.getNameAsString();
+            if (innerIdxName.equals(loopVar)) return null; // diagonal handled elsewhere
+            if (!paramNames.contains(innerIdxName)) return null;
+        } else {
+            // Conservative: require a simple parameter for now.
+            return null;
+        }
+        Expression base = inner.getName();
+        String fieldName = fieldNameOf(base);
+        if (fieldName == null) return null;
+        if (!isInt2DArrayField(fieldName)) return null;
+        return new RowFixedAccess(fieldName, innerIdxExpr.toString());
+    }
+
+    private record RowFixedAccess(String fieldName, String fixedExpr) {
+    }
+
+    /**
+     * If {@code expr} is shaped {@code FIELD2D[loopVar][loopVar]} where
+     * {@code FIELD2D} is an int[][] instance field, return the field name.
+     * Otherwise null.
+     */
+    private String diagonal2DFieldName(Expression expr, String loopVar) {
+        if (expr instanceof EnclosedExpr enc) return diagonal2DFieldName(enc.getInner(), loopVar);
+        if (!(expr instanceof ArrayAccessExpr outer)) return null;
+        if (!(outer.getIndex() instanceof NameExpr outerIdx)
+                || !outerIdx.getNameAsString().equals(loopVar)) return null;
+        if (!(outer.getName() instanceof ArrayAccessExpr inner)) return null;
+        if (!(inner.getIndex() instanceof NameExpr innerIdx)
+                || !innerIdx.getNameAsString().equals(loopVar)) return null;
+        // Inner array's name must be a 2D int field reference (this.field or bare field).
+        Expression base = inner.getName();
+        String fieldName = fieldNameOf(base);
+        if (fieldName == null) return null;
+        // Confirm the field is an int[][] type. We don't have full type information here;
+        // approximate by checking the field's declared type contains "int" + two arrays.
+        if (!isInt2DArrayField(fieldName)) return null;
+        return fieldName;
+    }
+
+    /**
+     * Returns the field name if {@code expr} resolves to a numeric instance field
+     * (either {@code this.X} or a bare {@code X} that is declared as a field).
+     * Returns {@code null} otherwise (including for {@code arr.length}, where the
+     * companion {@link #handleForLoopAccumulator} applies instead).
+     */
+    private String fieldNameOf(Expression expr) {
+        if (expr instanceof FieldAccessExpr fae && fae.getScope().toString().equals("this")) {
+            String name = fae.getNameAsString();
+            if (fieldNames.contains(name) || intFieldNames.contains(name)) return name;
+            return null;
+        }
+        if (expr instanceof NameExpr ne) {
+            String name = ne.getNameAsString();
+            if (fieldNames.contains(name) || intFieldNames.contains(name)) return name;
+        }
+        return null;
+    }
+
+    private boolean isInt2DArrayField(String fieldName) {
+        var clazz = methodDecl.findAncestor(ClassOrInterfaceDeclaration.class).orElse(null);
+        if (clazz == null) return false;
+        for (var field : clazz.getFields()) {
+            for (VariableDeclarator var : field.getVariables()) {
+                if (var.getNameAsString().equals(fieldName)) {
+                    String t = var.getType().asString();
+                    return t.equals("int[][]") || t.equals("long[][]") || t.equals("short[][]");
+                }
+            }
+        }
+        return false;
     }
 
     /** Pattern: {@code for (int val : arr) accum += val;}. */

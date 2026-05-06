@@ -530,4 +530,80 @@ class PreconditionInferenceTest extends InferrerTestBase {
                                 || p.contains("this.size <= this.data.length")),
                 "Expected `size <= data.length` precondition; got: " + spec.getPreconditions());
     }
+
+    @Test
+    @DisplayName("2D diagonal access emits per-element null/length forall")
+    void twoDDiagonalNullLengthForall() {
+        MethodSpecification spec = infer("""
+            class T {
+                private int[][] data;
+                private int size;
+                int trace() {
+                    int s = 0;
+                    for (int i = 0; i < size; i++) {
+                        s += data[i][i];
+                    }
+                    return s;
+                }
+            }
+            """, "trace");
+        assertTrue(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.contains("\\forall")
+                                && p.contains("this.data[k] != null")
+                                && p.contains("k < this.data[k].length")),
+                "Expected 2D diagonal null/length forall; got: " + spec.getPreconditions());
+    }
+
+    @Test
+    @DisplayName("Field-bounded 2D-diagonal accumulator emits per-element bound + matching loop invariant")
+    void fieldBoundedDiagonalAccumulatorOverflow() {
+        MethodSpecification spec = infer("""
+            class T {
+                private int[][] data;
+                private int size;
+                int trace() {
+                    int s = 0;
+                    for (int i = 0; i < size; i++) {
+                        s += data[i][i];
+                    }
+                    return s;
+                }
+            }
+            """, "trace");
+        // Per-element diagonal forall: bounds each data[k][k] by ±1000 so the
+        // running sum stays in int range across up to 10^6 iterations. The
+        // size cap and the matching linear loop invariant complete the chain.
+        assertTrue(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.contains("\\forall")
+                                && p.contains("this.data[k][k]")
+                                && p.contains(">= -1000")
+                                && p.contains("<= 1000")),
+                "Expected per-element diagonal forall bound; got: " + spec.getPreconditions());
+        assertTrue(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.equals("this.size <= 1000000")),
+                "Expected size cap; got: " + spec.getPreconditions());
+        assertTrue(spec.getLoopInvariants().stream()
+                        .anyMatch(li -> li.contains("-1000 * i <= s")
+                                && li.contains("s <= 1000 * i")),
+                "Expected linear running-sum loop invariant; got: " + spec.getLoopInvariants());
+    }
+
+    @Test
+    @DisplayName("Field-increment in for-loop emits running-sum loop invariant")
+    void fieldIncrementRunningSum() {
+        MethodSpecification spec = infer("""
+            class T {
+                int size;
+                public void growBy(int n) {
+                    for (int i = 0; i < n; i++) {
+                        this.size++;
+                    }
+                }
+            }
+            """, "growBy");
+        assertTrue(spec.getLoopInvariants().stream()
+                        .anyMatch(li -> li.equals("this.size == \\old(this.size) + i")),
+                "Expected this.size == \\old(this.size) + i invariant; got: "
+                        + spec.getLoopInvariants());
+    }
 }

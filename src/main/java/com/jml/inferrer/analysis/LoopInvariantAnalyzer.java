@@ -670,6 +670,76 @@ class LoopInvariantAnalyzer {
             // emit the corresponding monotonic / non-negative invariants.
             // Drives Kadane.maxSubarraySum.
             analyzeMathMaxAccumulators(body, invariants);
+
+            // Field-increment running-sum invariant: when a loop body has
+            //   this.field++   (single-step instance-field increment)
+            // emit `this.field == \old(this.field) + counter` so OpenJML can
+            // discharge the per-iteration overflow check using the existing
+            // method-level overflow precondition.
+            analyzeFieldIncrementRunningSum(body, invariants, counterNames);
+        }
+
+        /**
+         * Detects the field-increment shape {@code this.f++} (or {@code ++this.f})
+         * inside a loop and emits {@code this.f == \\old(this.f) + counter} so the
+         * field's value at any iteration is pinned to its method-entry value plus
+         * the elapsed iteration count.
+         *
+         * <p>Without this invariant the per-iteration overflow check on
+         * {@code this.f++} cannot be discharged by the method-level overflow
+         * precondition (which bounds {@code this.f + n} at entry, but does not
+         * tell OpenJML what {@code this.f} is at iteration {@code i}).</p>
+         */
+        private void analyzeFieldIncrementRunningSum(Statement body, Set<String> invariants,
+                                                      List<String> counterNames) {
+            if (counterNames.isEmpty()) return;
+            String counter = counterNames.get(0);
+            MethodDeclaration enclosing = body.findAncestor(MethodDeclaration.class).orElse(null);
+
+            for (UnaryExpr unary : body.findAll(UnaryExpr.class)) {
+                if (unary.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT
+                        && unary.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT) continue;
+                if (isInsideNestedLoopOf(unary, body)) continue;
+                Expression target = unary.getExpression();
+                String fieldName = null;
+                if (target instanceof FieldAccessExpr fae
+                        && fae.getScope().toString().equals("this")) {
+                    fieldName = fae.getNameAsString();
+                } else if (target instanceof NameExpr ne
+                        && enclosing != null
+                        && AnalysisUtils.isFieldReference(enclosing, ne.getNameAsString())) {
+                    fieldName = ne.getNameAsString();
+                }
+                if (fieldName == null) continue;
+                // Only emit when the increment is unconditional within the loop
+                // body (i.e. not inside an if). A guarded increment doesn't satisfy
+                // the equality form; a separate heuristic could emit `<=` for
+                // those, but the equality form is what OpenJML needs to discharge
+                // the overflow precondition cleanly.
+                if (isInsideConditional(unary, body)) continue;
+
+                invariants.add("this." + fieldName + " == \\old(this." + fieldName + ") + " + counter);
+            }
+        }
+
+        /**
+         * True when {@code node} is inside an {@link IfStmt}, {@link SwitchStmt},
+         * or {@link ConditionalExpr} that lives between {@code node} and
+         * {@code body}. Used to gate emission of equality-form invariants that
+         * are unsound for conditional increments.
+         */
+        private boolean isInsideConditional(com.github.javaparser.ast.Node node,
+                                             Statement body) {
+            com.github.javaparser.ast.Node cur = node;
+            while (cur.getParentNode().isPresent()) {
+                com.github.javaparser.ast.Node parent = cur.getParentNode().get();
+                if (parent == body) return false;
+                if (parent instanceof IfStmt
+                        || parent instanceof SwitchStmt
+                        || parent instanceof ConditionalExpr) return true;
+                cur = parent;
+            }
+            return false;
         }
 
         /**
