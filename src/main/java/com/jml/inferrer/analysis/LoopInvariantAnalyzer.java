@@ -1744,13 +1744,16 @@ class LoopInvariantAnalyzer {
                     addDecreases(a + " + " + b);
                     // Companion invariants: `a > 0 && b > 0` is preserved by the
                     // Euclidean body and is exactly what OpenJML needs to discharge
-                    // the LoopDecreasesNonNegative obligation. The invariants hold at
-                    // entry when the precondition is `a > 0 && b > 0` (the inferrer's
-                    // typical inferred precondition for guarded Euclidean impls); when
-                    // the precondition isn't strong enough they fail at entry — which
-                    // is the bug-detection signal for non-validated GCD shapes.
+                    // the LoopDecreasesNonNegative obligation. They hold at entry
+                    // only when the matching preconditions hold, so emit them too.
                     invariants.add(a + " > 0");
                     invariants.add(b + " > 0");
+                    if (spec != null) {
+                        spec.addPrecondition(a + " > 0",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                        spec.addPrecondition(b + " > 0",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                    }
                     return;
                 }
             }
