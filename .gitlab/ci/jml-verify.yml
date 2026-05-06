@@ -1,0 +1,91 @@
+# RQ4 Phase 3.3 — GitLab CI template for JML inference + verification.
+#
+# Per `journal/rq4_cicd_design.md` §5.2. Adapts the GitHub Actions
+# workflow's logic to GitLab's CI surface: the per-job `cache` directive
+# replaces actions/cache; the GitLab API replaces github-script for
+# posting MR comments.
+#
+# Include from your project's .gitlab-ci.yml:
+#
+#   include:
+#     - project: 'jml-inferrer/jml-inferrer'
+#       file: '/.gitlab/ci/jml-verify.yml'
+#
+#   stages:
+#     - jml
+#
+# This template only emits a single job; adjust stage placement to fit
+# your pipeline.
+
+variables:
+  JML_CACHE_DIR: ".jml-cache"
+  JML_JAVA_VERSION: "21"
+  JML_STRICT: "false"
+  JML_VERIFY: "false"
+
+jml-verify:
+  stage: test
+  image: maven:3.9-eclipse-temurin-21
+  cache:
+    key:
+      prefix: jml
+      files:
+        - "src/**/*.java"
+    paths:
+      - $JML_CACHE_DIR
+  before_script:
+    - ./mvnw -B -q package -DskipTests
+    - mkdir -p $JML_CACHE_DIR
+  script:
+    - |
+      DIFF_ARG=""
+      if [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" ]; then
+        git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+        DIFF_ARG="--diff origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}..HEAD"
+      fi
+      java -cp target/jml-inferrer-1.0.0-jar-with-dependencies.jar com.jml.inferrer.ci.JmlCi \
+        infer --root src/main/java --cache-dir $JML_CACHE_DIR $DIFF_ARG \
+        $( [ "$JML_STRICT" = "true" ] && echo "--strict" )
+    - |
+      if [ "$JML_VERIFY" = "true" ]; then
+        java -cp target/jml-inferrer-1.0.0-jar-with-dependencies.jar com.jml.inferrer.ci.JmlCi \
+          verify --root src/main/java --report $JML_CACHE_DIR/verify-report.json
+      fi
+    - |
+      java -cp target/jml-inferrer-1.0.0-jar-with-dependencies.jar com.jml.inferrer.ci.JmlCi \
+        summary \
+        --infer-report $JML_CACHE_DIR/infer-report.json \
+        --verify-report $JML_CACHE_DIR/verify-report.json \
+        --format markdown \
+        --out $JML_CACHE_DIR/summary.md
+  after_script:
+    - |
+      # Post MR comment in place. Requires CI_JOB_TOKEN with note-write scope
+      # via the project's CI/CD variables; if absent, log and continue.
+      if [ -n "$CI_MERGE_REQUEST_IID" ] && [ -n "$JML_GITLAB_TOKEN" ]; then
+        SUMMARY=$(cat $JML_CACHE_DIR/summary.md)
+        # Try to find an existing JML comment and update it; otherwise create.
+        EXISTING=$(curl -s --header "PRIVATE-TOKEN: $JML_GITLAB_TOKEN" \
+          "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes" \
+          | jq -r 'first(.[] | select(.body | startswith("## JML inference summary")) | .id)' 2>/dev/null || echo "")
+        if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+          curl -s -X PUT --header "PRIVATE-TOKEN: $JML_GITLAB_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "$(jq -n --arg body "$SUMMARY" '{body: $body}')" \
+            "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes/$EXISTING" >/dev/null || true
+        else
+          curl -s -X POST --header "PRIVATE-TOKEN: $JML_GITLAB_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "$(jq -n --arg body "$SUMMARY" '{body: $body}')" \
+            "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes" >/dev/null || true
+        fi
+      fi
+  artifacts:
+    paths:
+      - $JML_CACHE_DIR/infer-report.json
+      - $JML_CACHE_DIR/verify-report.json
+      - $JML_CACHE_DIR/summary.md
+    expire_in: 14 days
+    when: always
+  # Fail-open: this job never breaks the pipeline by default.
+  allow_failure: true
