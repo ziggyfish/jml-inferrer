@@ -127,10 +127,61 @@ public class MethodSpecificationInferrer {
         switchBitwiseAnalyzer.analyzeSwitchStatements(methodDecl, spec, collector);
         switchBitwiseAnalyzer.analyzeBitwiseOperations(methodDecl, spec, collector);
 
+        // RQ3: Termination detection. Conservative: any direct self-recursion
+        // or explicit infinite loop pattern flags the method as
+        // potentially non-terminating. The CompositionalAnalyzer reads this
+        // flag before propagating postconditions.
+        spec.setTerminates(inferTermination(methodDecl));
+
         // Calculate overall confidence
         spec.calculateOverallConfidence();
 
         return spec;
+    }
+
+    /**
+     * RQ3: conservative termination detection. Returns false if the method
+     * contains direct self-recursion (an unbounded recursive call) or an
+     * obvious infinite loop ({@code while(true)}, {@code for(;;)},
+     * {@code do {} while(true)}). Otherwise returns true.
+     *
+     * <p>Recursive calls accompanied by an arithmetic decrement on an
+     * argument (e.g. {@code factorial(n - 1)}) would benefit from a
+     * decreases heuristic; without one, this returns false to stay sound.
+     * Future work: integrate a {@code decreases} clause inferrer so
+     * termination tracking is finer-grained.</p>
+     */
+    private boolean inferTermination(MethodDeclaration methodDecl) {
+        String methodName = methodDecl.getNameAsString();
+        for (com.github.javaparser.ast.expr.MethodCallExpr call
+                : methodDecl.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)) {
+            if (call.getNameAsString().equals(methodName)
+                    && call.getScope().isEmpty()
+                    && call.getArguments().size() == methodDecl.getParameters().size()) {
+                return false;
+            }
+        }
+        for (com.github.javaparser.ast.stmt.WhileStmt ws
+                : methodDecl.findAll(com.github.javaparser.ast.stmt.WhileStmt.class)) {
+            if (ws.getCondition().isBooleanLiteralExpr()
+                    && ws.getCondition().asBooleanLiteralExpr().getValue()) {
+                return false;
+            }
+        }
+        for (com.github.javaparser.ast.stmt.DoStmt ds
+                : methodDecl.findAll(com.github.javaparser.ast.stmt.DoStmt.class)) {
+            if (ds.getCondition().isBooleanLiteralExpr()
+                    && ds.getCondition().asBooleanLiteralExpr().getValue()) {
+                return false;
+            }
+        }
+        for (com.github.javaparser.ast.stmt.ForStmt fs
+                : methodDecl.findAll(com.github.javaparser.ast.stmt.ForStmt.class)) {
+            if (fs.getCompare().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

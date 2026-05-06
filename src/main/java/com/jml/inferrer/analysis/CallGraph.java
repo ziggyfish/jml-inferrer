@@ -213,6 +213,85 @@ public class CallGraph {
     }
 
     /**
+     * Returns every method signature known to the call graph (across all classes).
+     * Used by the compositional analyzer to drive whole-program traversal.
+     */
+    public Set<String> allMethods() {
+        Set<String> all = new HashSet<>();
+        all.addAll(methodToClass.keySet());
+        all.addAll(methodCalls.keySet());
+        all.addAll(calledBy.keySet());
+        return all;
+    }
+
+    /**
+     * Returns the strongly-connected components of the call graph in reverse
+     * topological order (callees-first). Each SCC is a {@link Set} of method
+     * signatures; the outer list orders SCCs so that an SCC containing a callee
+     * appears before an SCC containing a caller. Single-method SCCs are
+     * returned as singleton sets.
+     *
+     * <p>Implemented via Tarjan's algorithm (linear-time, single-pass).</p>
+     */
+    public List<Set<String>> sccsReverseTopological() {
+        return new TarjanScc(methodCalls, allMethods()).compute();
+    }
+
+    /**
+     * Tarjan's strongly-connected-components algorithm. Returns SCCs in
+     * reverse topological order — each SCC is fully resolved before any SCC
+     * that calls into it.
+     */
+    private static final class TarjanScc {
+        private final Map<String, Set<String>> edges;
+        private final Set<String> nodes;
+        private final Map<String, Integer> index = new HashMap<>();
+        private final Map<String, Integer> lowlink = new HashMap<>();
+        private final Set<String> onStack = new HashSet<>();
+        private final Deque<String> stack = new ArrayDeque<>();
+        private final List<Set<String>> sccs = new ArrayList<>();
+        private int counter = 0;
+
+        TarjanScc(Map<String, Set<String>> edges, Set<String> nodes) {
+            this.edges = edges;
+            this.nodes = nodes;
+        }
+
+        List<Set<String>> compute() {
+            for (String n : nodes) if (!index.containsKey(n)) strongconnect(n);
+            return sccs;
+        }
+
+        private void strongconnect(String v) {
+            index.put(v, counter);
+            lowlink.put(v, counter);
+            counter++;
+            stack.push(v);
+            onStack.add(v);
+
+            for (String w : edges.getOrDefault(v, Collections.emptySet())) {
+                if (!index.containsKey(w)) {
+                    strongconnect(w);
+                    lowlink.put(v, Math.min(lowlink.get(v), lowlink.get(w)));
+                } else if (onStack.contains(w)) {
+                    lowlink.put(v, Math.min(lowlink.get(v), index.get(w)));
+                }
+            }
+
+            if (lowlink.get(v).equals(index.get(v))) {
+                Set<String> scc = new HashSet<>();
+                String w;
+                do {
+                    w = stack.pop();
+                    onStack.remove(w);
+                    scc.add(w);
+                } while (!w.equals(v));
+                sccs.add(scc);
+            }
+        }
+    }
+
+    /**
      * Records that a method overrides another method.
      *
      * @param overridingMethod The overriding method signature

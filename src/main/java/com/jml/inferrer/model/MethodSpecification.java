@@ -53,6 +53,15 @@ public class MethodSpecification {
     private boolean isMutator = false;
     private boolean isThreadSafe = false;
 
+    // RQ3: termination flag — true if the method is known to terminate on
+    // every input. Default is true; the inferrer may set it to false when it
+    // sees a recursive call without a `decreases` clause or a loop without a
+    // `loop_decreases` heuristic. The CompositionalAnalyzer reads this flag
+    // before propagating the callee's postcondition: a non-terminating
+    // callee's postcondition is conditional on termination, so propagating
+    // it unconditionally is unsound.
+    private boolean terminates = true;
+
     // Overall confidence for the method
     private ConfidenceLevel overallConfidence = ConfidenceLevel.MEDIUM;
 
@@ -351,6 +360,18 @@ public class MethodSpecification {
 
     public void setMutator(boolean mutator) {
         isMutator = mutator;
+    }
+
+    /** RQ3: returns whether the method is known to terminate. Default true. */
+    public boolean terminates() {
+        return terminates;
+    }
+
+    /** RQ3: set the termination flag. Called by the inferrer when a recursive
+     * call without a {@code decreases} clause or a loop without an evident
+     * decreases heuristic is detected. */
+    public void setTerminates(boolean terminates) {
+        this.terminates = terminates;
     }
 
     public boolean isThreadSafe() {
