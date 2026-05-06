@@ -1605,6 +1605,10 @@ class LoopInvariantAnalyzer {
             analyzeAccumulators(body, invariants, counterNames);
             analyzeVariableRelationships(body, invariants);
             analyzeLoopBodyForInvariants(body, invariants);
+            // Sum-induction for `int i = 0; while (i < N) { total += summand(i); i++; }`
+            // shapes — emits the matching \sum invariant and \result postcondition that
+            // ForStmt analysis already provides for `for(...; i<N; i++)` loops.
+            SumInductionAnalyzer.analyzeWhile(whileStmt, invariants, spec);
             // Merge-pattern synchronisation: for `while (i<a.length && j<b.length)`
             // where `i,j,k` start at 0 and the body increments `k` AND exactly one
             // of `i,j` per iteration, emit `k <= i + j`. Combined with i<=a.length,

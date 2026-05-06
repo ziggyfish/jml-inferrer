@@ -48,6 +48,78 @@ final class SumInductionAnalyzer {
     }
 
     /**
+     * Counterpart for {@code while (counter < HIGH) { body; counter++; }}-style
+     * loops where {@code counter} is a local declared with initialiser
+     * {@code 0} immediately before the loop. Treats the loop as the equivalent
+     * {@code for (counter = 0; counter < HIGH; counter++) BODY} and delegates
+     * the summand analysis. Restricted to monotonically-incrementing single
+     * counter shapes — covers the canonical {@code int i = 0; while (i < N) {
+     * total += arr[i]; i++; }} accumulator that ForStmt-only analysis missed
+     * (e.g. WhileSum.sumWhile in the regression suite).
+     */
+    static void analyzeWhile(WhileStmt whileStmt, Set<String> invariants,
+                             com.jml.inferrer.model.MethodSpecification spec) {
+        Expression cond = whileStmt.getCondition();
+        if (!(cond instanceof BinaryExpr be)) return;
+        if (be.getOperator() != BinaryExpr.Operator.LESS
+                && be.getOperator() != BinaryExpr.Operator.LESS_EQUALS) return;
+        if (!(be.getLeft() instanceof NameExpr lne)) return;
+        String counter = lne.getNameAsString();
+        String hi = be.getOperator() == BinaryExpr.Operator.LESS
+                ? be.getRight().toString()
+                : "(" + be.getRight() + " + 1)";
+
+        Statement body = whileStmt.getBody();
+        // Body must increment counter by 1 exactly once and contain no nested
+        // counter resets. The increment can be `counter++`, `++counter`, or
+        // `counter += 1` / `counter = counter + 1`.
+        if (!bodyIncrementsByOne(body, counter)) return;
+
+        MethodDeclaration methodDecl = whileStmt.findAncestor(MethodDeclaration.class).orElse(null);
+        if (methodDecl == null) return;
+
+        // Counter must be declared outside the while with initialiser 0 — else
+        // the partial-sum invariant `total == (\sum k; 0 <= k < counter; ...)`
+        // doesn't hold at loop entry.
+        if (!isLocalInitialisedToZeroOuter(methodDecl, counter)) return;
+
+        String lo = "0";
+        body.findAll(AssignExpr.class).forEach(ae ->
+                handleCompoundAssign(ae, counter, lo, hi, body, invariants, spec, methodDecl));
+    }
+
+    private static boolean bodyIncrementsByOne(Statement body, String counter) {
+        int n = 0;
+        for (UnaryExpr ue : body.findAll(UnaryExpr.class)) {
+            if ((ue.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT
+                    || ue.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT)
+                    && ue.getExpression() instanceof NameExpr ne
+                    && ne.getNameAsString().equals(counter)) n++;
+        }
+        for (AssignExpr ae : body.findAll(AssignExpr.class)) {
+            if (!(ae.getTarget() instanceof NameExpr tne)) continue;
+            if (!tne.getNameAsString().equals(counter)) continue;
+            if (ae.getOperator() == AssignExpr.Operator.PLUS) {
+                Expression v = ae.getValue();
+                if (v.isIntegerLiteralExpr() && v.asIntegerLiteralExpr().asInt() == 1) n++;
+            }
+        }
+        return n == 1;
+    }
+
+    private static boolean isLocalInitialisedToZeroOuter(MethodDeclaration method, String name) {
+        // First match wins — the canonical `int counter = 0; while(...) {...}` shape
+        // declares the counter once, immediately before the loop.
+        for (VariableDeclarator vd : method.findAll(VariableDeclarator.class)) {
+            if (!vd.getNameAsString().equals(name)) continue;
+            if (vd.getInitializer().isEmpty()) return false;
+            Expression init = vd.getInitializer().get();
+            return init.isIntegerLiteralExpr() && init.asIntegerLiteralExpr().asInt() == 0;
+        }
+        return false;
+    }
+
+    /**
      * Counterpart to {@link #analyze(ForStmt, List, Set, com.jml.inferrer.model.MethodSpecification)}
      * for {@code for (T iterVar : iterable)} loops over array references.
      * Treats the loop as the desugared counter-loop equivalent
