@@ -1,0 +1,2 @@
+inferrer-self | sourceFiles=4 methods=73 matched=73 missing=0 mismatches=0 fidelity=100.00%
+inferrer-self | sourceFiles=4 methods=73 matched=73 missing=0 mismatches=0 fidelity=100.00%
