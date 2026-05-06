@@ -75,6 +75,21 @@ RUN if [ -f /src/patches/binaries/z3-4.13.4 ]; then \
          && echo "Dropped z3-4.13.4 into Solvers-linux"; \
        fi
 
+# Drop z3-4.16.0 binary into Solvers/Solvers-linux/ alongside the older builds.
+# The 2026-04-30 version-bump experiment ships z3-4.16.0 (latest stable as of
+# Feb 2026) to test whether the residual SOLVER_UNKNOWN cases respond to the
+# improved integer cuts (4.15.0), MBQI/quantifier-instantiation infrastructure
+# (4.15.3), CAD/Hensel-lifting nonlinear arithmetic (4.15.5), and the
+# nonchronological-backjumping UNKNOWN bug fix (4.15.5).  Selected at runtime
+# via OpenJMLInvoker — the inferrer prefers z3-4.16.0 over z3-4.7.1 when both
+# are present.  The prebuilt linux binary is built against glibc 2.39; if the
+# test base image is older, that constraint will surface here.
+RUN if [ -f /src/patches/binaries/z3-4.16.0 ]; then \
+         cp /src/patches/binaries/z3-4.16.0 /src/Solvers/Solvers-linux/z3-4.16.0 \
+         && chmod +x /src/Solvers/Solvers-linux/z3-4.16.0 \
+         && echo "Dropped z3-4.16.0 into Solvers-linux"; \
+       fi
+
 # Apply the SMTTranslator patch via the Python script (python3 in base layer).
 RUN if [ -f /src/patches/scripts/patch_smttranslator.py ]; then \
          python3 /src/patches/scripts/patch_smttranslator.py \

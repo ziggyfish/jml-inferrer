@@ -27,4 +27,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
+          # 8g for z3-4.13.4 (default) and 4.16.0 — both use materially more
+          # memory than z3-4.7.1 (the 2026-04-30 experiment OOM-killed the
+          # container at 2g and 6g, third class onward).  z3-4.7.1 fits in 2g
+          # if you revert this and switch OPENJML_PROVER=z3-4.7.
+          memory: 8g

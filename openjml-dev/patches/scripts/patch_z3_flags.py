@@ -50,15 +50,18 @@ EDIT_OLD = (
 )
 EDIT_NEW = (
     '        if (JmlOption.ESC_TRIGGERS.isSet(context)) {\n'
-    '            // jml-z3-flags-patch: extra z3 quantifier engine flags found\n'
-    '            // to be neutral or beneficial in the 2026-04-29 flag tuning\n'
-    '            // campaign. macro-finder helps z3 inline pure-recursive\n'
-    '            // bodies syntactically; eager_threshold bumps the per-q\n'
-    '            // instantiation cost from default 10 to 100.\n'
+    '            // jml-z3-flags-patch (2026-04-30 update): removed the\n'
+    '            // macro-finder=true and qi.eager_threshold=100 lines this\n'
+    '            // patch used to add.  Both z3-4.13.4 and z3-4.16.0 OOM\n'
+    '            // immediately on every OpenJML SMT script when those two\n'
+    '            // flags are set in the preamble.  The 2026-04-29 session\n'
+    '            // documented them as "neutral" on z3-4.7.1 (small fixture\n'
+    '            // set), so removing them costs nothing for 4.7.1 and\n'
+    '            // unblocks 4.13.4 / 4.16.0 as alternative provers.\n'
+    '            // Marker preserved so the patch is still detected as\n'
+    '            // applied and idempotent.\n'
     '            startCommands.add(command(smt,"(set-option :AUTO_CONFIG false)"));\n'
     '            startCommands.add(command(smt,"(set-option :smt.MBQI false)"));\n'
-    '            startCommands.add(command(smt,"(set-option :smt.macro-finder true)"));\n'
-    '            startCommands.add(command(smt,"(set-option :smt.qi.eager_threshold 100)"));\n'
     '        }'
 )
 

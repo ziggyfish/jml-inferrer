@@ -133,9 +133,15 @@ public class OpenJMLInvoker {
         command.add("--subexpressions");
 
         // The fork-built OpenJML emits `define-fun-rec` for \sum / \product /
-        // \num_of; the default bundled z3-4.3.1 predates that command. Prefer
-        // z3-4.7.1 or cvc5 (both support define-fun-rec) when available.
-        // The OPENJML_PROVER env var lets experiments pick between them.
+        // \num_of; the default bundled z3-4.3.1 predates that command. Default
+        // is z3-4.13.4 (the 2026-04-30 follow-up to the 4.16.0 experiment).
+        // Both 4.13.4 and 4.16.0 require patch_z3_flags to be neutralised
+        // (macro-finder=true and qi.eager_threshold=100 OOM them on the
+        // OpenJML preamble); 4.16.0 is also intrinsically ~20x slower than
+        // 4.7.1 through the Solver_z3_4_3 adapter, so 4.13.4 is the chosen
+        // middle ground.  z3-4.7.1 and z3-4.16.0 are still shipped for
+        // OPENJML_PROVER opt-in.
+        // OPENJML_PROVER values: "cvc5", "z3-4.7", "z3-4.16". Default is z3-4.13.4.
         Path openjmlDir = openjmlPath.toAbsolutePath().getParent();
         if (openjmlDir != null) {
             String preferred = System.getenv("OPENJML_PROVER");
@@ -143,10 +149,24 @@ public class OpenJMLInvoker {
             Path solversDir = openjmlDir.resolve("Solvers-linux");
             Path cvc5 = solversDir.resolve("cvc5");
             Path z3_4_7 = solversDir.resolve("z3-4.7.1");
+            Path z3_4_13 = solversDir.resolve("z3-4.13.4");
+            Path z3_4_16 = solversDir.resolve("z3-4.16.0");
             if ("cvc5".equalsIgnoreCase(preferred) && java.nio.file.Files.isExecutable(cvc5)) {
                 command.add("--prover=cvc5");
                 command.add("--exec");
                 command.add(cvc5.toAbsolutePath().toString());
+            } else if ("z3-4.7".equalsIgnoreCase(preferred) && java.nio.file.Files.isExecutable(z3_4_7)) {
+                command.add("--prover=z3_4_3");
+                command.add("--exec");
+                command.add(z3_4_7.toAbsolutePath().toString());
+            } else if ("z3-4.16".equalsIgnoreCase(preferred) && java.nio.file.Files.isExecutable(z3_4_16)) {
+                command.add("--prover=z3_4_3");
+                command.add("--exec");
+                command.add(z3_4_16.toAbsolutePath().toString());
+            } else if (java.nio.file.Files.isExecutable(z3_4_13)) {
+                command.add("--prover=z3_4_3");
+                command.add("--exec");
+                command.add(z3_4_13.toAbsolutePath().toString());
             } else if (java.nio.file.Files.isExecutable(z3_4_7)) {
                 command.add("--prover=z3_4_3");
                 command.add("--exec");
