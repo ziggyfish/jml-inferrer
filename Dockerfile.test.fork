@@ -35,6 +35,13 @@ RUN curl -sL -o /tmp/cvc5.zip \
 
 WORKDIR /app
 
+# Build and install the jml-embedder sibling module first, so its 1.0.0-SNAPSHOT
+# is available in the local Maven repository when the parent project's
+# dependency resolution runs. The embedder has no transitive Maven Central
+# misses; its only deps are ASM, SLF4J, and Gson.
+COPY jml-embedder/ /tmp/jml-embedder/
+RUN cd /tmp/jml-embedder && mvn -B install -DskipTests && rm -rf /tmp/jml-embedder
+
 COPY pom.xml ./
 RUN mvn dependency:go-offline -B
 
