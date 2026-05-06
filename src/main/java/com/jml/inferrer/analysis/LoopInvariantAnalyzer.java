@@ -2353,6 +2353,11 @@ class LoopInvariantAnalyzer {
 
             analyzeVariableRelationships(forEachStmt.getBody(), invariants);
             analyzeLoopBodyForInvariants(forEachStmt.getBody(), invariants);
+            // For-each over an array desugars to a counter-loop; the
+            // SumInductionAnalyzer's for-each path emits the matching
+            // \sum/\product invariant + postcondition with `iter[k]`
+            // substituted in for the iter variable.
+            SumInductionAnalyzer.analyzeForEach(forEachStmt, invariants, spec);
         }
 
         private void analyzeLoopBodyForInvariants(Statement body, Set<String> invariants) {

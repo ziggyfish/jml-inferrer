@@ -48,6 +48,128 @@ final class SumInductionAnalyzer {
     }
 
     /**
+     * Counterpart to {@link #analyze(ForStmt, List, Set, com.jml.inferrer.model.MethodSpecification)}
+     * for {@code for (T iterVar : iterable)} loops over array references.
+     * Treats the loop as the desugared counter-loop equivalent
+     * {@code for (int k = 0; k < iterable.length; k++) { T iterVar = iterable[k]; BODY }}
+     * — a synthetic {@code k} ranges over the array indices and {@code iterVar}
+     * gets substituted with {@code iterable[k]} inside summand expressions.
+     *
+     * <p>Restricted to {@code ForEachStmt} where the iterable is a {@code NameExpr}
+     * resolving to an array; field-access shapes ({@code this.data} etc.) and
+     * {@code Iterable<T>} (no {@code .length}) are out of scope.</p>
+     */
+    static void analyzeForEach(com.github.javaparser.ast.stmt.ForEachStmt feStmt,
+                               Set<String> invariants,
+                               com.jml.inferrer.model.MethodSpecification spec) {
+        Expression iterable = feStmt.getIterable();
+        if (!(iterable instanceof NameExpr ine)) return;
+        String iterableName = ine.getNameAsString();
+        // Resolve the iterable's declared type — only int[] (or similarly indexable
+        // primitive arrays) are sound here; an Iterable<T> doesn't have .length.
+        com.github.javaparser.ast.body.VariableDeclarator decl =
+                feStmt.findAncestor(MethodDeclaration.class)
+                        .flatMap(m -> m.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                                .stream().filter(v -> v.getNameAsString().equals(iterableName))
+                                .findFirst())
+                        .orElse(null);
+        boolean isArrayType = false;
+        if (decl != null && decl.getType().isArrayType()) isArrayType = true;
+        // Also accept method-parameter shape — the for-each in ForEachSum.sumArray
+        // iterates over a parameter, not a local declarator.
+        if (!isArrayType) {
+            MethodDeclaration md = feStmt.findAncestor(MethodDeclaration.class).orElse(null);
+            if (md != null) {
+                for (com.github.javaparser.ast.body.Parameter p : md.getParameters()) {
+                    if (p.getNameAsString().equals(iterableName) && p.getType().isArrayType()) {
+                        isArrayType = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!isArrayType) return;
+
+        String iterVar = feStmt.getVariable().getVariables().get(0).getNameAsString();
+        String lo = "0";
+        String hi = iterableName + ".length";
+        // Synthetic counter bound by [0, iterable.length); accumulator references
+        // to `iterVar` inside the body get rewritten to `iterable[counter]` so the
+        // emitted summand survives the counter-to-k substitution downstream.
+        String counter = "$idx_" + iterableName; // synthetic, only used for substitution
+        Statement body = feStmt.getBody();
+        MethodDeclaration methodDecl = feStmt.findAncestor(MethodDeclaration.class).orElse(null);
+
+        body.findAll(AssignExpr.class).forEach(ae -> handleForEachCompoundAssign(
+                ae, iterVar, iterableName, counter, lo, hi, body, invariants, spec, methodDecl));
+    }
+
+    /**
+     * For-each variant of {@link #handleCompoundAssign}: the summand is
+     * {@code iterVar}, which we rewrite to {@code iterable[counter]} before the
+     * normal counter-to-k substitution. Avoids breaking the existing handler's
+     * assumption that the loop has a real Java counter variable.
+     */
+    private static void handleForEachCompoundAssign(AssignExpr ae, String iterVar,
+                                                    String iterableName, String counter,
+                                                    String lo, String hi, Statement body,
+                                                    Set<String> invariants,
+                                                    com.jml.inferrer.model.MethodSpecification spec,
+                                                    MethodDeclaration methodDecl) {
+        if (!(ae.getTarget() instanceof NameExpr)) return;
+        String target = ((NameExpr) ae.getTarget()).getNameAsString();
+        if (target.equals(iterVar)) return;
+        if (isInsideNestedLoop(ae, body)) return;
+        if (isInsideIf(ae)) return;
+        if (persistsAcrossEnclosingLoop(body, target)) return;
+
+        AssignExpr.Operator op = ae.getOperator();
+        String quant;
+        String summand;
+        if (op == AssignExpr.Operator.PLUS) {
+            quant = "\\sum";
+            summand = ae.getValue().toString();
+        } else if (op == AssignExpr.Operator.MULTIPLY) {
+            quant = "\\product";
+            summand = ae.getValue().toString();
+        } else if (op == AssignExpr.Operator.ASSIGN && ae.getValue() instanceof BinaryExpr be) {
+            String rhs = extractAccumulatorRhs(be, target);
+            if (rhs == null) return;
+            if (be.getOperator() == BinaryExpr.Operator.PLUS) quant = "\\sum";
+            else if (be.getOperator() == BinaryExpr.Operator.MULTIPLY) quant = "\\product";
+            else return;
+            summand = rhs;
+        } else {
+            return;
+        }
+
+        // Substitute iterVar -> iterable[k] (where k is the JML quantifier var).
+        String summandK = summand.replaceAll(
+                "\\b" + java.util.regex.Pattern.quote(iterVar) + "\\b",
+                iterableName + "[k]");
+        if (summandK.equals(summand)) {
+            // Body's accumulator doesn't actually reference the iter var — that's
+            // a constant accumulator (e.g. `count += 1`), which other analyzers
+            // already handle. Skip.
+            return;
+        }
+        // Reject if substitution leaves any reference to iterVar (defensive).
+        if (summandK.matches(".*\\b" + java.util.regex.Pattern.quote(iterVar) + "\\b.*")) {
+            return;
+        }
+
+        // For-each has no real counter, so a partial-sum invariant
+        // (`total == (\sum k; 0 <= k < counter; ...)`) can't be expressed.
+        // Only emit the matching postcondition — true at loop exit when the
+        // entire iterable has been consumed. The OpenJML fork's axiomatic
+        // \sum encoding handles the discharge without an inductive invariant
+        // for these small cases (typical for-each over a parameter array).
+        if (methodReturnsAccumulator(methodDecl, target)) {
+            emitMatchingPostcondition(spec, quant, lo, hi, summandK);
+        }
+    }
+
+    /**
      * Emits {@code \sum}/{@code \product}/{@code \num_of} loop invariants AND, when
      * the surrounding method's terminal return is the accumulator, the matching
      * {@code \result == (\sum int k; LO <= k && k < HIGH; ...)} postcondition.
