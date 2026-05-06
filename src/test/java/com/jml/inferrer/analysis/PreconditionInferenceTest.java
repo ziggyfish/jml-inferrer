@@ -486,4 +486,48 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 spec.getPreconditions().stream().noneMatch(p -> p.contains("!= null")),
                 "No null checks for parameterless method");
     }
+
+    @Test
+    @DisplayName("Field-bounded loop emits cross-field length precondition (1D)")
+    void fieldBoundedLoopArrayLength1D() {
+        MethodSpecification spec = infer("""
+            class T {
+                private int[] data;
+                private int size;
+                int sum() {
+                    int s = 0;
+                    for (int i = 0; i < size; i++) {
+                        s += data[i];
+                    }
+                    return s;
+                }
+            }
+            """, "sum");
+        assertTrue(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.contains("size <= this.data.length")
+                                || p.contains("this.size <= this.data.length")),
+                "Expected `size <= data.length` precondition; got: " + spec.getPreconditions());
+    }
+
+    @Test
+    @DisplayName("Field-bounded loop emits cross-field length precondition (2D diagonal)")
+    void fieldBoundedLoopArrayLength2DDiagonal() {
+        MethodSpecification spec = infer("""
+            class T {
+                private int[][] data;
+                private int size;
+                int trace() {
+                    int s = 0;
+                    for (int i = 0; i < size; i++) {
+                        s += data[i][i];
+                    }
+                    return s;
+                }
+            }
+            """, "trace");
+        assertTrue(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.contains("size <= this.data.length")
+                                || p.contains("this.size <= this.data.length")),
+                "Expected `size <= data.length` precondition; got: " + spec.getPreconditions());
+    }
 }

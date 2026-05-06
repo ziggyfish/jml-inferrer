@@ -68,6 +68,11 @@ class PreconditionAnalyzer {
         // pattern: the access `b[i]` is in-bounds only when `b.length >= a.length`.
         analyzeCrossArrayLoopBounds(methodDecl, preconditions, collector);
 
+        // Field-bounded loop length: `for(i=0; i<size; i++) data[i]...` requires
+        // `size <= data.length` so the access is in-bounds. Sister of
+        // analyzeCrossArrayLoopBounds for the field-as-bound case (matrix shapes).
+        analyzeFieldBoundedLoopArrayLength(methodDecl, preconditions, collector);
+
         // Param-bounded loop bounds for `for(i=start; i<end; i++) arr[i] = ...` style.
         // Without `start >= 0` and `end <= arr.length` the access is unproveable.
         analyzeRangeLoopArrayBounds(methodDecl, preconditions, collector);
@@ -729,6 +734,78 @@ class PreconditionAnalyzer {
                 if (!(aa.getIndex() instanceof NameExpr idxNe)) continue;
                 if (!idxNe.getNameAsString().equals(counter)) continue;
                 preconditions.add(accessedArray + ".length " + op + " " + upperParam + ".length");
+            }
+        }
+    }
+
+    /**
+     * For loops of the shape {@code for (int i = LO; i <op> FIELD; i++)} (where LO is a
+     * non-negative literal and FIELD is a numeric instance field) whose body contains
+     * an access {@code this.arrayField[i]} (1D or nested 2D), emit
+     * {@code FIELD <= arrayField.length} so the access is in-bounds. Without this the
+     * inferrer emits {@code arrayField != null} and {@code FIELD >= 0} but not the
+     * cross-field bound, leaving OpenJML unable to discharge the upper-bound
+     * assertion. Sister of {@link #analyzeCrossArrayLoopBounds} for field-bounded
+     * (rather than parameter-bounded) loops; this is the matrix-shape pattern.
+     */
+    private void analyzeFieldBoundedLoopArrayLength(MethodDeclaration methodDecl,
+                                                     Set<String> preconditions,
+                                                     ASTCollector collector) {
+        for (com.github.javaparser.ast.stmt.ForStmt fs
+                : methodDecl.findAll(com.github.javaparser.ast.stmt.ForStmt.class)) {
+            if (fs.getInitialization().size() != 1) continue;
+            Expression init = fs.getInitialization().get(0);
+            if (!(init instanceof VariableDeclarationExpr vde)) continue;
+            if (vde.getVariables().size() != 1) continue;
+            String counter = vde.getVariables().get(0).getNameAsString();
+            Optional<Expression> initExprOpt = vde.getVariables().get(0).getInitializer();
+            if (initExprOpt.isEmpty()) continue;
+            Expression initExpr = initExprOpt.get();
+            if (!initExpr.isIntegerLiteralExpr()) continue;
+            if (initExpr.asIntegerLiteralExpr().asInt() < 0) continue;
+
+            if (fs.getCompare().isEmpty()) continue;
+            if (!(fs.getCompare().get() instanceof BinaryExpr cmp)) continue;
+            if (!(cmp.getLeft() instanceof NameExpr lne)
+                    || !lne.getNameAsString().equals(counter)) continue;
+
+            // Upper bound must be a numeric instance field. fieldName returns null
+            // for `arr.length` (scope `arr`, not `this`) so the cross-array case
+            // does not collide with this one.
+            String boundField = fieldName(cmp.getRight(), methodDecl);
+            if (boundField == null) continue;
+
+            String op;
+            if (cmp.getOperator() == BinaryExpr.Operator.LESS) op = "<=";
+            else if (cmp.getOperator() == BinaryExpr.Operator.LESS_EQUALS) op = "<";
+            else continue;
+
+            for (ArrayAccessExpr aa : fs.getBody().findAll(ArrayAccessExpr.class)) {
+                // Walk the access chain to the outermost field-array expression.
+                Expression name = aa.getName();
+                while (name instanceof ArrayAccessExpr inner) name = inner.getName();
+                String arrField = fieldName(name, methodDecl);
+                if (arrField == null) continue;
+                if (arrField.equals(boundField)) continue;
+
+                // Some access along the chain must use the counter as its index;
+                // otherwise the bound is unrelated to this loop's iteration.
+                boolean accessesAtCounter = false;
+                ArrayAccessExpr cursor = aa;
+                while (true) {
+                    if (cursor.getIndex() instanceof NameExpr idxNe
+                            && idxNe.getNameAsString().equals(counter)) {
+                        accessesAtCounter = true;
+                        break;
+                    }
+                    if (cursor.getName() instanceof ArrayAccessExpr inner) cursor = inner;
+                    else break;
+                }
+                if (!accessesAtCounter) continue;
+
+                preconditions.add("this." + arrField + " != null");
+                preconditions.add("this." + boundField + " " + op
+                        + " this." + arrField + ".length");
             }
         }
     }
