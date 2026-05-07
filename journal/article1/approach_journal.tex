@@ -1,7 +1,7 @@
 \section{The Inference Instrument}
 \label{sec:approach}
 
-The empirical study in Section~\ref{sec:results} requires specifications to be available for every method in the corpus. Since manual specification at that scale is infeasible, the study is enabled by JML-Inferrer, a static analysis system developed alongside the experiment. This section describes JML-Inferrer at the level of detail required to interpret the empirical results; full implementation details, algorithm pseudocode, and the standard library specification database are provided in the Supplementary Material (Appendix~A--C).
+The empirical study in Section~\ref{sec:results} requires specifications to be available for every method in the corpus. Since manual specification at that scale is infeasible, the study is enabled by JML-Inferrer, a static analysis system developed alongside the experiment (Figure~\ref{fig:architecture}). This section describes JML-Inferrer at the level of detail required to interpret the empirical results; full implementation details, algorithm pseudocode, and the standard library specification database are provided in the Supplementary Material (Appendix~A--C).
 
 \begin{figure}[t]
 \centering
@@ -101,7 +101,7 @@ The inference engine applies the visitor pattern over AST nodes, with pattern ma
     \STATE $Post \gets Post \cup \{\pi \Longrightarrow \text{spec}(r)\}$
 \ENDFOR
 \FOR{each conditional field assignment \texttt{this.f = $e$} under path $\pi$}
-    \STATE $Post \gets Post \cup \{\pi \Longrightarrow \texttt{this.f == $e[\textbackslash old/\cdot]$}\}$
+    \STATE $Post \gets Post \cup \{\pi \Longrightarrow \mathtt{this.f} == e[\backslash\mathit{old}/\cdot]\}$
 \ENDFOR
 \STATE \COMMENT{Infer loop invariants}
 \FOR{each loop $L$ in $M$.body}
