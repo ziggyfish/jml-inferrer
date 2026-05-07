@@ -132,6 +132,31 @@ class PreconditionAnalyzer {
         return hasNullCheck || hasMethodCall || hasFieldAccess || hasForEachUsage;
     }
 
+    /**
+     * True when {@code expr} sits inside a guard position — an if-condition
+     * (typically guarding a throw / early return) or the condition of a
+     * for/while/do loop. A comparison appearing as a method's return-statement
+     * expression is NOT a guard — it's the body's contract — and should not
+     * be promoted to a precondition.
+     */
+    private boolean isGuardContext(com.github.javaparser.ast.Node expr) {
+        com.github.javaparser.ast.Node cur = expr;
+        while (cur != null) {
+            com.github.javaparser.ast.Node parent = cur.getParentNode().orElse(null);
+            if (parent == null) return false;
+            if (parent instanceof IfStmt is && is.getCondition() == cur) return true;
+            if (parent instanceof ForStmt fs && fs.getCompare().orElse(null) == cur) return true;
+            if (parent instanceof WhileStmt ws && ws.getCondition() == cur) return true;
+            if (parent instanceof DoStmt ds && ds.getCondition() == cur) return true;
+            // Stop at the enclosing return — comparisons there are the contract.
+            if (parent instanceof ReturnStmt) return false;
+            // Method body / class — passed all enclosing scopes without a guard.
+            if (parent instanceof MethodDeclaration) return false;
+            cur = parent;
+        }
+        return false;
+    }
+
     private void analyzeStringParameterConstraints(MethodDeclaration methodDecl, String paramName,
                                                     Set<String> preconditions, ASTCollector collector) {
         // Check for null requirement
@@ -145,16 +170,22 @@ class PreconditionAnalyzer {
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false) && call.getNameAsString().equals("isEmpty"));
 
-        // Check for length() calls with comparisons
+        // Check for length() calls with comparisons. Only treat as a precondition
+        // when the comparison sits inside a guard context (if-throw or loop guard) —
+        // a comparison that's the body's return expression is the method's
+        // CONTRACT, not its precondition. Without this filter, a method like
+        // `boolean longerThan(String a, String b) { return a.length() > b.length(); }`
+        // would emit `requires a.length() > b.length()` (the body's return),
+        // turning the contract into a vacuous precondition.
         collector.methodCallExprs.stream()
             .filter(call -> call.getScope()
                 .map(s -> s.toString().equals(paramName))
                 .orElse(false) && call.getNameAsString().equals("length"))
             .forEach(lengthCall -> {
-                // Look for comparisons with this length call
                 collector.binaryExprs.stream()
                     .filter(binExpr -> binExpr.getLeft().toString().contains(paramName + ".length()") ||
                                        binExpr.getRight().toString().contains(paramName + ".length()"))
+                    .filter(binExpr -> isGuardContext(binExpr))
                     .forEach(binExpr -> {
                         if (binExpr.getOperator() == BinaryExpr.Operator.GREATER &&
                             binExpr.getLeft().toString().contains(paramName + ".length()")) {
