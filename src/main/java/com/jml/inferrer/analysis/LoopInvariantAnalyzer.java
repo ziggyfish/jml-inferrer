@@ -410,6 +410,31 @@ class LoopInvariantAnalyzer {
                             int stepSizeLocal = getStepSize(updateExpr, varName);
                             if (stepSizeLocal > 1) {
                                 invariants.add(varName + " % " + stepSizeLocal + " == 0");
+                                // Step > 1 means the back-edge increment `i += K` can run
+                                // up to `bound + K - 1` before the next loop check terminates,
+                                // which overflows int when bound is near INT_MAX. Emit a
+                                // precondition `bound <= Integer.MAX_VALUE - K + 1` whenever the
+                                // bound is pre-state expressible. The looser `- K` form is
+                                // also sound but unnecessarily strong.
+                                forStmt.getCompare().ifPresent(compare -> {
+                                    if (compare instanceof BinaryExpr) {
+                                        BinaryExpr binExpr = (BinaryExpr) compare;
+                                        if (binExpr.getLeft().toString().equals(varName)
+                                                && (binExpr.getOperator() == BinaryExpr.Operator.LESS
+                                                    || binExpr.getOperator() == BinaryExpr.Operator.LESS_EQUALS)) {
+                                            String upper = binExpr.getRight().toString();
+                                            Optional<MethodDeclaration> methodOpt =
+                                                    forStmt.findAncestor(MethodDeclaration.class);
+                                            if (methodOpt.isPresent() && spec != null
+                                                    && isPreStateExpressible(upper, methodOpt.get())) {
+                                                int slack = stepSizeLocal - 1;
+                                                String guard = upper + " <= Integer.MAX_VALUE - " + slack;
+                                                spec.addPrecondition(guard,
+                                                        MethodSpecification.ConfidenceLevel.MEDIUM);
+                                            }
+                                        }
+                                    }
+                                });
                             } else if (stepSizeLocal < 0) {
                                 forStmt.getCompare().ifPresent(compare -> {
                                     if (compare instanceof BinaryExpr) {
