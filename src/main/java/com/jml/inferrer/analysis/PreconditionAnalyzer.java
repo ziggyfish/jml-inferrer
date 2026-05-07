@@ -1165,6 +1165,10 @@ class PreconditionAnalyzer {
             // here and `arr.length != 0` from the inversion).
             .filter(binExpr -> !isGuardThrowCondition(binExpr))
             .filter(binExpr -> !isBranchingIfCondition(binExpr))
+            // The body's return expression IS the contract, not a precondition —
+            // `boolean hasItems(int[] arr) { return arr.length > 0; }` would
+            // otherwise emit `requires arr.length > 0` and invert the spec.
+            .filter(binExpr -> !isInReturnExpression(binExpr))
             .forEach(binExpr -> {
                 if (binExpr.getLeft().toString().equals(paramName + ".length")) {
                     String otherSide = binExpr.getRight().toString();
