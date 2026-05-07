@@ -1721,27 +1721,15 @@ class OverflowPreconditionAnalyzer {
 
         if (e instanceof FieldAccessExpr fae) {
             String scope = fae.getScope().toString();
-            String name = fae.getNameAsString();
-            if (scope.equals("this") && intFieldNames.contains(name)) {
-                return "(\\bigint) this." + name;
+            if (scope.equals("this") && intFieldNames.contains(fae.getNameAsString())) {
+                return "(\\bigint) this." + fae.getNameAsString();
             }
-            if (name.equals("length")) {
+            if (fae.getNameAsString().equals("length")) {
                 // arr.length is int-typed; the scope must resolve to an array reference
                 // (param or field of array type), not via toIntStr which only handles
                 // integer-typed scopes.
                 String scopeStr = arrayScopeRefStr(fae.getScope());
                 return scopeStr == null ? null : "(\\bigint) " + scopeStr + ".length";
-            }
-            // Peer-class access: `other.value` where `other` is a parameter and the
-            // current class has an int field of the same name. The pattern fires for
-            // binary methods like `compareTo(Other o) { return this.value - o.value; }`
-            // where `o` is the same class as `this`. Without this lift, the overflow
-            // precondition for `this.value - o.value` is never emitted because the
-            // binary's right operand can't be cast.
-            if (fae.getScope() instanceof NameExpr scopeNe
-                    && paramNames.contains(scopeNe.getNameAsString())
-                    && intFieldNames.contains(name)) {
-                return "(\\bigint) " + scopeNe.getNameAsString() + "." + name;
             }
             return null;
         }
