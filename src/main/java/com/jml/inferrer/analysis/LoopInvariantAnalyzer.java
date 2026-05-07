@@ -1180,14 +1180,15 @@ class LoopInvariantAnalyzer {
 
             Statement body = forStmt.getBody();
 
-            // Only consider UNCONDITIONAL writes — `if (pred(arr[i])) arr[i] = VAL`
-            // is a filter/transform shape where prefix elements `arr[0..i)` are NOT
-            // all equal to VAL (the ones where pred was false retain their original
-            // value). The conditional case is handled by `analyzeFilterTransformLoop`
-            // below, which emits a sound disjunction. Treating both shapes uniformly
-            // here would emit `arr[k] == VAL` and break LoopInvariant inductively.
+            // Only consider UNCONDITIONAL plain-assign writes — `if (pred(arr[i]))
+            // arr[i] = VAL` is a filter/transform shape where prefix elements
+            // `arr[0..i)` are NOT all equal to VAL. Compound shapes like
+            // `arr[i] *= factor` likewise don't make `arr[k] == factor` true —
+            // they make `arr[k] == \old(arr[k]) * factor`, and treating them as
+            // plain assigns produces unsound `arr[k] == factor` invariants.
             List<AssignExpr> arrayWrites = body.findAll(AssignExpr.class).stream()
                     .filter(assign -> assign.getTarget() instanceof ArrayAccessExpr)
+                    .filter(assign -> assign.getOperator() == AssignExpr.Operator.ASSIGN)
                     .filter(assign -> !isInsideIfBranchOf(assign, body))
                     .toList();
 
@@ -1255,6 +1256,9 @@ class LoopInvariantAnalyzer {
                 // a `\forall k; arr[k] == VAL` invariant. The filter/transform shape
                 // (`if (pred) arr[i] = VAL`) is handled by `analyzeFilterTransformLoop`.
                 if (isInsideIfBranchOf(assign, body)) return;
+                // Compound shapes like `arr[i] *= K` don't make arr[k] == K — only
+                // plain assignment does.
+                if (assign.getOperator() != AssignExpr.Operator.ASSIGN) return;
                 if (assign.getTarget() instanceof ArrayAccessExpr) {
                     ArrayAccessExpr arrayAccess = (ArrayAccessExpr) assign.getTarget();
                     String arrayName = arrayAccess.getName().toString();
