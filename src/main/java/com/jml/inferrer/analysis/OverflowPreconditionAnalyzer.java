@@ -104,6 +104,14 @@ class OverflowPreconditionAnalyzer {
         // recursive call). Drives Recursive1.factorial, Recursive2.fib.
         handleRecursiveArithmeticOverflow(emitted);
 
+        // SP-style forward propagation for straight-line bodies. When parameters
+        // or fields are reassigned in sequence (e.g. `a = a*a; c += 6; b = a+c;`),
+        // the syntactic precondition `(\bigint)a + (\bigint)c <= MAX` references
+        // method-entry values, but the body's actual `a+c` operates on the
+        // post-mutation values. Emit the substituted form as an additional
+        // precondition. Drives FieldAccum.getValue and similar shapes.
+        emitForwardPropagatedOverflowGuards(emitted);
+
         emitted.forEach(spec::addPrecondition);
     }
 
@@ -125,6 +133,193 @@ class OverflowPreconditionAnalyzer {
      * three shapes above. Nothing else triggers — z3 should never see a recursive
      * postcondition without a paired bound.</p>
      */
+    /**
+     * SP-style forward-propagation pass for straight-line method bodies. The
+     * regular per-{@link BinaryExpr} emission references method-entry values,
+     * but when a parameter or field is reassigned earlier in the body
+     * (e.g. {@code a = a*a; c += 6; b = a+c;}) the body's runtime {@code a+c}
+     * operates on the \emph{post-mutation} values, not the entry values. The
+     * existing precondition {@code (\bigint)a + (\bigint)c <= MAX} is true but
+     * narrower than what discharges the body's overflow check. Emit the
+     * substituted form as an additional precondition.
+     *
+     * <p>Restricted to bodies whose top-level statements are ExpressionStmt /
+     * LocalDecl / ReturnStmt (no if/loop/try), and where at least one
+     * parameter or field is reassigned. The substitution map is built by
+     * walking the body in source order; an assignment {@code v = rhs}
+     * substitutes the current map into rhs, then records {@code v -> rhs'}.
+     * For each subsequent BinaryExpr operand referring to {@code v}, the
+     * substituted form is emitted in a {@code (\bigint)} bound.</p>
+     *
+     * <p>This is heuristic but sound: the substituted precondition is a true
+     * fact about the runtime state, and emitting it alongside the
+     * method-entry-form precondition adds information without removing any.
+     * The probe-validated FieldAccum.getValue shape verifies under this
+     * emission.</p>
+     */
+    private void emitForwardPropagatedOverflowGuards(Set<String> emitted) {
+        if (methodDecl.getBody().isEmpty()) return;
+        BlockStmt body = methodDecl.getBody().get();
+
+        // Straight-line gate: only top-level ExpressionStmt / LocalDecl /
+        // ReturnStmt allowed. Anything that branches (if/while/for/do/try/
+        // switch) bails out — a single map can't capture per-branch state.
+        for (Statement s : body.getStatements()) {
+            if (s instanceof ExpressionStmt) continue;
+            if (s instanceof ReturnStmt) continue;
+            if (s instanceof com.github.javaparser.ast.stmt.LocalClassDeclarationStmt) return;
+            // Local-variable declarations (`int b = a + c;`) appear as
+            // ExpressionStmt-wrapped VariableDeclarationExpr in JavaParser's
+            // ASTs in some configurations, but commonly come up as a separate
+            // node type. Treat them as straight-line.
+            if (isLocalDeclStmt(s)) continue;
+            return; // any branch → bail
+        }
+
+        // Walk in order, building a substitution map.
+        Map<String, String> subst = new java.util.HashMap<>();
+        boolean reassignedAtLeastOne = false;
+        for (Statement s : body.getStatements()) {
+            // Process binary expressions IN this statement using the current map
+            // before recording any new assignments from this same statement.
+            // (The body's `int b = a + c;` reads a/c at the value bound on
+            // entry to the statement, then assigns b.)
+            for (BinaryExpr be : s.findAll(BinaryExpr.class)) {
+                if (!isArithmeticBinaryOp(be)) continue;
+                if (!operandReferencesReassigned(be, subst)) continue;
+                String substituted = substituteBinaryToBigint(be, subst);
+                if (substituted == null) continue;
+                emitted.add(substituted + " >= Integer.MIN_VALUE");
+                emitted.add(substituted + " <= Integer.MAX_VALUE");
+            }
+            // Local declarations `int v = rhs;` introduce v with rhs as its
+            // current value. Including them in the subst map lets later
+            // references to v expand to the runtime value (matters for
+            // shapes like `int b = a+c; b = b*b;` where b*b's overflow
+            // check needs the substituted form).
+            for (VariableDeclarationExpr vde : s.findAll(VariableDeclarationExpr.class)) {
+                for (VariableDeclarator vd : vde.getVariables()) {
+                    if (vd.getInitializer().isEmpty()) continue;
+                    if (!isIntegerPrimitive(vd.getType().asString())) continue;
+                    String rhsSubst = applySubstitution(
+                            vd.getInitializer().get().toString(), subst);
+                    subst.put(vd.getNameAsString(), "(" + rhsSubst + ")");
+                }
+            }
+            // Record param/field assignments in this statement.
+            for (AssignExpr ae : s.findAll(AssignExpr.class)) {
+                String name;
+                if (ae.getTarget() instanceof NameExpr nn) {
+                    name = nn.getNameAsString();
+                } else if (ae.getTarget() instanceof FieldAccessExpr fae
+                        && fae.getScope().toString().equals("this")) {
+                    name = fae.getNameAsString();
+                } else {
+                    continue;
+                }
+                boolean isParamOrField = paramNames.contains(name)
+                        || fieldNames.contains(name);
+                boolean isTrackedLocal = subst.containsKey(name);
+                if (!isParamOrField && !isTrackedLocal) continue;
+                String currentValue = subst.getOrDefault(name,
+                        fieldNames.contains(name) ? "this." + name : name);
+                String rhsSubst = applySubstitution(ae.getValue().toString(), subst);
+                String newValue;
+                if (ae.getOperator() == AssignExpr.Operator.ASSIGN) {
+                    newValue = "(" + rhsSubst + ")";
+                } else if (ae.getOperator() == AssignExpr.Operator.PLUS) {
+                    newValue = "(" + currentValue + " + " + rhsSubst + ")";
+                } else if (ae.getOperator() == AssignExpr.Operator.MINUS) {
+                    newValue = "(" + currentValue + " - " + rhsSubst + ")";
+                } else if (ae.getOperator() == AssignExpr.Operator.MULTIPLY) {
+                    newValue = "(" + currentValue + " * " + rhsSubst + ")";
+                } else {
+                    return; // unsupported compound — bail to stay sound
+                }
+                subst.put(name, newValue);
+                if (isParamOrField) reassignedAtLeastOne = true;
+            }
+        }
+        if (!reassignedAtLeastOne) return; // nothing to add beyond standard emission
+    }
+
+    /**
+     * Returns the bigint-cast form of the substituted binary expression, or
+     * null when any operand can't be safely lifted (e.g. references a loop
+     * variable or local without a known initialiser).
+     */
+    private String substituteBinaryToBigint(BinaryExpr be, Map<String, String> subst) {
+        String left = substituteOperandToBigint(be.getLeft(), subst);
+        if (left == null) return null;
+        String right = substituteOperandToBigint(be.getRight(), subst);
+        if (right == null) return null;
+        String op = composableBinaryOpSymbol(be.getOperator());
+        if (op == null) return null;
+        return "((" + left + ") " + op + " (" + right + "))";
+    }
+
+    private String substituteOperandToBigint(Expression e, Map<String, String> subst) {
+        if (e instanceof EnclosedExpr enc) return substituteOperandToBigint(enc.getInner(), subst);
+        if (e instanceof NameExpr ne) {
+            String name = ne.getNameAsString();
+            if (subst.containsKey(name)) {
+                return "(\\bigint) " + subst.get(name);
+            }
+            if (intParamNames.contains(name)) return "(\\bigint) " + name;
+            if (intFieldNames.contains(name)) return "(\\bigint) this." + name;
+            return null;
+        }
+        if (e instanceof FieldAccessExpr fae && fae.getScope().toString().equals("this")
+                && intFieldNames.contains(fae.getNameAsString())) {
+            String name = fae.getNameAsString();
+            if (subst.containsKey(name)) return "(\\bigint) " + subst.get(name);
+            return "(\\bigint) this." + name;
+        }
+        if (e instanceof IntegerLiteralExpr || e instanceof LongLiteralExpr) {
+            return "(\\bigint) " + e.toString();
+        }
+        if (e instanceof BinaryExpr be) {
+            // Recursive case: nested binary like `a*a` — substitute each side.
+            return substituteBinaryToBigint(be, subst);
+        }
+        if (e instanceof UnaryExpr ue && ue.getOperator() == UnaryExpr.Operator.MINUS) {
+            String inner = substituteOperandToBigint(ue.getExpression(), subst);
+            return inner == null ? null : "(-(" + inner + "))";
+        }
+        return null;
+    }
+
+    /** Apply current substitution map to an arbitrary expression's string form. */
+    private String applySubstitution(String exprStr, Map<String, String> subst) {
+        String result = exprStr;
+        for (Map.Entry<String, String> e : subst.entrySet()) {
+            result = result.replaceAll("\\b" + java.util.regex.Pattern.quote(e.getKey()) + "\\b",
+                    java.util.regex.Matcher.quoteReplacement(e.getValue()));
+        }
+        return result;
+    }
+
+    private boolean operandReferencesReassigned(BinaryExpr be, Map<String, String> subst) {
+        if (subst.isEmpty()) return false;
+        for (NameExpr ne : be.findAll(NameExpr.class)) {
+            if (subst.containsKey(ne.getNameAsString())) return true;
+        }
+        return false;
+    }
+
+    private boolean isArithmeticBinaryOp(BinaryExpr be) {
+        BinaryExpr.Operator op = be.getOperator();
+        return op == BinaryExpr.Operator.PLUS || op == BinaryExpr.Operator.MINUS
+            || op == BinaryExpr.Operator.MULTIPLY;
+    }
+
+    private boolean isLocalDeclStmt(Statement s) {
+        if (s instanceof com.github.javaparser.ast.stmt.ExpressionStmt es) {
+            return es.getExpression() instanceof VariableDeclarationExpr;
+        }
+        return false;
+    }
+
     private void handleRecursiveArithmeticOverflow(Set<String> emitted) {
         String methodName = methodDecl.getNameAsString();
         // Require exactly one int parameter — the recursion variable.
