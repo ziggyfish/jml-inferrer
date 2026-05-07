@@ -298,6 +298,11 @@ class LoopInvariantAnalyzer {
             // loop, alongside the inner-loop's index-bound invariant.
             emitRowMajor2DInvariantsIfApplicable(forStmt);
 
+            // Triple-nested counter loop: emits per-level multiplicative
+            // invariants `count == i*y*z (+ j*z (+ k))` plus the matching
+            // x*y*z precondition and `\result == x*y*z` postcondition.
+            emitTripleNestedCounterIfApplicable(forStmt);
+
             List<String> counterNames = new ArrayList<>();
             List<Expression> initValues = new ArrayList<>();
 
@@ -2563,6 +2568,169 @@ class LoopInvariantAnalyzer {
                 return tne.getNameAsString();
             }
             return null;
+        }
+
+        /**
+         * Emits multiplicative invariants for the canonical triple-nested
+         * counter loop {@code for(i;i<x){for(j;j<y){for(k;k<z){count++}}}} where
+         * {@code count} is a method-scoped int initialised to 0 and the method
+         * returns it. Once detected, also emits matching x*y*z preconditions
+         * and the {@code \result == x*y*z} postcondition (only at the outermost
+         * loop's visit, to avoid triple-counting).
+         *
+         * <p>The probe TripleNestedProbeTest validated that Z3 discharges this
+         * shape in 35 s — the multiplicative invariant is non-linear but small
+         * enough for Z3's nonlinear-arithmetic procedure.</p>
+         */
+        private void emitTripleNestedCounterIfApplicable(ForStmt forStmt) {
+            Optional<MethodDeclaration> mOpt = forStmt.findAncestor(MethodDeclaration.class);
+            if (mOpt.isEmpty()) return;
+            MethodDeclaration method = mOpt.get();
+            Set<String> paramNames = new HashSet<>();
+            for (com.github.javaparser.ast.body.Parameter p : method.getParameters()) {
+                paramNames.add(p.getNameAsString());
+            }
+
+            // Determine which level this loop occupies.
+            TripleNestedMatch match = matchTripleNestedAtLevel(forStmt, paramNames, method);
+            if (match == null) return;
+            String i = match.iCounter, j = match.jCounter, k = match.kCounter;
+            String x = match.xBound, y = match.yBound, z = match.zBound;
+            String c = match.counter;
+            String iyz = "(\\bigint) " + i + " * " + y + " * " + z;
+            String jz = "(\\bigint) " + j + " * " + z;
+
+            switch (match.level) {
+                case OUTER -> {
+                    invariants.add(c + " == " + iyz);
+                    if (spec != null) {
+                        spec.addPrecondition(x + " >= 0",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                        spec.addPrecondition(y + " >= 0",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                        spec.addPrecondition(z + " >= 0",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                        spec.addPrecondition("(\\bigint) " + x + " * " + y + " * " + z
+                                + " <= Integer.MAX_VALUE",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                        spec.addPostcondition("\\result == (\\bigint) " + x + " * " + y + " * " + z);
+                    }
+                }
+                case MIDDLE -> invariants.add(c + " == " + iyz + " + " + jz);
+                case INNER  -> invariants.add(c + " == " + iyz + " + " + jz + " + " + k);
+            }
+        }
+
+        private enum TripleLevel { OUTER, MIDDLE, INNER }
+
+        private static class TripleNestedMatch {
+            TripleLevel level;
+            String iCounter, jCounter, kCounter;
+            String xBound, yBound, zBound;
+            String counter;
+        }
+
+        /**
+         * Identifies whether {@code forStmt} is the outer, middle, or inner of
+         * a triple-nested counter loop {@code for(i;i<x){for(j;j<y){for(k;k<z){counter++}}}}
+         * with {@code counter} a method-scoped int initialised to 0 and
+         * returned at method exit. Returns null when no match.
+         */
+        private TripleNestedMatch matchTripleNestedAtLevel(ForStmt forStmt,
+                                                            Set<String> paramNames,
+                                                            MethodDeclaration method) {
+            // Find the outermost for-loop in this nested chain (walk up through
+            // ForStmt ancestors).
+            ForStmt outer = forStmt;
+            while (true) {
+                Optional<ForStmt> parent = outer.findAncestor(ForStmt.class);
+                if (parent.isEmpty()) break;
+                outer = parent.get();
+            }
+            // outer must be at method-statement scope, not nested under a non-loop guard.
+
+            String iCounter = simpleCounter(outer);
+            String xBound = simpleBound(outer, paramNames);
+            if (iCounter == null || xBound == null) return null;
+
+            // The outer body must contain exactly one inner for-loop (the middle).
+            List<ForStmt> outerInners = outer.getBody().findAll(ForStmt.class);
+            if (outerInners.size() < 2) return null;
+            ForStmt middle = outerInners.get(0);
+            if (middle == outer) return null;
+            // Ensure `middle` is structurally directly inside outer's body
+            final ForStmt outerRef = outer;
+            if (!middle.findAncestor(ForStmt.class).map(a -> a == outerRef).orElse(false)) return null;
+
+            String jCounter = simpleCounter(middle);
+            String yBound = simpleBound(middle, paramNames);
+            if (jCounter == null || yBound == null) return null;
+
+            // Middle body must contain exactly one inner for-loop (the inner).
+            List<ForStmt> middleInners = middle.getBody().findAll(ForStmt.class);
+            if (middleInners.size() != 1) return null;
+            ForStmt inner = middleInners.get(0);
+
+            String kCounter = simpleCounter(inner);
+            String zBound = simpleBound(inner, paramNames);
+            if (kCounter == null || zBound == null) return null;
+
+            // Inner body must be a single counter increment of a method-scoped
+            // int initialised to 0 and returned at method exit.
+            String counterName = findCounterIncrementInBody(inner.getBody());
+            if (counterName == null) return null;
+            if (!isMethodScopedZeroInitInt(method, counterName)) return null;
+            if (!methodReturnsCounter(method, counterName)) return null;
+
+            TripleNestedMatch m = new TripleNestedMatch();
+            m.iCounter = iCounter;
+            m.jCounter = jCounter;
+            m.kCounter = kCounter;
+            m.xBound = xBound;
+            m.yBound = yBound;
+            m.zBound = zBound;
+            m.counter = counterName;
+            if (forStmt == outer) m.level = TripleLevel.OUTER;
+            else if (forStmt == middle) m.level = TripleLevel.MIDDLE;
+            else if (forStmt == inner) m.level = TripleLevel.INNER;
+            else return null;
+            return m;
+        }
+
+        private String findCounterIncrementInBody(Statement body) {
+            // counter++ as a statement
+            for (UnaryExpr ue : body.findAll(UnaryExpr.class)) {
+                if ((ue.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT
+                        || ue.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT)
+                        && ue.getExpression() instanceof NameExpr ne) {
+                    return ne.getNameAsString();
+                }
+            }
+            return null;
+        }
+
+        private boolean isMethodScopedZeroInitInt(MethodDeclaration method, String name) {
+            for (com.github.javaparser.ast.body.VariableDeclarator vd
+                    : method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                if (!vd.getNameAsString().equals(name)) continue;
+                if (vd.getInitializer().isEmpty()) return false;
+                Expression init = vd.getInitializer().get();
+                return init.isIntegerLiteralExpr()
+                        && init.asIntegerLiteralExpr().asInt() == 0;
+            }
+            return false;
+        }
+
+        private boolean methodReturnsCounter(MethodDeclaration method, String name) {
+            if (method.getBody().isEmpty()) return false;
+            List<ReturnStmt> returns = method.getBody().get().findAll(ReturnStmt.class);
+            if (returns.isEmpty()) return false;
+            for (ReturnStmt r : returns) {
+                if (r.getExpression().isEmpty()) return false;
+                if (!(r.getExpression().get() instanceof NameExpr ne)
+                        || !ne.getNameAsString().equals(name)) return false;
+            }
+            return true;
         }
 
         private String findRowMajorArrName(Statement body, String outerCounter,
