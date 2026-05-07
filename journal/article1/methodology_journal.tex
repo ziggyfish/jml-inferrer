@@ -67,9 +67,11 @@ Runs per configuration & 5 \\
 
 Two authors independently validated the inferred specifications for all 312 methods against the Javadoc documentation, the source code, and standard library specifications. Each clause was labelled as correct, incorrect, incomplete, or overconstrained, with disagreements resolved through discussion. Inter-rater reliability was Cohen's $\kappa = 0.91$ for preconditions and $0.87$ for postconditions.
 
+The same 312 methods are used both for the spec-accuracy validation and for the test-generation effectiveness comparison reported in subsequent sections. The two arms are methodologically independent observations on the same population: the validation arm compares inferred specifications against Javadoc-documented intent (does the spec match what the method should do?), while the effectiveness arm compares LLM-generated tests across input conditions (does the spec, whatever its accuracy, change what the model produces?). No leakage between arms is possible: the LLM does not see the validation labels, and the validation labels are computed independently of the test-generation outcome.
+
 \subsection{Statistical Analysis}
 
-For each metric the analysis reports mean, standard deviation, median, interquartile range, and 95\% bootstrap confidence intervals (10{,}000 iterations). Phase comparisons use paired $t$-tests (or Wilcoxon signed-rank tests for non-normally distributed samples), with Cohen's $d$ as the effect-size measure and Bonferroni correction applied for multiple comparisons ($\alpha = 0.05$).
+For each metric the analysis reports mean, standard deviation, median, interquartile range, and 95\% bootstrap confidence intervals (10{,}000 iterations). Phase comparisons use paired $t$-tests (or Wilcoxon signed-rank tests for non-normally distributed samples), with Cohen's $d$ as the effect-size measure. Bonferroni correction is applied across the full set of pairwise phase contrasts on the four reported metrics (test count, compilation rate, pass rate, mutation score): four phases yield $\binom{4}{2} = 6$ contrasts per metric, for $6 \times 4 = 24$ tests total at family-wise $\alpha = 0.05$ (per-test threshold $\alpha' = 0.05/24 \approx 0.0021$). Reported $p$-values that survive this corrected threshold are stated as $p < 0.001$ throughout.
 
 \subsection{Comparison Baselines}
 
