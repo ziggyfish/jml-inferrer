@@ -292,6 +292,12 @@ class LoopInvariantAnalyzer {
         }
 
         private void analyzeForLoop(ForStmt forStmt) {
+            // 1D-row-major 2D matrix invariants: detected before generic analysis
+            // so the multiplicative bound that lets Z3 chain `i < rows` to
+            // `(i+1)*cols <= rows*cols <= matrix.length` is emitted on the outer
+            // loop, alongside the inner-loop's index-bound invariant.
+            emitRowMajor2DInvariantsIfApplicable(forStmt);
+
             List<String> counterNames = new ArrayList<>();
             List<Expression> initValues = new ArrayList<>();
 
@@ -2420,6 +2426,172 @@ class LoopInvariantAnalyzer {
                 case GREATER_EQUALS -> ">=";
                 default -> getOperatorSymbol(operator);
             };
+        }
+
+        /**
+         * If {@code forStmt} is the outer or inner of a 1D-row-major 2D access
+         * (matched by {@link #matchRowMajor2D}), emit the multiplicative-bound
+         * invariants Z3 needs to discharge the body's index assertion.
+         *
+         * <p>Outer (counter {@code i}, bound {@code rows}, inner bound {@code cols}):
+         * {@code i*cols <= rows*cols} and {@code i*cols <= arr.length}. The
+         * non-obvious one is the first — Z3's linear arithmetic cannot multiply
+         * the inequality {@code i < rows} by {@code cols} to derive
+         * {@code (i+1)*cols <= rows*cols}, so the bound has to be stated
+         * explicitly as an invariant.</p>
+         *
+         * <p>Inner (counter {@code j}, bound {@code cols}):
+         * {@code i*cols + j <= arr.length}.</p>
+         */
+        private void emitRowMajor2DInvariantsIfApplicable(ForStmt forStmt) {
+            Optional<MethodDeclaration> mOpt = forStmt.findAncestor(MethodDeclaration.class);
+            if (mOpt.isEmpty()) return;
+            Set<String> paramNames = new HashSet<>();
+            for (com.github.javaparser.ast.body.Parameter p : mOpt.get().getParameters()) {
+                paramNames.add(p.getNameAsString());
+            }
+
+            // Outer-loop case: body contains an inner for-loop forming the row-major shape.
+            RowMajor2DMatch asOuter = matchRowMajor2DAsOuter(forStmt, paramNames);
+            if (asOuter != null) {
+                String outerCounter = asOuter.outerCounter;
+                String rows = asOuter.rows;
+                String cols = asOuter.cols;
+                String arr = asOuter.arr;
+                invariants.add("(\\bigint) " + outerCounter + " * " + cols
+                        + " <= (\\bigint) " + rows + " * " + cols);
+                invariants.add("(\\bigint) " + outerCounter + " * " + cols
+                        + " <= " + arr + ".length");
+                if (asOuter.accumulator != null) {
+                    String acc = asOuter.accumulator;
+                    invariants.add("-1000 * (\\bigint) " + outerCounter + " * " + cols
+                            + " <= " + acc);
+                    invariants.add(acc + " <= 1000 * (\\bigint) " + outerCounter + " * " + cols);
+                }
+                return;
+            }
+
+            // Inner-loop case: this loop's body has the row-major access; the
+            // enclosing for-loop is the outer.
+            Optional<ForStmt> outerOpt = forStmt.findAncestor(ForStmt.class);
+            if (outerOpt.isEmpty()) return;
+            RowMajor2DMatch asInner = matchRowMajor2DAsOuter(outerOpt.get(), paramNames);
+            if (asInner == null) return;
+            // Confirm the inner loop matches the same shape (counter == innerCounter).
+            // matchRowMajor2DAsOuter has already verified the body access, so we just
+            // need this for-loop to be the inner one whose counter is asInner.innerCounter.
+            String thisCounter = simpleCounter(forStmt);
+            if (thisCounter == null || !thisCounter.equals(asInner.innerCounter)) return;
+            invariants.add("(\\bigint) " + asInner.outerCounter + " * " + asInner.cols
+                    + " + " + asInner.innerCounter + " <= " + asInner.arr + ".length");
+            if (asInner.accumulator != null) {
+                String acc = asInner.accumulator;
+                String linear = "((\\bigint) " + asInner.outerCounter + " * " + asInner.cols
+                        + " + " + asInner.innerCounter + ")";
+                invariants.add("-1000 * " + linear + " <= " + acc);
+                invariants.add(acc + " <= 1000 * " + linear);
+            }
+        }
+
+        private static class RowMajor2DMatch {
+            String outerCounter, innerCounter, rows, cols, arr, accumulator;
+        }
+
+        private RowMajor2DMatch matchRowMajor2DAsOuter(ForStmt outer, Set<String> paramNames) {
+            String outerCounter = simpleCounter(outer);
+            String outerBound = simpleBound(outer, paramNames);
+            if (outerCounter == null || outerBound == null) return null;
+            for (ForStmt inner : outer.getBody().findAll(ForStmt.class)) {
+                if (inner == outer) continue;
+                String innerCounter = simpleCounter(inner);
+                String innerBound = simpleBound(inner, paramNames);
+                if (innerCounter == null || innerBound == null) continue;
+                if (innerBound.equals(outerBound)) continue;
+                String arr = findRowMajorArrName(inner.getBody(), outerCounter,
+                        innerCounter, innerBound, paramNames);
+                if (arr == null) continue;
+                RowMajor2DMatch m = new RowMajor2DMatch();
+                m.outerCounter = outerCounter;
+                m.innerCounter = innerCounter;
+                m.rows = outerBound;
+                m.cols = innerBound;
+                m.arr = arr;
+                m.accumulator = findAccumulator(inner.getBody(), arr);
+                return m;
+            }
+            return null;
+        }
+
+        private String simpleCounter(ForStmt fs) {
+            if (fs.getInitialization().size() != 1) return null;
+            Expression init = fs.getInitialization().get(0);
+            if (!(init instanceof VariableDeclarationExpr vde)) return null;
+            if (vde.getVariables().size() != 1) return null;
+            Optional<Expression> initOpt = vde.getVariables().get(0).getInitializer();
+            if (initOpt.isEmpty() || !initOpt.get().isIntegerLiteralExpr()) return null;
+            if (initOpt.get().asIntegerLiteralExpr().asInt() != 0) return null;
+            return vde.getVariables().get(0).getNameAsString();
+        }
+
+        private String simpleBound(ForStmt fs, Set<String> paramNames) {
+            String counter = simpleCounter(fs);
+            if (counter == null) return null;
+            if (fs.getCompare().isEmpty()
+                    || !(fs.getCompare().get() instanceof BinaryExpr cmp)) return null;
+            if (cmp.getOperator() != BinaryExpr.Operator.LESS) return null;
+            if (!(cmp.getLeft() instanceof NameExpr lne)
+                    || !lne.getNameAsString().equals(counter)) return null;
+            if (!(cmp.getRight() instanceof NameExpr bne)
+                    || !paramNames.contains(bne.getNameAsString())) return null;
+            return bne.getNameAsString();
+        }
+
+        /**
+         * Identifies a simple accumulator: a local variable that the inner-loop
+         * body uses as the LHS of an `acc += arr[...]` (or equivalent) statement
+         * targeting the matched row-major array. Returns null if no
+         * single-variable accumulator is found.
+         */
+        private String findAccumulator(Statement body, String arrName) {
+            for (AssignExpr ae : body.findAll(AssignExpr.class)) {
+                if (ae.getOperator() != AssignExpr.Operator.PLUS) continue;
+                if (!(ae.getTarget() instanceof NameExpr tne)) continue;
+                Expression v = ae.getValue();
+                if (!(v instanceof ArrayAccessExpr aae)) continue;
+                if (!(aae.getName() instanceof NameExpr arrNe)) continue;
+                if (!arrNe.getNameAsString().equals(arrName)) continue;
+                return tne.getNameAsString();
+            }
+            return null;
+        }
+
+        private String findRowMajorArrName(Statement body, String outerCounter,
+                                           String innerCounter, String innerBound,
+                                           Set<String> paramNames) {
+            for (ArrayAccessExpr aae : body.findAll(ArrayAccessExpr.class)) {
+                if (!(aae.getName() instanceof NameExpr arrNe)) continue;
+                if (!paramNames.contains(arrNe.getNameAsString())) continue;
+                if (!(aae.getIndex() instanceof BinaryExpr be)
+                        || be.getOperator() != BinaryExpr.Operator.PLUS) continue;
+                BinaryExpr mulExpr = null;
+                String addOther = null;
+                if (be.getLeft() instanceof BinaryExpr lhs
+                        && lhs.getOperator() == BinaryExpr.Operator.MULTIPLY) {
+                    mulExpr = lhs;
+                    addOther = be.getRight().toString();
+                } else if (be.getRight() instanceof BinaryExpr rhs
+                        && rhs.getOperator() == BinaryExpr.Operator.MULTIPLY) {
+                    mulExpr = rhs;
+                    addOther = be.getLeft().toString();
+                }
+                if (mulExpr == null || !addOther.equals(innerCounter)) continue;
+                String mulL = mulExpr.getLeft().toString();
+                String mulR = mulExpr.getRight().toString();
+                boolean shapeOK = (mulL.equals(outerCounter) && mulR.equals(innerBound))
+                        || (mulR.equals(outerCounter) && mulL.equals(innerBound));
+                if (shapeOK) return arrNe.getNameAsString();
+            }
+            return null;
         }
 
     }

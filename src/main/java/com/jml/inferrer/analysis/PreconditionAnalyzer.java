@@ -79,6 +79,12 @@ class PreconditionAnalyzer {
         // OverflowPreconditionAnalyzer; together they make matrixTrace verify.
         analyzeTwoDimensionalDiagonalAccess(methodDecl, preconditions, collector);
 
+        // 1D-row-major 2D access: nested for-loops with body `arr[i * cols + j]`
+        // where arr/rows/cols are parameters. Needs rows*cols size cap on both
+        // matrix.length (in-bounds) and INT_MAX (multiply overflow), plus a
+        // fixed-K element bound so the partial-sum invariant carries.
+        analyzeRowMajor2DAccess(methodDecl, preconditions);
+
         // Param-bounded loop bounds for `for(i=start; i<end; i++) arr[i] = ...` style.
         // Without `start >= 0` and `end <= arr.length` the access is unproveable.
         analyzeRangeLoopArrayBounds(methodDecl, preconditions, collector);
@@ -829,6 +835,119 @@ class PreconditionAnalyzer {
                 break; // one forall is enough per loop
             }
         }
+    }
+
+    /**
+     * For nested loops of the shape
+     * {@code for(int i=0; i<rows; i++) for(int j=0; j<cols; j++) ... arr[i*cols+j] ...}
+     * where {@code arr}, {@code rows}, {@code cols} are parameters, emits the
+     * preconditions necessary for the indexing and overflow assertions to discharge:
+     * non-negativity of the bounds, the rows*cols size cap on the array length,
+     * the rows*cols cap on Integer.MAX_VALUE (so {@code i*cols} does not overflow),
+     * and a fixed-K element bound on {@code arr[k]}.
+     *
+     * <p>The matching nested loop invariants are emitted by
+     * {@code LoopInvariantAnalyzer}; both halves are required to verify together.</p>
+     */
+    private void analyzeRowMajor2DAccess(MethodDeclaration methodDecl,
+                                          Set<String> preconditions) {
+        Set<String> paramNames = new HashSet<>();
+        for (Parameter p : methodDecl.getParameters()) {
+            paramNames.add(p.getNameAsString());
+        }
+        for (ForStmt outer : methodDecl.findAll(ForStmt.class)) {
+            ForLoopShape outerShape = readSimpleZeroBoundedFor(outer, paramNames);
+            if (outerShape == null) continue;
+            for (ForStmt inner : outer.getBody().findAll(ForStmt.class)) {
+                if (inner == outer) continue;
+                ForLoopShape innerShape = readSimpleZeroBoundedFor(inner, paramNames);
+                if (innerShape == null) continue;
+                if (innerShape.bound.equals(outerShape.bound)) continue;
+
+                String arrName = findRowMajorArray(inner.getBody(),
+                        outerShape.counter, innerShape.counter, innerShape.bound, paramNames);
+                if (arrName == null) continue;
+
+                String rows = outerShape.bound;
+                String cols = innerShape.bound;
+                preconditions.add(arrName + " != null");
+                preconditions.add(rows + " >= 0");
+                preconditions.add(cols + " >= 0");
+                preconditions.add("(\\bigint) " + rows + " * " + cols + " <= " + arrName + ".length");
+                preconditions.add("(\\bigint) " + rows + " * " + cols + " <= 1000000");
+                preconditions.add("(\\forall int k; 0 <= k && k < " + arrName
+                        + ".length; " + arrName + "[k] >= -1000 && " + arrName + "[k] <= 1000)");
+                return; // one match per method
+            }
+        }
+    }
+
+    private static class ForLoopShape {
+        final String counter;
+        final String bound;
+        ForLoopShape(String counter, String bound) {
+            this.counter = counter;
+            this.bound = bound;
+        }
+    }
+
+    /**
+     * Returns the (counter, bound) shape iff the for-loop is
+     * {@code for(int counter = 0; counter < bound; counter++)} with
+     * {@code bound} a parameter name.
+     */
+    private ForLoopShape readSimpleZeroBoundedFor(ForStmt fs, Set<String> paramNames) {
+        if (fs.getInitialization().size() != 1) return null;
+        Expression init = fs.getInitialization().get(0);
+        if (!(init instanceof VariableDeclarationExpr vde)) return null;
+        if (vde.getVariables().size() != 1) return null;
+        String counter = vde.getVariables().get(0).getNameAsString();
+        Optional<Expression> initOpt = vde.getVariables().get(0).getInitializer();
+        if (initOpt.isEmpty() || !initOpt.get().isIntegerLiteralExpr()) return null;
+        if (initOpt.get().asIntegerLiteralExpr().asInt() != 0) return null;
+        if (fs.getCompare().isEmpty()
+                || !(fs.getCompare().get() instanceof BinaryExpr cmp)) return null;
+        if (cmp.getOperator() != BinaryExpr.Operator.LESS) return null;
+        if (!(cmp.getLeft() instanceof NameExpr lne)
+                || !lne.getNameAsString().equals(counter)) return null;
+        if (!(cmp.getRight() instanceof NameExpr bne)
+                || !paramNames.contains(bne.getNameAsString())) return null;
+        return new ForLoopShape(counter, bne.getNameAsString());
+    }
+
+    /**
+     * Returns the parameter array name iff the body contains
+     * {@code arr[outerCounter * innerBound + innerCounter]} (in either operand
+     * order for the multiplication and for the addition).
+     */
+    private String findRowMajorArray(Statement body, String outerCounter,
+                                     String innerCounter, String innerBound,
+                                     Set<String> paramNames) {
+        for (ArrayAccessExpr aae : body.findAll(ArrayAccessExpr.class)) {
+            if (!(aae.getName() instanceof NameExpr arrNe)) continue;
+            if (!paramNames.contains(arrNe.getNameAsString())) continue;
+            if (!(aae.getIndex() instanceof BinaryExpr be)
+                    || be.getOperator() != BinaryExpr.Operator.PLUS) continue;
+            BinaryExpr mulExpr = null;
+            String addOther = null;
+            if (be.getLeft() instanceof BinaryExpr lhs
+                    && lhs.getOperator() == BinaryExpr.Operator.MULTIPLY) {
+                mulExpr = lhs;
+                addOther = be.getRight().toString();
+            } else if (be.getRight() instanceof BinaryExpr rhs
+                    && rhs.getOperator() == BinaryExpr.Operator.MULTIPLY) {
+                mulExpr = rhs;
+                addOther = be.getLeft().toString();
+            }
+            if (mulExpr == null || !addOther.equals(innerCounter)) continue;
+
+            String mulL = mulExpr.getLeft().toString();
+            String mulR = mulExpr.getRight().toString();
+            boolean shapeOK = (mulL.equals(outerCounter) && mulR.equals(innerBound))
+                    || (mulR.equals(outerCounter) && mulL.equals(innerBound));
+            if (shapeOK) return arrNe.getNameAsString();
+        }
+        return null;
     }
 
     /**
