@@ -642,11 +642,22 @@ class LoopInvariantAnalyzer {
                 if (unary.getOperator() != UnaryExpr.Operator.POSTFIX_INCREMENT
                         && unary.getOperator() != UnaryExpr.Operator.PREFIX_INCREMENT) return;
                 if (!(unary.getExpression() instanceof NameExpr ne)) return;
-                if (isInsideNestedLoopOf(unary, body)) return;
                 String varName = ne.getNameAsString();
                 if (counterNames.contains(varName)) return;
-                // Emit `>= 0` even for persisting counters, but only `<= counter` if
-                // the counter doesn't persist (otherwise it breaks at outer-iter 2+).
+                boolean nested = isInsideNestedLoopOf(unary, body);
+                // When the ++ lives in a nested loop, only emit `varName >= 0` and
+                // ONLY when the variable is in scope at this loop's level — i.e. it's
+                // declared in the enclosing method body, not inside the nested loop.
+                // Without this guard, the nested loop counter (declared in
+                // `for (int j = ...)` inside the body) would leak into the outer
+                // loop's invariants where it isn't visible.
+                if (nested) {
+                    if (!isDeclaredAtLoopLevel(unary, varName)) return;
+                    if (startsAtZeroLocal(body, varName)) {
+                        invariants.add(varName + " >= 0");
+                    }
+                    return;
+                }
                 if (startsAtZeroLocal(body, varName)) {
                     invariants.add(varName + " >= 0");
                 }
@@ -915,6 +926,33 @@ class LoopInvariantAnalyzer {
          * it anything other than increment-by-literal or `= 0`. That's the shape for
          * which `varName >= 0` is a sound loop invariant.
          */
+        /**
+         * True when {@code varName} is declared at the level of {@code body}'s
+         * enclosing method (not inside a nested loop), and therefore in scope at
+         * the level of {@code body}'s loop invariants. Used to filter out nested-
+         * loop counters when promoting a `>= 0` invariant from a nested ++.
+         */
+        private boolean isDeclaredAtLoopLevel(com.github.javaparser.ast.Node usage, String varName) {
+            MethodDeclaration method = usage.findAncestor(MethodDeclaration.class).orElse(null);
+            if (method == null) return false;
+            for (com.github.javaparser.ast.body.VariableDeclarator vd
+                    : method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                if (!vd.getNameAsString().equals(varName)) continue;
+                // Reject if the declarator is inside a for-loop's init clause —
+                // that's a loop-scoped counter, not a method-level local.
+                if (vd.findAncestor(ForStmt.class).isPresent()
+                        && vd.getParentNode().isPresent()
+                        && vd.getParentNode().get() instanceof VariableDeclarationExpr vde
+                        && vde.getParentNode().isPresent()
+                        && !(vde.getParentNode().get() instanceof ExpressionStmt)) {
+                    // declared in for-loop header
+                    return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
         private boolean startsAtZeroLocal(Statement body, String varName) {
             Optional<MethodDeclaration> methodOpt = body.findAncestor(MethodDeclaration.class);
             if (methodOpt.isEmpty()) return false;
