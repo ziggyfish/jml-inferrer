@@ -1240,6 +1240,8 @@ class PreconditionAnalyzer {
             .filter(expr -> expr.getLeft().toString().equals(paramName) || expr.getRight().toString().equals(paramName))
             .filter(expr -> !isBranchingIfCondition(expr)) // Skip comparisons in if/else branching logic
             .filter(expr -> !isGuardThrowCondition(expr)) // Skip if-throw guards (handled by analyzeEarlyValidation)
+            .filter(expr -> !isInReturnExpression(expr)) // The body's return expression IS the contract,
+                                                         // not a precondition the caller must satisfy.
             .forEach(expr -> {
                 if (expr.getOperator() == BinaryExpr.Operator.GREATER && expr.getLeft().toString().equals(paramName)) {
                     preconditions.add(paramName + " > " + expr.getRight());
@@ -1251,6 +1253,26 @@ class PreconditionAnalyzer {
                     preconditions.add(paramName + " <= " + expr.getRight());
                 }
             });
+    }
+
+    /**
+     * True when {@code expr} sits anywhere inside a {@link ReturnStmt}'s
+     * value expression. The return value is the method's contract
+     * (captured by the ensures clause), not a precondition the caller
+     * must satisfy. Without this filter, a method like
+     * {@code boolean isPositive(int n) { return n > 0; }} would emit
+     * {@code requires n > 0} — turning the spec inside out.
+     */
+    boolean isInReturnExpression(Expression expr) {
+        com.github.javaparser.ast.Node cur = expr;
+        while (cur.getParentNode().isPresent()) {
+            com.github.javaparser.ast.Node parent = cur.getParentNode().get();
+            if (parent instanceof ReturnStmt) return true;
+            // Stop at the enclosing method — anything above is class scope.
+            if (parent instanceof MethodDeclaration) return false;
+            cur = parent;
+        }
+        return false;
     }
 
     boolean isBranchingIfCondition(Expression expr) {
