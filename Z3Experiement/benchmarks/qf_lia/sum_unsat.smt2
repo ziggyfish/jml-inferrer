@@ -1,0 +1,8 @@
+(set-info :status unsat)
+(set-logic QF_LIA)
+(declare-const x Int)
+(declare-const y Int)
+(assert (>= x 5))
+(assert (>= y 5))
+(assert (<= (+ x y) 8))
+(check-sat)

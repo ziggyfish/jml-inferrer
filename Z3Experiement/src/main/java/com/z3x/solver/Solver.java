@@ -14,6 +14,7 @@ import com.z3x.theory.EufTheory;
 import com.z3x.theory.IteEliminator;
 import com.z3x.theory.LiaTheory;
 import com.z3x.theory.MultiTheory;
+import com.z3x.theory.Quantifiers;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +32,10 @@ public final class Solver {
     private final TermBuilder tb = new TermBuilder(tf);
     private final List<List<Term>> assertionStack = new ArrayList<>();
     private String logic = "";
+    /** Last seen (set-info :status ...) value, or empty if none. */
+    private String declaredStatus = "";
+
+    public String declaredStatus() { return declaredStatus; }
 
     public Solver() { assertionStack.add(new ArrayList<>()); }
 
@@ -50,7 +55,13 @@ public final class Solver {
         if (!(head instanceof SExpr.Atom op)) return null;
         switch (op.text()) {
             case "set-logic" -> { logic = ((SExpr.Atom) l.items().get(1)).text(); }
-            case "set-info", "set-option" -> {} // ignored
+            case "set-info" -> {
+                if (l.items().size() >= 3 && l.items().get(1) instanceof SExpr.Atom kw
+                        && kw.text().equals("status") && l.items().get(2) instanceof SExpr.Atom v) {
+                    declaredStatus = v.text();
+                }
+            }
+            case "set-option" -> {}
             case "declare-sort" -> {
                 String name = ((SExpr.Atom) l.items().get(1)).text();
                 int arity = Integer.parseInt(((SExpr.Atom) l.items().get(2)).text());
@@ -91,12 +102,15 @@ public final class Solver {
     private Verdict checkSat() {
         List<Term> all = new ArrayList<>();
         for (List<Term> frame : assertionStack) all.addAll(frame);
+        Quantifiers q = new Quantifiers(tf);
         ArrayPreprocessor arr = new ArrayPreprocessor(tf);
         IteEliminator ite = new IteEliminator(tf);
         BvBlaster bv = new BvBlaster(tf);
         Cnf cnf = new Cnf();
+        List<Term> qRewritten = q.rewriteAll(all);
+        qRewritten.addAll(q.sideAssertions());
         List<Term> rewritten = new ArrayList<>();
-        for (Term t : all) rewritten.add(bv.rewrite(ite.rewrite(arr.rewrite(t))));
+        for (Term t : qRewritten) rewritten.add(bv.rewrite(ite.rewrite(arr.rewrite(t))));
         for (Term t : ite.sideAssertions()) rewritten.add(bv.rewrite(ite.rewrite(arr.rewrite(t))));
         for (Term t : rewritten) cnf.assertTerm(t);
         TheoryHook theory;

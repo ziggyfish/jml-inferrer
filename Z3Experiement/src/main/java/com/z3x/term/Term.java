@@ -91,6 +91,32 @@ public abstract sealed class Term {
         @Override public String head() { return "(_ bv" + value + " " + width + ")"; }
     }
 
+    /** Universal or existential quantifier. */
+    public static final class Quantifier extends Term {
+        public enum Kind { FORALL, EXISTS }
+        public final Kind kind;
+        public final List<String> boundNames;
+        public final List<Sort> boundSorts;
+        public final Term body;
+        public Quantifier(int id, Kind kind, List<String> names, List<Sort> sorts, Term body) {
+            super(id, Sort.BOOL);
+            this.kind = kind;
+            this.boundNames = List.copyOf(names);
+            this.boundSorts = List.copyOf(sorts);
+            this.body = body;
+        }
+        @Override public List<Term> children() { return List.of(body); }
+        @Override public String head() { return kind == Kind.FORALL ? "forall" : "exists"; }
+        @Override public String toString() {
+            StringBuilder sb = new StringBuilder("(").append(head()).append(" (");
+            for (int i = 0; i < boundNames.size(); i++) {
+                if (i > 0) sb.append(' ');
+                sb.append('(').append(boundNames.get(i)).append(' ').append(boundSorts.get(i)).append(')');
+            }
+            return sb.append(") ").append(body).append(')').toString();
+        }
+    }
+
     public static final class App extends Term {
         public final String symbol;
         public final List<Term> args;
@@ -115,6 +141,9 @@ public abstract sealed class Term {
             public AppK { argIds = List.copyOf(argIds); }
         }
         record BvK(BigInteger v, int w) implements Key {}
+        record QuantK(Quantifier.Kind k, List<String> names, List<Sort> sorts, int bodyId) implements Key {
+            public QuantK { names = List.copyOf(names); sorts = List.copyOf(sorts); }
+        }
     }
 
     public static int hash(Key k) { return Objects.hashCode(k); }

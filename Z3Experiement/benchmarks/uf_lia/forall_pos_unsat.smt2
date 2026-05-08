@@ -1,0 +1,8 @@
+(set-info :status unsat)
+(set-logic UFLIA)
+(declare-const a Int)
+(declare-const b Int)
+(assert (forall ((x Int)) (=> (= x a) (= x b))))
+(assert (= a 3))
+(assert (= b 7))
+(check-sat)

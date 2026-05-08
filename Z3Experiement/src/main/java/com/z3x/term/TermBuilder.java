@@ -61,6 +61,8 @@ public final class TermBuilder {
             case SYMBOL:
                 if (text.equals("true")) return tf.mkBool(true);
                 if (text.equals("false")) return tf.mkBool(false);
+                Term let = letBindings.get(text);
+                if (let != null) return let;
                 if (text.startsWith("#b")) {
                     String bits = text.substring(2);
                     return tf.mkBv(new BigInteger(bits, 2), bits.length());
@@ -87,6 +89,16 @@ public final class TermBuilder {
             throw new IllegalStateException("Compound head not yet supported: " + head);
         }
         String name = op.text();
+        if ((name.equals("forall") || name.equals("exists")) && l.items().size() >= 3) {
+            return buildQuantifier(name, l);
+        }
+        if (name.equals("let") && l.items().size() >= 3) {
+            return buildLet(l);
+        }
+        if (name.equals("!") && l.items().size() >= 2) {
+            // (! body :pattern ...) — strip annotations, keep body.
+            return build(l.items().get(1));
+        }
         if (name.equals("_") && l.items().size() == 3) {
             // (_ bvN W) bit-vector literal
             SExpr.Atom valAtom = (SExpr.Atom) l.items().get(1);
@@ -137,6 +149,52 @@ public final class TermBuilder {
             default         -> tf.mkApp(name, args);
         };
     }
+
+    private Term buildQuantifier(String name, SExpr.SList l) {
+        SExpr.SList bindings = (SExpr.SList) l.items().get(1);
+        List<String> names = new java.util.ArrayList<>();
+        List<Sort> sorts = new java.util.ArrayList<>();
+        // Each binding is (name sort).
+        java.util.List<String> declaredFns = new java.util.ArrayList<>();
+        for (SExpr b : bindings.items()) {
+            SExpr.SList bl = (SExpr.SList) b;
+            String vn = ((SExpr.Atom) bl.items().get(0)).text();
+            Sort s = resolveSort(bl.items().get(1));
+            names.add(vn);
+            sorts.add(s);
+            tf.declareFunction(vn, List.of(), s);
+            declaredFns.add(vn);
+        }
+        Term body = build(l.items().get(2));
+        // Pop bound names from the symbol table so they don't leak.
+        // (The factory has no removeFunction; we accept the leak — names shadow harmlessly.)
+        Term.Quantifier.Kind k = name.equals("forall")
+                ? Term.Quantifier.Kind.FORALL
+                : Term.Quantifier.Kind.EXISTS;
+        return tf.mkQuantifier(k, names, sorts, body);
+    }
+
+    private Term buildLet(SExpr.SList l) {
+        // (let ((x e) ...) body) — eagerly substitute by re-declaring the names.
+        SExpr.SList bindings = (SExpr.SList) l.items().get(1);
+        for (SExpr b : bindings.items()) {
+            SExpr.SList bl = (SExpr.SList) b;
+            String vn = ((SExpr.Atom) bl.items().get(0)).text();
+            Term value = build(bl.items().get(1));
+            tf.declareFunction(vn, List.of(), value.sort);
+            // We don't yet have a substitution mechanism — record the value so future references
+            // resolve to it. Cheapest implementation: a sidecar map. For now, only support `let`
+            // when each value is itself a Var or constant by declaring vn as that exact value.
+            // Since declareFunction registers vn as a fresh nullary fun, downstream references
+            // would create a new Var; we'd need a proper substitution map to do this right.
+            // For day 3 we accept that `let` is unsupported beyond simple reference forwarding.
+            letBindings.put(vn, value);
+        }
+        Term body = build(l.items().get(2));
+        return body;
+    }
+
+    private final java.util.Map<String, Term> letBindings = new java.util.HashMap<>();
 
     private Term reduceImplies(List<Term> args) {
         // SMT-LIB =>: right-associative.

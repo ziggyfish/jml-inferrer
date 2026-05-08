@@ -1,0 +1,6 @@
+(set-logic AUFLIA)
+(declare-const arr (Array Int Int))
+(assert (forall ((k Int))
+  (=> (and (<= 0 k) (< k 2)) (= (select arr k) 0))))
+(assert (= (select arr 5) 99))
+(check-sat)

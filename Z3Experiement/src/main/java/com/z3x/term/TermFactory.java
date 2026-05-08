@@ -65,6 +65,11 @@ public final class TermFactory {
         return (Term.IntConst) intern(new Term.Key.IntK(v), id -> new Term.IntConst(id, v));
     }
 
+    public Term.Quantifier mkQuantifier(Term.Quantifier.Kind k, List<String> names, List<Sort> sorts, Term body) {
+        return (Term.Quantifier) intern(new Term.Key.QuantK(k, names, sorts, body.id),
+                id -> new Term.Quantifier(id, k, names, sorts, body));
+    }
+
     public Term.BvConst mkBv(BigInteger value, int width) {
         BigInteger mod = BigInteger.ONE.shiftLeft(width);
         BigInteger normalised = value.mod(mod);
