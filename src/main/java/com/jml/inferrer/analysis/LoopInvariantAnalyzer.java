@@ -303,6 +303,10 @@ class LoopInvariantAnalyzer {
             // x*y*z precondition and `\result == x*y*z` postcondition.
             emitTripleNestedCounterIfApplicable(forStmt);
 
+            // Double-nested counter loop (no array access): the 2-level
+            // analogue. `count == i*cols (+ j)` with `\result == rows*cols`.
+            emitDoubleNestedCounterIfApplicable(forStmt);
+
             List<String> counterNames = new ArrayList<>();
             List<Expression> initValues = new ArrayList<>();
 
@@ -2693,6 +2697,99 @@ class LoopInvariantAnalyzer {
             if (forStmt == outer) m.level = TripleLevel.OUTER;
             else if (forStmt == middle) m.level = TripleLevel.MIDDLE;
             else if (forStmt == inner) m.level = TripleLevel.INNER;
+            else return null;
+            return m;
+        }
+
+        /**
+         * Two-level analogue of {@link #emitTripleNestedCounterIfApplicable}.
+         * Detects {@code for(i;i<rows){for(j;j<cols){counter++}}} where
+         * {@code counter} is method-scoped and returned. Emits per-level
+         * multiplicative invariant {@code counter == i*cols (+ j)} plus
+         * matching rows*cols precondition and \result postcondition. Skipped
+         * when an outer for-loop encloses these (handled by triple-nested).
+         */
+        private void emitDoubleNestedCounterIfApplicable(ForStmt forStmt) {
+            Optional<MethodDeclaration> mOpt = forStmt.findAncestor(MethodDeclaration.class);
+            if (mOpt.isEmpty()) return;
+            MethodDeclaration method = mOpt.get();
+            Set<String> paramNames = new HashSet<>();
+            for (com.github.javaparser.ast.body.Parameter p : method.getParameters()) {
+                paramNames.add(p.getNameAsString());
+            }
+
+            DoubleNestedMatch match = matchDoubleNestedAtLevel(forStmt, paramNames, method);
+            if (match == null) return;
+            String i = match.iCounter, j = match.jCounter;
+            String rows = match.rowsBound, cols = match.colsBound;
+            String c = match.counter;
+            String iCols = "(\\bigint) " + i + " * " + cols;
+
+            switch (match.level) {
+                case OUTER -> {
+                    invariants.add(c + " == " + iCols);
+                    if (spec != null) {
+                        spec.addPrecondition(rows + " >= 0",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                        spec.addPrecondition(cols + " >= 0",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                        spec.addPrecondition("(\\bigint) " + rows + " * " + cols
+                                + " <= Integer.MAX_VALUE",
+                                MethodSpecification.ConfidenceLevel.MEDIUM);
+                        spec.addPostcondition("\\result == (\\bigint) " + rows + " * " + cols);
+                    }
+                }
+                case INNER -> invariants.add(c + " == " + iCols + " + " + j);
+            }
+        }
+
+        private enum DoubleLevel { OUTER, INNER }
+
+        private static class DoubleNestedMatch {
+            DoubleLevel level;
+            String iCounter, jCounter;
+            String rowsBound, colsBound;
+            String counter;
+        }
+
+        private DoubleNestedMatch matchDoubleNestedAtLevel(ForStmt forStmt,
+                                                            Set<String> paramNames,
+                                                            MethodDeclaration method) {
+            // Find the outermost for-loop enclosing forStmt (or forStmt itself).
+            ForStmt outer = forStmt;
+            while (true) {
+                Optional<ForStmt> parent = outer.findAncestor(ForStmt.class);
+                if (parent.isEmpty()) break;
+                outer = parent.get();
+            }
+            // If the outer is enclosed by another for, this is part of a deeper nest.
+            // (Triple-nested handler covers that case.)
+            String iCounter = simpleCounter(outer);
+            String rowsBound = simpleBound(outer, paramNames);
+            if (iCounter == null || rowsBound == null) return null;
+
+            List<ForStmt> outerInners = outer.getBody().findAll(ForStmt.class);
+            // Exactly one inner, no deeper nesting (otherwise triple handles it).
+            if (outerInners.size() != 1) return null;
+            ForStmt inner = outerInners.get(0);
+
+            String jCounter = simpleCounter(inner);
+            String colsBound = simpleBound(inner, paramNames);
+            if (jCounter == null || colsBound == null) return null;
+
+            String counterName = findCounterIncrementInBody(inner.getBody());
+            if (counterName == null) return null;
+            if (!isMethodScopedZeroInitInt(method, counterName)) return null;
+            if (!methodReturnsCounter(method, counterName)) return null;
+
+            DoubleNestedMatch m = new DoubleNestedMatch();
+            m.iCounter = iCounter;
+            m.jCounter = jCounter;
+            m.rowsBound = rowsBound;
+            m.colsBound = colsBound;
+            m.counter = counterName;
+            if (forStmt == outer) m.level = DoubleLevel.OUTER;
+            else if (forStmt == inner) m.level = DoubleLevel.INNER;
             else return null;
             return m;
         }
