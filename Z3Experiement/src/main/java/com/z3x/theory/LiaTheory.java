@@ -221,17 +221,60 @@ public final class LiaTheory implements TheoryHook {
 
     @Override
     public int[] check() {
-        if (!simplex.check()) {
-            int[] c = simplex.lastConflict;
-            if (c == null) return new int[0];
-            int[] out = new int[c.length];
-            for (int i = 0; i < c.length; i++) out[i] = -c[i];
+        if (!simplex.check()) return formatConflict();
+        if (!makeIntegerFeasible(0)) return formatConflict();
+        return null;
+    }
+
+    /**
+     * Internal branch-and-bound. Walk integer-typed simplex vars; when one has a non-integer
+     * value, branch on {@code v <= floor} and {@code v >= ceil}. The first branch that yields
+     * a fully integer-feasible solution gets its bounds folded into the current literal's
+     * scope (via {@link Simplex#discardLastLevel()}) so they persist until SAT retracts.
+     */
+    private boolean makeIntegerFeasible(int depth) {
+        if (depth > 32) return false; // give up on deep branching
+        int v = findNonIntegerInt();
+        if (v == -1) return true;
+        java.math.BigInteger floor = simplex.valueOf(v).floor();
+        java.math.BigInteger ceil = simplex.valueOf(v).ceil();
+        // Branch v <= floor
+        simplex.pushLevel();
+        if (simplex.pushUpper(v, Rational.of(floor), 0) && simplex.check() && makeIntegerFeasible(depth + 1)) {
+            simplex.discardLastLevel();
+            return true;
+        }
+        simplex.popLevel();
+        // Branch v >= ceil
+        simplex.pushLevel();
+        if (simplex.pushLower(v, Rational.of(ceil), 0) && simplex.check() && makeIntegerFeasible(depth + 1)) {
+            simplex.discardLastLevel();
+            return true;
+        }
+        simplex.popLevel();
+        return false;
+    }
+
+    private int findNonIntegerInt() {
+        for (int v = 0; v < simplex.numVars(); v++) {
+            if (v < isInt.size() && isInt.get(v) && !simplex.valueOf(v).isInteger()) return v;
+        }
+        return -1;
+    }
+
+    private int[] formatConflict() {
+        int[] c = simplex.lastConflict;
+        // Conservative: include the entire asserted stack negated. Branches don't carry their
+        // own SAT-literal reasons — when the conflict comes from branching, fall back to "all
+        // currently asserted LIA literals are jointly inconsistent".
+        if (c == null || c.length == 0 || (c.length == 1 && c[0] == 0)) {
+            int[] out = new int[assertedStack.size()];
+            for (int i = 0; i < out.length; i++) out[i] = -assertedStack.get(i);
             return out;
         }
-        // Integer feasibility: scan for non-integer values on int vars and add a branch lemma
-        // by way of a trivially-unsatisfiable atom (forces SAT to make progress on a fresh split).
-        // We don't add new SAT atoms in this version — flagged TODO for day 3.
-        return null;
+        int[] out = new int[c.length];
+        for (int i = 0; i < c.length; i++) out[i] = -c[i];
+        return out;
     }
 
     @Override

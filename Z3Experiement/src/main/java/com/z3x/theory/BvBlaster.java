@@ -137,6 +137,10 @@ public final class BvBlaster {
                     List<Term> negB = rippleAdd(mapList(b, tf::mkNot), ones(width), tf.mkBool(false));
                     return rippleAdd(blastBv(app.args.get(0)), negB, tf.mkBool(false));
                 }
+                case "bvmul": return shiftAndAddMul(blastBv(app.args.get(0)), blastBv(app.args.get(1)));
+                case "bvshl": return shiftLeft(blastBv(app.args.get(0)), blastBv(app.args.get(1)));
+                case "bvlshr": return shiftRight(blastBv(app.args.get(0)), blastBv(app.args.get(1)), false);
+                case "bvashr": return shiftRight(blastBv(app.args.get(0)), blastBv(app.args.get(1)), true);
                 default: break;
             }
         }
@@ -148,6 +152,68 @@ public final class BvBlaster {
             out.add(tf.mkVar(name, Sort.BOOL));
         }
         return out;
+    }
+
+    /** Shift-and-add multiplication: w-bit * w-bit → w-bit (truncating overflow). */
+    private List<Term> shiftAndAddMul(List<Term> a, List<Term> b) {
+        int w = a.size();
+        // result = sum of (a << i) for each set bit i of b.
+        List<Term> result = new ArrayList<>(w);
+        for (int i = 0; i < w; i++) result.add(tf.mkBool(false));
+        for (int i = 0; i < w; i++) {
+            // a << i, truncated to w bits.
+            List<Term> shifted = new ArrayList<>(w);
+            for (int j = 0; j < w; j++) {
+                shifted.add(j < i ? tf.mkBool(false) : a.get(j - i));
+            }
+            // Conditional add: if b[i] then result += shifted.
+            List<Term> mask = new ArrayList<>(w);
+            for (int j = 0; j < w; j++) mask.add(tf.mkAnd(List.of(b.get(i), shifted.get(j))));
+            result = rippleAdd(result, mask, tf.mkBool(false));
+        }
+        return result;
+    }
+
+    /** Logical shift-left: each bit of b is treated as a binary place; output capped at w bits. */
+    private List<Term> shiftLeft(List<Term> a, List<Term> b) {
+        int w = a.size();
+        List<Term> cur = new ArrayList<>(a);
+        for (int i = 0; i < w; i++) {
+            // If b[i] then shift cur left by 2^i.
+            int amount = 1 << i;
+            if (amount >= w) amount = w; // saturate
+            List<Term> shifted = new ArrayList<>(w);
+            for (int j = 0; j < w; j++) {
+                shifted.add(j < amount ? tf.mkBool(false) : cur.get(j - amount));
+            }
+            List<Term> chosen = new ArrayList<>(w);
+            for (int j = 0; j < w; j++) {
+                chosen.add(tf.mkIte(b.get(i), shifted.get(j), cur.get(j)));
+            }
+            cur = chosen;
+        }
+        return cur;
+    }
+
+    /** Logical (or arithmetic) right shift. */
+    private List<Term> shiftRight(List<Term> a, List<Term> b, boolean arithmetic) {
+        int w = a.size();
+        Term signBit = arithmetic ? a.get(w - 1) : tf.mkBool(false);
+        List<Term> cur = new ArrayList<>(a);
+        for (int i = 0; i < w; i++) {
+            int amount = 1 << i;
+            if (amount >= w) amount = w;
+            List<Term> shifted = new ArrayList<>(w);
+            for (int j = 0; j < w; j++) {
+                shifted.add(j + amount < w ? cur.get(j + amount) : signBit);
+            }
+            List<Term> chosen = new ArrayList<>(w);
+            for (int j = 0; j < w; j++) {
+                chosen.add(tf.mkIte(b.get(i), shifted.get(j), cur.get(j)));
+            }
+            cur = chosen;
+        }
+        return cur;
     }
 
     private List<Term> ones(int w) {

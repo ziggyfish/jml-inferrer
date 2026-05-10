@@ -8,6 +8,7 @@ import com.z3x.term.Sort;
 import com.z3x.term.Term;
 import com.z3x.term.TermBuilder;
 import com.z3x.term.TermFactory;
+import com.z3x.theory.ArrayExtensionality;
 import com.z3x.theory.ArrayPreprocessor;
 import com.z3x.theory.BvBlaster;
 import com.z3x.theory.EufTheory;
@@ -103,11 +104,16 @@ public final class Solver {
         List<Term> all = new ArrayList<>();
         for (List<Term> frame : assertionStack) all.addAll(frame);
         Quantifiers q = new Quantifiers(tf);
+        ArrayExtensionality ext = new ArrayExtensionality(tf);
         ArrayPreprocessor arr = new ArrayPreprocessor(tf);
         IteEliminator ite = new IteEliminator(tf);
         BvBlaster bv = new BvBlaster(tf);
         Cnf cnf = new Cnf();
-        List<Term> qRewritten = q.rewriteAll(all);
+        // Extensionality first so the introduced selects flow through array preprocessing
+        // and the introduced forall flows through quantifier handling.
+        List<Term> extended = new ArrayList<>(all.size());
+        for (Term t : all) extended.add(ext.rewrite(t));
+        List<Term> qRewritten = q.rewriteAll(extended);
         qRewritten.addAll(q.sideAssertions());
         List<Term> rewritten = new ArrayList<>();
         for (Term t : qRewritten) rewritten.add(bv.rewrite(ite.rewrite(arr.rewrite(t))));

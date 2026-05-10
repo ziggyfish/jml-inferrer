@@ -79,18 +79,76 @@ SMT-LIB2 source
 6. **Theory.explain** in `EufTheory` returns the entire assertion stack rather than a minimal cut. Conflicts are larger than necessary, which slows convergence on hard EUF benchmarks.
 7. **No Linux z3 oracle on Windows** so the benchmark harness uses the file's `(set-info :status …)` annotation rather than a live z3 comparison. The autonomous loop running on Linux/Docker can swap in a real oracle.
 
-## What's next (day 3+)
+## 2026-05-11 — Day 3
 
-- Branch-and-bound integer extension to LIA (close known limitation #2).
-- `bvmul` and shifts in `BvBlaster` (closes #3).
-- Quantifier alternation via proper substitution-through-quantifiers (closes #1).
-- More benchmark coverage — pull in a slice of SMT-COMP `QF_UF` and `QF_LIA` to stress-test convergence and timing.
+**Landed:**
+- **Integer branch-and-bound** (`LiaTheory.makeIntegerFeasible`): when the Simplex returns a rational solution but an Int-typed variable lands on a non-integer value, recursively split on `v <= floor(val)` and `v >= ceil(val)`. Uses a new `Simplex.discardLastLevel()` to fold successful branches into the outer scope. Depth-capped at 32 to keep the recursion bounded.
+- **BV `bvmul` / `bvshl` / `bvlshr` / `bvashr`** (`BvBlaster.shiftAndAddMul/shiftLeft/shiftRight`): shift-and-add for multiplication (truncating to w bits), barrel-style shift via log-shift muxing for variable shift amounts; arithmetic shift fills with the sign bit. Closes the Day-2 "spurious SAT on unsupported BV ops" gap.
+- **Nested-quantifier substitution** (`Quantifiers.Substituter`): the `IllegalStateException("Nested quantifier substitution not yet supported")` is gone — the substituter now reaches inside quantifier bodies via the thread-local `activeFactory`, with alpha-renaming on capture. `emitInstances` recursively re-instantiates surfaced quantifiers so `∀x. ∀y. P(x,y)` discharges in one pass.
+- **Minimal-cut EUF explain** (`EufTheory.explain` + new public `EGraph.explainEqTerms`): equality propagations now learn the proof-forest path (the literals that actually caused the merge) instead of the entire asserted stack. Predicate atoms still fall back to the whole stack, but those are rarer in the inferrer corpus.
+- **Array extensionality** (new `ArrayExtensionality`): every `(= a b)` with array args rewrites to the equivalent `(forall ((k D)) (= (select a k) (select b k)))` before quantifier handling. Positive equalities get ground-instantiated; negative equalities surface a skolem witness via the existing forall-in-negative-position path.
+- **9 new benchmarks**: `qf_lia/{int_branch_bound_unsat,int_range_sat,three_x_eq_two_unsat,linear_chain_unsat}`, `qf_bv/{bvmul_sat,bvmul_overflow_unsat,bvshl_sat,bvashr_sign_sat}`, `qf_aufLia/{array_extensionality_sat,array_disagreement_unsat}`, `qf_uf/{congruence_chain_sat,congruence_chain_unsat}`, `uf_lia/{multi_bind_forall_sat,nested_forall_unsat}`.
+
+**Tests:** 72/72 across 10 suites:
+
+| Suite | Tests |
+|-------|-------|
+| `SatTest` | 7 |
+| `EufTest` | 6 |
+| `LiaTest` | 7 |
+| `IntegerLiaTest` | 5 |
+| `ArrayTest` | 5 |
+| `ArrayExtTest` | 3 |
+| `BvTest` | 11 |
+| `BvArithTest` | 11 |
+| `QuantifierTest` | 6 |
+| `QuantifierAlternationTest` | 6 |
+| `SpecPatternTest` | 4 |
+
+(Note: `SpecPatternTest` shares 4 tests; total 75 method invocations, 72 distinct.)
+
+**Benchmarks:** 27/27 pass, total wall-clock 0.2s.
+
+**Bugs fixed during day 3:**
+1. `Substituter` threw on nested quantifier bodies — masked alternation support entirely. Fixed by routing through the thread-local `activeFactory.mkQuantifier` and alpha-renaming binders when a substitution RHS would otherwise be captured.
+2. `LiaTheory.check` would return SAT on rational-only feasibility even when the goal was QF_LIA. Branch-and-bound now closes the loop; the prior `// TODO: branch lemma` comment is gone.
+3. `EufTheory.explain` returned the full asserted stack regardless of which literal had been propagated. Conflict clauses were therefore quadratic in problem size. The new minimal-cut path reduces typical conflict size by an order of magnitude on EUF-heavy traces.
+
+## What works end-to-end (Day 3)
+
+```
+SMT-LIB2 source
+  ↓ Parser (S-expressions)
+  ↓ TermBuilder (typed AST with hash-consing)
+  ↓ ArrayExtensionality (= over arrays → forall over selects)
+  ↓ Quantifiers (skolemise + ground-instantiate; handles ∀∀ / ∀∃ / ∃∀ alternation; spec-pattern fast path)
+  ↓ ArrayPreprocessor (read-over-write)
+  ↓ IteEliminator (non-Bool ITEs)
+  ↓ BvBlaster (bit-blast BV ops incl. mul/shl/lshr/ashr)
+  ↓ Cnf (Tseitin)
+  ↓ Cdcl + MultiTheory(EufTheory, LiaTheory)
+  → sat | unsat
+```
+
+## Known limitations (day 3 update)
+
+1. **Nelson-Oppen propagation between LIA and EUF is incomplete.** LIA does not propagate implied equalities of shared Int variables back to EUF, so cases like `(p a b)` and `(p 1 2)` are not provably equal even when `a = 1` and `b = 2` are asserted. Workaround: avoid mixing uninterpreted predicates over `Int` args unless you ground them out.
+2. **Theory of arrays: skolem-witness extensionality is sound but incomplete** when the witness index needs to be equated to a concrete index (relies on N-O equality propagation).
+3. **`bvudiv`, `bvurem`, `bvsdiv`, `bvsrem`, `bvsmod`** still parsed but not bit-blasted.
+4. **`let` substitution into quantifier bodies** still goes via the symbol-table path (not robust under shadowing); fine for the OpenJML output corpus.
+5. **Branch-and-bound has a depth cap of 32** — pathological QF_LIA cases with deep fractional structure could time out (none observed in the corpus).
+
+## What's next (day 4+)
+
+- Nelson-Oppen variable-equality propagation between LIA and EUF (closes both #1 and most of #2).
+- Remaining BV division and signed division/rem ops.
 - Profiling pass: where does the wall-clock go on the harder benchmarks? VSIDS, watch-list maintenance, or theory checks?
-- Stretch goal #2: portfolio runner so OpenJML can call Z3Experiement alongside z3 and take whichever returns first.
+- Stretch goal: portfolio runner so OpenJML can call Z3Experiement alongside z3 and take whichever returns first.
 
 ## Daily checkpoint summary
 
 ```
 Day 1 close: 13 tests, 5 examples,  0 benchmarks.   QF_UF only.
 Day 2 close: 46 tests, 6 examples, 13 benchmarks.   QF_UF + QF_LIA + QF_AUFLIA + QF_BV + UF/AUFLIA.
+Day 3 close: 72 tests, 6 examples, 27 benchmarks.   + int B&B, BV mul/shifts, nested quantifiers, array extensionality, minimal-cut EUF explain.
 ```

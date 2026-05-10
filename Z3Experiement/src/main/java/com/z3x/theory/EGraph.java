@@ -280,6 +280,15 @@ public final class EGraph {
         return sb.toString();
     }
 
+    /** Public: explain why two terms are currently in the same class. */
+    public int[] explainEqTerms(Term a, Term b) {
+        Integer na = termIdToNode.get(a.id);
+        Integer nb = termIdToNode.get(b.id);
+        if (na == null || nb == null) return new int[0];
+        if (rep(na) != rep(nb)) return new int[0];
+        return explainEq(na, nb);
+    }
+
     /** Build an explanation: literals whose conjunction implies a == b (via union-find proof tree). */
     private int[] explainEq(int a, int b) {
         // Find nearest common ancestor in proof forest, collect reasons.

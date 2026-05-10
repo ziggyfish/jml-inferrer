@@ -1,0 +1,5 @@
+(set-info :status unsat)
+(set-logic QF_BV)
+(declare-const x (_ BitVec 4))
+(assert (= (bvmul x #b0000) #b0001))
+(check-sat)

@@ -36,9 +36,13 @@ public abstract class TestHarness {
             SatTest.class,
             EufTest.class,
             LiaTest.class,
+            IntegerLiaTest.class,
             ArrayTest.class,
+            ArrayExtTest.class,
             BvTest.class,
+            BvArithTest.class,
             QuantifierTest.class,
+            QuantifierAlternationTest.class,
             SpecPatternTest.class
     );
 

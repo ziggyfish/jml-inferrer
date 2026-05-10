@@ -78,6 +78,13 @@ public final class Simplex {
         while (trail.size() > mark) trail.remove(trail.size() - 1).undo();
     }
 
+    /** Discard the most-recent {@link #pushLevel} mark without undoing any trail events.
+     *  Effectively merges the most recent pushed level into its parent — useful when a sub-check
+     *  has succeeded and its bounds should persist as part of the outer scope. */
+    public void discardLastLevel() {
+        if (!levelMarks.isEmpty()) levelMarks.remove(levelMarks.size() - 1);
+    }
+
     /** Push a lower bound {@code v >= bound} backed by literal {@code reason}. */
     public boolean pushLower(int vId, Rational bound, int reason) {
         Var v = vars.get(vId);

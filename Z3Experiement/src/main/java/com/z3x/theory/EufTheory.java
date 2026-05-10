@@ -117,7 +117,18 @@ public final class EufTheory implements TheoryHook {
 
     @Override
     public int[] explain(int propagatedLit) {
-        // For now, conservative: return current asserted equalities as the reason.
+        int var = Math.abs(propagatedLit);
+        Term t = varToTerm.get(var);
+        if (t instanceof Term.App app && app.symbol.equals("=")) {
+            // Minimal cut: ask the E-graph for the proof-forest reasons that imply a == b.
+            int[] reasons = eg.explainEqTerms(app.args.get(0), app.args.get(1));
+            // Clause form: (¬r1 ∨ ¬r2 ∨ ... ∨ propagatedLit) so that asserting all reasons forces the propagation.
+            int[] out = new int[reasons.length + 1];
+            for (int i = 0; i < reasons.length; i++) out[i] = -reasons[i];
+            out[out.length - 1] = propagatedLit;
+            return out;
+        }
+        // Predicate atom: fall back to asserted stack (sound but coarse).
         int[] r = new int[assertedStack.size() + 1];
         for (int i = 0; i < assertedStack.size(); i++) r[i] = -assertedStack.get(i);
         r[r.length - 1] = propagatedLit;

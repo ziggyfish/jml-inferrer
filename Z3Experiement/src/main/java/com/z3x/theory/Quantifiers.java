@@ -214,7 +214,10 @@ public final class Quantifiers {
         if (ranged != null) {
             Set<Term> groundInts = new HashSet<>();
             for (Term g : ground) if (Sort.equal(g.sort, Sort.INT)) groundInts.add(g);
-            sideAssertions.addAll(spi.instantiate(ranged, groundInts, MAX_INSTANCES_PER_FORALL));
+            for (Term inst : spi.instantiate(ranged, groundInts, MAX_INSTANCES_PER_FORALL)) {
+                // Recursively instantiate nested quantifiers exposed by the substitution.
+                sideAssertions.add(instantiate(inst, ground, true));
+            }
             return;
         }
         // Fallback: general cartesian product.
@@ -226,7 +229,8 @@ public final class Quantifiers {
             Map<String, Term> map = new HashMap<>();
             for (int i = 0; i < q.boundNames.size(); i++) map.put(q.boundNames.get(i), sub.get(i));
             Term inst = substitute(q.body, map);
-            sideAssertions.add(inst);
+            // Recursively instantiate any nested forall that surfaces after substitution.
+            sideAssertions.add(instantiate(inst, ground, true));
             emitted++;
         }
     }
@@ -302,19 +306,41 @@ public final class Quantifiers {
                 Map<String, Term> filtered = new HashMap<>(sub);
                 for (String n : q.boundNames) filtered.remove(n);
                 if (filtered.isEmpty()) return t;
-                Term newBody = new Substituter(filtered).go(q.body);
-                if (newBody == q.body) return t;
-                // Rebuild by going through factory (we don't have access here — use raw construction).
-                // Substituter is static; quantifier rebuild needs the factory. We embed the factory
-                // via the closure above only when called from instance methods. Inline limitation:
-                // for now, return a synthesized quantifier with a new id by direct construction is
-                // not possible without TermFactory. Workaround: throw for nested quantifier
-                // substitution; the caller (Quantifiers.instantiate) only substitutes through
-                // bodies of the outermost quantifier, so this is reachable only for nested ∀∀.
-                throw new IllegalStateException("Nested quantifier substitution not yet supported");
+                // Capture avoidance: if any RHS in filtered mentions a name bound by q,
+                // alpha-rename q's binders. For our ground-instantiation use case the RHS
+                // is always a ground term, so this branch normally never fires — but cover it.
+                TermFactory f = activeFactory.get();
+                List<String> newNames = q.boundNames;
+                List<Sort> newSorts = q.boundSorts;
+                Term body = q.body;
+                if (needsAlphaRename(q.boundNames, filtered)) {
+                    Map<String, Term> alpha = new HashMap<>();
+                    newNames = new ArrayList<>(q.boundNames.size());
+                    for (int i = 0; i < q.boundNames.size(); i++) {
+                        String fresh = q.boundNames.get(i) + "$" + System.identityHashCode(this);
+                        newNames.add(fresh);
+                        alpha.put(q.boundNames.get(i), f.mkVar(fresh, q.boundSorts.get(i)));
+                    }
+                    body = new Substituter(alpha).go(body);
+                }
+                Term newBody = new Substituter(filtered).go(body);
+                if (newBody == q.body && newNames == q.boundNames) return t;
+                return f.mkQuantifier(q.kind, newNames, newSorts, newBody);
             }
             return t;
         }
+    }
+
+    private static boolean needsAlphaRename(List<String> bound, Map<String, Term> sub) {
+        Set<String> capture = new HashSet<>(bound);
+        for (Term rhs : sub.values()) if (mentionsAny(rhs, capture)) return true;
+        return false;
+    }
+
+    private static boolean mentionsAny(Term t, Set<String> names) {
+        if (t instanceof Term.Var v) return names.contains(v.name);
+        for (Term c : t.children()) if (mentionsAny(c, names)) return true;
+        return false;
     }
 
     private static Term rebuildApp(Term.App app, List<Term> newArgs) {

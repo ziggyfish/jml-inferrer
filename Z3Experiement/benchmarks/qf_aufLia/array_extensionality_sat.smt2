@@ -1,0 +1,6 @@
+(set-info :status sat)
+(set-logic QF_AUFLIA)
+(declare-const a (Array Int Int))
+(declare-const b (Array Int Int))
+(assert (= a b))
+(check-sat)
