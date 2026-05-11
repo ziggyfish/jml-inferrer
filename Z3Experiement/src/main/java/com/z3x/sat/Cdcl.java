@@ -475,10 +475,11 @@ public final class Cdcl {
         for (int i = trailSize - 1; i >= trailLim[targetLevel + 1]; i--) {
             int lit = trail[i];
             int v = Math.abs(lit);
-            phase[v] = value[v]; // save
+            phase[v] = value[v];
             if (cnf.isTheoryAtom(v)) theory.retractLiteral(lit);
             value[v] = 0;
             reason[v] = -1;
+            if (heapPosArr != null) heapInsert(v);
         }
         trailSize = trailLim[targetLevel + 1];
         qhead = trailSize;
@@ -487,16 +488,79 @@ public final class Cdcl {
 
     // ---------- branching (VSIDS) ----------
 
-    private int pickBranchVar() {
-        int best = 0;
-        double bestAct = -1;
-        for (int v = 1; v <= nVars; v++) {
-            if (value[v] == 0 && activity[v] > bestAct) {
-                best = v;
-                bestAct = activity[v];
-            }
+    /**
+     * Heap of unassigned vars indexed by activity (max-heap). Maintained alongside the value
+     * array; on enqueue we leave the var in the heap (lazy deletion via stale-check on pop),
+     * on cancelUntil we re-insert vars unless they're already in the heap.
+     */
+    private final int[] heap = new int[1];
+    private final int[] heapPos = new int[1];
+    private int heapSize = 0;
+    private int[] heapArr;
+    private int[] heapPosArr;
+
+    private void initHeap() {
+        if (heapArr != null) return;
+        heapArr = new int[nVars + 1];
+        heapPosArr = new int[nVars + 1];
+        Arrays.fill(heapPosArr, -1);
+        for (int v = 1; v <= nVars; v++) heapInsert(v);
+    }
+
+    private void heapInsert(int v) {
+        if (heapPosArr[v] >= 0) return;
+        heapPosArr[v] = heapSize;
+        heapArr[heapSize++] = v;
+        heapBubbleUp(heapPosArr[v]);
+    }
+
+    private void heapBubbleUp(int i) {
+        while (i > 0) {
+            int parent = (i - 1) >>> 1;
+            if (activity[heapArr[i]] > activity[heapArr[parent]]) {
+                int tmp = heapArr[i]; heapArr[i] = heapArr[parent]; heapArr[parent] = tmp;
+                heapPosArr[heapArr[i]] = i;
+                heapPosArr[heapArr[parent]] = parent;
+                i = parent;
+            } else break;
         }
-        return best;
+    }
+
+    private void heapBubbleDown(int i) {
+        while (true) {
+            int left = 2 * i + 1;
+            int right = 2 * i + 2;
+            int best = i;
+            if (left < heapSize && activity[heapArr[left]] > activity[heapArr[best]]) best = left;
+            if (right < heapSize && activity[heapArr[right]] > activity[heapArr[best]]) best = right;
+            if (best == i) break;
+            int tmp = heapArr[i]; heapArr[i] = heapArr[best]; heapArr[best] = tmp;
+            heapPosArr[heapArr[i]] = i;
+            heapPosArr[heapArr[best]] = best;
+            i = best;
+        }
+    }
+
+    private int heapPopMax() {
+        if (heapSize == 0) return 0;
+        int top = heapArr[0];
+        heapPosArr[top] = -1;
+        heapSize--;
+        if (heapSize > 0) {
+            heapArr[0] = heapArr[heapSize];
+            heapPosArr[heapArr[0]] = 0;
+            heapBubbleDown(0);
+        }
+        return top;
+    }
+
+    private int pickBranchVar() {
+        initHeap();
+        while (heapSize > 0) {
+            int v = heapPopMax();
+            if (value[v] == 0) return v;
+        }
+        return 0;
     }
 
     private void bumpVar(int v) {
@@ -504,6 +568,9 @@ public final class Cdcl {
         if (activity[v] > VAR_RESCALE_LIMIT) {
             for (int i = 1; i <= nVars; i++) activity[i] /= VAR_RESCALE_LIMIT;
             varInc /= VAR_RESCALE_LIMIT;
+        }
+        if (heapPosArr != null && heapPosArr[v] >= 0) {
+            heapBubbleUp(heapPosArr[v]);
         }
     }
 

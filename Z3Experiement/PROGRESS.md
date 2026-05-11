@@ -163,4 +163,30 @@ Day 1 close: 13 tests, 5 examples,  0 benchmarks.   QF_UF only.
 Day 2 close: 46 tests, 6 examples, 13 benchmarks.   QF_UF + QF_LIA + QF_AUFLIA + QF_BV + UF/AUFLIA.
 Day 3 close: 72 tests, 6 examples, 27 benchmarks.   + int B&B, BV mul/shifts, nested quantifiers, array extensionality, minimal-cut EUF explain.
 Day 4 close: 88 tests, 6 examples, 32 benchmarks.   + Nelson-Oppen LIA→EUF, BV division, portfolio runner.
+Day 5 close: 110 tests, 6 examples, 33 benchmarks.  + datatypes, unsat cores, push/pop, E-matching, strings, NLA, Simplex bound-conflict fix, heap-based VSIDS.
 ```
+
+## 2026-05-11 — Day 5 (extension)
+
+User asked to push as far as possible. The work below extends the "completed" milestone with theories and infrastructure that were previously out-of-scope.
+
+**Landed:**
+- **Datatypes** (`DatatypeAxioms`): `declare-datatypes` / `declare-datatype` parsing; constructors, selectors, testers; eager axiom expansion (selector unfolds, tester polarity, disjointness). 5 tests covering pairs, enums.
+- **Unsat cores** (`Solver.lastUnsatCore`): `(set-option :produce-unsat-cores true)` + `(! body :named X)` parsing + `(get-unsat-core)`. Sound but coarse — returns all named asserts; minimal-cut extraction via proof walking deferred.
+- **Push/pop tests**: Re-solving on every check-sat is the current implementation. True incremental (preserving learned clauses) needs a Cdcl re-entry refactor.
+- **Real E-matching** (`EMatcher`): trigger inference from quantifier body; ground-term matching against trigger patterns. Beats cartesian product when triggers cover all bound variables. 4 tests.
+- **Strings basic** (`StringAxioms`): Sort.STRING, str.++/str.len/str.at/str.substr/str.contains/str.prefixof/str.suffixof/str.indexof signatures. Eager axioms: literal lengths, concat = sum-of-lengths, non-negativity. 5 tests.
+- **Best-effort NLA** (`NlaAxioms`): x*x ≥ 0; (x*x = 0) ⇔ (x = 0). 4 tests. Higher-degree NLA, multi-variable monomials, real-arithmetic NLA all deferred — would require CAD / Gröbner / virtual substitution.
+- **Conflict-sorted theory clauses** (`Cdcl.sortConflictByLevelDesc`): theory conflicts get lits ordered by decision level so cl[0] is asserting and cl[1] is the second-watch.
+- **Simplex bound-conflict fix** (`Simplex.pendingConflict`): `pushLower`/`pushUpper` now set a deferred flag when bounds directly clash; `check()` consumes it. Previously `assertLiteral` silently dropped these conflicts, causing spurious SAT on simple `(>= x 0) ∧ (< x 0)` patterns once strings & NLA exercised more bound asserts.
+- **Heap-based VSIDS** (`Cdcl.heap*`): max-heap of unassigned vars by activity. Lazy deletion. No measured speedup on current 33-file corpus (problems too small to amortize the O(nVars) scan); kept as future-proofing for larger workloads.
+
+**Tests:** 110/110 across 19 suites. New: DatatypeTest (5), UnsatCoreTest (2), PushPopTest (2), EMatchingTest (4), StringTest (5), NlaTest (4). Net +22.
+
+**Honest scorecard vs. Z3:**
+- *Beating Z3 in speed on general workloads*: not achieved. Architecturally impossible in this timeframe — Z3 is decades of research/engineering, this is a five-day rebuild.
+- *Beating Z3 on the specific JML-Inferrer spec-pattern shape*: plausible with targeted optimisation (spec-pattern fast path already present), but not measured against a live z3 oracle in this session.
+- *Features previously out-of-scope that landed*: datatypes, unsat cores (coarse), E-matching, strings (basic), NLA (basic).
+- *Features that remain out-of-reach*: floating-point (IEEE-754 bit-blasting is multi-week), full Nelson-Oppen (needs Simplex row-walking Farkas), real incremental SAT, proof certificates, true model generation for theory variables, non-trivial string reasoning (word equations / automata).
+
+The codebase reads end-to-end in one sitting; that was always the goal.
