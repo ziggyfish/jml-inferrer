@@ -273,11 +273,29 @@ public final class TermFactory {
     }
 
     public Term mkLe(Term a, Term b) {
+        if (a instanceof Term.IntConst x && b instanceof Term.IntConst y) {
+            return mkBool(x.value.compareTo(y.value) <= 0);
+        }
         return mkAppRaw("<=", List.of(a, b), Sort.BOOL);
     }
-    public Term mkLt(Term a, Term b) { return mkAppRaw("<", List.of(a, b), Sort.BOOL); }
-    public Term mkGe(Term a, Term b) { return mkAppRaw(">=", List.of(a, b), Sort.BOOL); }
-    public Term mkGt(Term a, Term b) { return mkAppRaw(">", List.of(a, b), Sort.BOOL); }
+    public Term mkLt(Term a, Term b) {
+        if (a instanceof Term.IntConst x && b instanceof Term.IntConst y) {
+            return mkBool(x.value.compareTo(y.value) < 0);
+        }
+        return mkAppRaw("<", List.of(a, b), Sort.BOOL);
+    }
+    public Term mkGe(Term a, Term b) {
+        if (a instanceof Term.IntConst x && b instanceof Term.IntConst y) {
+            return mkBool(x.value.compareTo(y.value) >= 0);
+        }
+        return mkAppRaw(">=", List.of(a, b), Sort.BOOL);
+    }
+    public Term mkGt(Term a, Term b) {
+        if (a instanceof Term.IntConst x && b instanceof Term.IntConst y) {
+            return mkBool(x.value.compareTo(y.value) > 0);
+        }
+        return mkAppRaw(">", List.of(a, b), Sort.BOOL);
+    }
 
     private Sort arithResultSort(List<Term> args) {
         boolean anyReal = args.stream().anyMatch(t -> t.sort == Sort.REAL);

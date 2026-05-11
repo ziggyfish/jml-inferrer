@@ -43,6 +43,7 @@ public abstract class TestHarness {
             DatatypeTest.class,
             StringTest.class,
             NlaTest.class,
+            AggregateTest.class,
             BvTest.class,
             BvArithTest.class,
             BvDivTest.class,

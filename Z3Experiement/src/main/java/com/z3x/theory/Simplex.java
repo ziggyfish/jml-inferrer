@@ -286,14 +286,15 @@ public final class Simplex {
         for (int safety = 0; safety < 100_000; safety++) {
             int badBasic = -1;
             boolean tooLow = false;
-            // Bland's rule: pick the lowest-id basic violating bounds.
-            for (int i = 0; i < vars.size(); i++) {
+            int N = vars.size();
+            // Bland's rule: lowest-id violator.
+            for (int i = 0; i < N; i++) {
                 Var v = vars.get(i);
                 if (!v.basic) continue;
                 if (v.lower != null && v.value.lt(v.lower)) { badBasic = i; tooLow = true; break; }
                 if (v.upper != null && v.value.gt(v.upper)) { badBasic = i; tooLow = false; break; }
             }
-            if (badBasic == -1) return true; // all bounds satisfied
+            if (badBasic == -1) return true;
             Var b = vars.get(badBasic);
             // Find a suitable non-basic to pivot with.
             int chosen = -1;

@@ -387,6 +387,19 @@ public final class Quantifiers {
 
     private static final ThreadLocal<TermFactory> activeFactory = new ThreadLocal<>();
 
+    /** External callers may want to invoke {@link #substitute(Term, Map)} outside of a
+     *  rewriteAll() context. Use this helper to set the factory for the substituter. */
+    public static Term substituteWith(TermFactory tf, Term t, Map<String, Term> sub) {
+        TermFactory prev = activeFactory.get();
+        activeFactory.set(tf);
+        try {
+            return substitute(t, sub);
+        } finally {
+            if (prev != null) activeFactory.set(prev);
+            else activeFactory.remove();
+        }
+    }
+
     /** Wrap rewrite() to set the active factory for the substituter. */
     public Term rewriteWithFactory(Term t) {
         activeFactory.set(tf);

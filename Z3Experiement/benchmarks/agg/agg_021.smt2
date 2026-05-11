@@ -1,0 +1,10 @@
+(set-info :status unsat)
+(set-logic ALL)
+(declare-const arr (Array Int Int))
+(define-fun-rec jsum ((a (Array Int Int)) (lo Int) (hi Int)) Int
+  (ite (>= lo hi) 0 (+ (select a lo) (jsum a (+ lo 1) hi))))
+(assert (= (select arr 0) 10))
+(assert (= (select arr 1) 15))
+(assert (= (select arr 2) 3))
+(assert (= (jsum arr 0 3) 29))
+(check-sat)

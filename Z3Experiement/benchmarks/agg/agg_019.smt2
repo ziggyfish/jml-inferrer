@@ -1,0 +1,12 @@
+(set-info :status unsat)
+(set-logic ALL)
+(declare-const arr (Array Int Int))
+(define-fun-rec jprod ((a (Array Int Int)) (lo Int) (hi Int)) Int
+  (ite (>= lo hi) 1 (* (select a lo) (jprod a (+ lo 1) hi))))
+(assert (= (select arr 0) 1))
+(assert (= (select arr 1) 2))
+(assert (= (select arr 2) 2))
+(assert (= (select arr 3) 1))
+(assert (= (select arr 4) 1))
+(assert (= (jprod arr 0 5) 5))
+(check-sat)

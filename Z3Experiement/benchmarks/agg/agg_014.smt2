@@ -1,0 +1,13 @@
+(set-info :status sat)
+(set-logic ALL)
+(declare-const arr (Array Int Int))
+(define-fun-rec jnum ((a (Array Int Int)) (lo Int) (hi Int)) Int
+  (ite (>= lo hi) 0 (+ (ite (> (select a lo) 0) 1 0) (jnum a (+ lo 1) hi))))
+(assert (= (select arr 0) -5))
+(assert (= (select arr 1) -3))
+(assert (= (select arr 2) -5))
+(assert (= (select arr 3) -4))
+(assert (= (select arr 4) 3))
+(assert (= (select arr 5) -7))
+(assert (= (jnum arr 0 6) 1))
+(check-sat)

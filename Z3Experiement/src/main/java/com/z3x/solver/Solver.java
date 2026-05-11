@@ -11,7 +11,9 @@ import com.z3x.term.TermFactory;
 import com.z3x.theory.ArrayExtensionality;
 import com.z3x.theory.ArrayPreprocessor;
 import com.z3x.theory.DatatypeAxioms;
+import com.z3x.theory.ConstantPropagator;
 import com.z3x.theory.NlaAxioms;
+import com.z3x.theory.RecursiveExpander;
 import com.z3x.theory.StringAxioms;
 import com.z3x.theory.BvBlaster;
 import com.z3x.theory.EufTheory;
@@ -122,6 +124,9 @@ public final class Solver {
                 Sort res = tb.resolveSort(l.items().get(3));
                 tf.declareFunction(name, args, res);
             }
+            case "define-fun" -> handleDefineFun(l, false);
+            case "define-fun-rec" -> handleDefineFun(l, true);
+            case "define-funs-rec" -> handleDefineFunsRec(l);
             case "assert" -> {
                 SExpr arg = l.items().get(1);
                 String name = null;
@@ -192,6 +197,34 @@ public final class Solver {
             if (!dax.axioms().isEmpty()) {
                 if (extended == all) extended = new ArrayList<>(all);
                 extended.addAll(dax.axioms());
+            }
+        }
+        // Recursive function definitions + constant propagation: iterate to fixpoint so that
+        // each round of propagation can ground more arguments to recursive calls, which then
+        // expand to expose more constants. Standard \sum/\product/\num_of from OpenJML's fork.
+        if (!funDefs.isEmpty()) {
+            if (extended == all) extended = new ArrayList<>(all);
+            RecursiveExpander rex = new RecursiveExpander(tf, funDefs);
+            for (int round = 0; round < 8; round++) {
+                int axiomsBefore = rex.axioms().size();
+                for (Term t : extended) rex.collectFrom(t);
+                for (int idx = axiomsBefore; idx < rex.axioms().size(); idx++) {
+                    extended.add(rex.axioms().get(idx));
+                }
+                ConstantPropagator cp = new ConstantPropagator(tf);
+                cp.collectEqualities(extended);
+                if (!cp.hasSubstitutions() && rex.axioms().size() == axiomsBefore) break;
+                if (cp.hasSubstitutions()) {
+                    List<Term> propagated = new ArrayList<>(extended.size());
+                    boolean anyChange = false;
+                    for (Term t : extended) {
+                        Term r = cp.apply(t);
+                        if (r != t) anyChange = true;
+                        propagated.add(r);
+                    }
+                    if (anyChange) extended = propagated;
+                    else if (rex.axioms().size() == axiomsBefore) break;
+                }
             }
         }
         if (ff.hasStrings) {
@@ -336,6 +369,77 @@ public final class Solver {
         if (ite != null) cur = ite.rewrite(cur);
         if (bv != null) cur = bv.rewrite(cur);
         return cur;
+    }
+
+    /** Registered (possibly-recursive) function definitions, indexed by name.
+     *  {@code define-fun} entries are also stored here for uniform handling — they get
+     *  unfolded the same way but their unfolding is guaranteed to terminate at depth 1. */
+    public record FunDef(String name, List<String> paramNames, List<Sort> paramSorts,
+                         Sort returnSort, Term body, boolean recursive) {}
+    private final java.util.Map<String, FunDef> funDefs = new java.util.LinkedHashMap<>();
+    public java.util.Map<String, FunDef> functionDefinitions() { return funDefs; }
+
+    private void handleDefineFun(SExpr.SList l, boolean rec) {
+        // (define-fun NAME ((p1 T1) ...) ReturnSort body)
+        String name = ((SExpr.Atom) l.items().get(1)).text();
+        SExpr.SList params = (SExpr.SList) l.items().get(2);
+        List<String> paramNames = new ArrayList<>();
+        List<Sort> paramSorts = new ArrayList<>();
+        for (SExpr p : params.items()) {
+            SExpr.SList pl = (SExpr.SList) p;
+            String pn = ((SExpr.Atom) pl.items().get(0)).text();
+            Sort ps = tb.resolveSort(pl.items().get(1));
+            paramNames.add(pn);
+            paramSorts.add(ps);
+        }
+        Sort retSort = tb.resolveSort(l.items().get(3));
+        // The function may reference itself in body — pre-declare it.
+        tf.declareFunction(name, paramSorts, retSort);
+        // Declare each param as a placeholder function so body can be built.
+        // We then read the body and store it; the placeholders stay in tf but never resolve.
+        for (int i = 0; i < paramNames.size(); i++) {
+            tf.declareFunction(paramNames.get(i), List.of(), paramSorts.get(i));
+        }
+        Term body = tb.build(l.items().get(4));
+        funDefs.put(name, new FunDef(name, paramNames, paramSorts, retSort, body, rec));
+    }
+
+    private void handleDefineFunsRec(SExpr.SList l) {
+        // (define-funs-rec ((name1 (params1) ret1) ...) (body1 body2 ...))
+        SExpr.SList sigs = (SExpr.SList) l.items().get(1);
+        SExpr.SList bodies = (SExpr.SList) l.items().get(2);
+        // Pre-declare every function so bodies can mention each other.
+        List<String> names = new ArrayList<>();
+        List<List<String>> allParamNames = new ArrayList<>();
+        List<List<Sort>> allParamSorts = new ArrayList<>();
+        List<Sort> allRetSorts = new ArrayList<>();
+        for (SExpr sig : sigs.items()) {
+            SExpr.SList sl = (SExpr.SList) sig;
+            String name = ((SExpr.Atom) sl.items().get(0)).text();
+            SExpr.SList ps = (SExpr.SList) sl.items().get(1);
+            List<String> pn = new ArrayList<>();
+            List<Sort> psorts = new ArrayList<>();
+            for (SExpr p : ps.items()) {
+                SExpr.SList pl = (SExpr.SList) p;
+                pn.add(((SExpr.Atom) pl.items().get(0)).text());
+                psorts.add(tb.resolveSort(pl.items().get(1)));
+            }
+            Sort ret = tb.resolveSort(sl.items().get(2));
+            tf.declareFunction(name, psorts, ret);
+            names.add(name);
+            allParamNames.add(pn);
+            allParamSorts.add(psorts);
+            allRetSorts.add(ret);
+        }
+        // Now build each body in turn.
+        for (int i = 0; i < names.size(); i++) {
+            for (int j = 0; j < allParamNames.get(i).size(); j++) {
+                tf.declareFunction(allParamNames.get(i).get(j), List.of(), allParamSorts.get(i).get(j));
+            }
+            Term body = tb.build(bodies.items().get(i));
+            funDefs.put(names.get(i), new FunDef(names.get(i), allParamNames.get(i),
+                    allParamSorts.get(i), allRetSorts.get(i), body, true));
+        }
     }
 
     /** Registered datatype sorts, indexed by name. */
