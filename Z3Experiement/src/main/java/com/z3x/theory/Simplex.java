@@ -38,6 +38,12 @@ public final class Simplex {
 
     private final List<Var> vars = new ArrayList<>();
 
+    /** Inverted index: for each non-basic var id, the list of basic var ids whose row references it.
+     *  Updated when defineBasic is called and when pivot rewrites rows. Used by update() to walk
+     *  only the affected basics instead of all basics. This is the single biggest Simplex speedup
+     *  for the JML-shape workload — without it, every value update is O(B). */
+    private final List<List<Integer>> usedIn = new ArrayList<>();
+
     /** Trail of undoable events. */
     private interface Event { void undo(); }
     private final List<Event> trail = new ArrayList<>();
@@ -52,6 +58,7 @@ public final class Simplex {
         v.basic = basic;
         if (basic) v.row = new LinkedHashMap<>();
         vars.add(v);
+        usedIn.add(new ArrayList<>());
         return vars.size() - 1;
     }
 
@@ -61,9 +68,16 @@ public final class Simplex {
     public void defineBasic(int basicId, Map<Integer, Rational> coeffs) {
         Var b = vars.get(basicId);
         if (!b.basic) throw new IllegalStateException("not basic: " + basicId);
+        // Remove old references from usedIn.
+        if (!b.row.isEmpty()) {
+            for (Integer nb : b.row.keySet()) usedIn.get(nb).remove((Integer) basicId);
+        }
         b.row.clear();
         for (Map.Entry<Integer, Rational> e : coeffs.entrySet()) {
-            if (!e.getValue().isZero()) b.row.put(e.getKey(), e.getValue());
+            if (!e.getValue().isZero()) {
+                b.row.put(e.getKey(), e.getValue());
+                usedIn.get(e.getKey()).add(basicId);
+            }
         }
         recomputeBasicValue(basicId);
     }
@@ -139,12 +153,13 @@ public final class Simplex {
         return true;
     }
 
-    /** Update the value of non-basic v to delta, propagating to dependent basic rows. */
+    /** Update the value of non-basic v to delta, propagating to dependent basic rows.
+     *  Uses {@link #usedIn} so the iteration is O(rows-mentioning-v) instead of O(B). */
     private void update(int vId, Rational newVal) {
         Var v = vars.get(vId);
         Rational diff = newVal.sub(v.value);
         v.value = newVal;
-        for (int j = 0; j < vars.size(); j++) {
+        for (int j : usedIn.get(vId)) {
             Var b = vars.get(j);
             if (!b.basic) continue;
             Rational a = b.row.get(vId);
@@ -168,28 +183,40 @@ public final class Simplex {
         Var n = vars.get(nonBasicId);
         Rational a = b.row.remove(nonBasicId);
         if (a == null) throw new IllegalStateException("pivot called with non-basic not in basic row");
+        // Clear basicId from usedIn of all its previous non-basics (they're being remapped).
+        usedIn.get(nonBasicId).remove((Integer) basicId);
+        for (Integer nbId : b.row.keySet()) usedIn.get(nbId).remove((Integer) basicId);
         // basic row was: x_b = sum_k c_k x_k + a x_n. Solve for x_n.
-        // x_n = (1/a)(x_b - sum_k c_k x_k)
         LinkedHashMap<Integer, Rational> newNonBasicRow = new LinkedHashMap<>();
         Rational invA = Rational.ONE.div(a);
         newNonBasicRow.put(basicId, invA);
         for (Map.Entry<Integer, Rational> e : b.row.entrySet()) {
             newNonBasicRow.put(e.getKey(), e.getValue().negate().mul(invA));
         }
-        // Substitute n in all other basic rows.
-        for (int j = 0; j < vars.size(); j++) {
+        // Substitute n in all other basic rows that use it. Use the inverted index.
+        // Copy the list to avoid concurrent modification.
+        List<Integer> rowsUsingN = new ArrayList<>(usedIn.get(nonBasicId));
+        for (int j : rowsUsingN) {
             if (j == basicId) continue;
             Var v = vars.get(j);
             if (!v.basic) continue;
             Rational c = v.row.get(nonBasicId);
             if (c == null) continue;
             v.row.remove(nonBasicId);
+            usedIn.get(nonBasicId).remove((Integer) j);
             for (Map.Entry<Integer, Rational> e : newNonBasicRow.entrySet()) {
                 Rational add = c.mul(e.getValue());
                 Rational existing = v.row.get(e.getKey());
                 Rational sum = existing == null ? add : existing.add(add);
-                if (sum.isZero()) v.row.remove(e.getKey());
-                else v.row.put(e.getKey(), sum);
+                if (sum.isZero()) {
+                    if (existing != null) {
+                        v.row.remove(e.getKey());
+                        usedIn.get(e.getKey()).remove((Integer) j);
+                    }
+                } else {
+                    if (existing == null) usedIn.get(e.getKey()).add(j);
+                    v.row.put(e.getKey(), sum);
+                }
             }
         }
         // Swap basic / non-basic flags.
@@ -197,6 +224,8 @@ public final class Simplex {
         b.row = null;
         n.basic = true;
         n.row = newNonBasicRow;
+        // Register n's new row references.
+        for (Integer nbId : newNonBasicRow.keySet()) usedIn.get(nbId).add(nonBasicId);
     }
 
     /** Pivot and update in one step: x_b moves to {@code newVbasic}, then we pivot on x_b/x_n. */
@@ -206,8 +235,8 @@ public final class Simplex {
         Rational diff = newBasicValue.sub(b.value).div(a);
         Var n = vars.get(nonBasicId);
         Rational newN = n.value.add(diff);
-        // Update value of n and propagate to all basics' values.
-        for (int j = 0; j < vars.size(); j++) {
+        // Use the inverted index instead of scanning all vars.
+        for (int j : usedIn.get(nonBasicId)) {
             Var v = vars.get(j);
             if (!v.basic) continue;
             Rational c = v.row.get(nonBasicId);

@@ -167,8 +167,12 @@ public final class Solver {
 
     /** Toggle to dump preprocessing artefacts. Set via {@code -Dz3x.debug=true}. */
     private static final boolean DEBUG = Boolean.getBoolean("z3x.debug");
+    private static final boolean PROF = Boolean.getBoolean("z3x.prof");
+    /** Phase timings in nanoseconds (for profiling). */
+    public long lastTimePreNs, lastTimeCnfNs, lastTimeSatNs;
 
     private Verdict checkSat() {
+        long tStart = PROF ? System.nanoTime() : 0;
         List<Term> all = new ArrayList<>();
         for (List<Term> frame : assertionStack) all.addAll(frame);
         // Cheap feature-scan: avoid preprocessing passes whose feature isn't present.
@@ -234,7 +238,9 @@ public final class Solver {
             System.err.println("=== assertions (post-preprocess) ===");
             for (Term t : rewritten) System.err.println("  " + t);
         }
+        long tPre = PROF ? System.nanoTime() : 0;
         for (Term t : rewritten) cnf.assertTerm(t);
+        long tCnf = PROF ? System.nanoTime() : 0;
         TheoryHook theory;
         boolean wantEuf = logicNeedsEuf();
         boolean wantLia = logicNeedsLia();
@@ -252,6 +258,12 @@ public final class Solver {
         }
         Cdcl sat = new Cdcl(cnf, theory);
         Cdcl.Result r = sat.solve();
+        long tSat = PROF ? System.nanoTime() : 0;
+        if (PROF) {
+            lastTimePreNs = tPre - tStart;
+            lastTimeCnfNs = tCnf - tPre;
+            lastTimeSatNs = tSat - tCnf;
+        }
         if (r == Cdcl.Result.UNSAT && produceUnsatCores) {
             // Sound (coarse) unsat core: every named assertion currently active. A finer-grained
             // implementation would walk the resolution proof and pick only the named asserts
