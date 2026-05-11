@@ -11,6 +11,7 @@ public sealed interface Sort {
     Sort BOOL = new Builtin("Bool");
     Sort INT  = new Builtin("Int");
     Sort REAL = new Builtin("Real");
+    Sort STRING = new Builtin("String");
 
     record Builtin(String name) implements Sort {
         @Override public String toString() { return name; }
@@ -40,10 +41,11 @@ public sealed interface Sort {
 
     static Sort fromAtomName(String s) {
         return switch (s) {
-            case "Bool" -> BOOL;
-            case "Int"  -> INT;
-            case "Real" -> REAL;
-            default     -> null; // caller resolves user sorts
+            case "Bool"   -> BOOL;
+            case "Int"    -> INT;
+            case "Real"   -> REAL;
+            case "String" -> STRING;
+            default       -> null;
         };
     }
 

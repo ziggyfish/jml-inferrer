@@ -117,6 +117,13 @@ public abstract sealed class Term {
         }
     }
 
+    public static final class StrConst extends Term {
+        public final String value;
+        public StrConst(int id, String value) { super(id, Sort.STRING); this.value = value; }
+        @Override public List<Term> children() { return List.of(); }
+        @Override public String head() { return "\"" + value.replace("\"", "\\\"") + "\""; }
+    }
+
     public static final class App extends Term {
         public final String symbol;
         public final List<Term> args;
@@ -144,6 +151,7 @@ public abstract sealed class Term {
         record QuantK(Quantifier.Kind k, List<String> names, List<Sort> sorts, int bodyId) implements Key {
             public QuantK { names = List.copyOf(names); sorts = List.copyOf(sorts); }
         }
+        record StrK(String value) implements Key {}
     }
 
     public static int hash(Key k) { return Objects.hashCode(k); }

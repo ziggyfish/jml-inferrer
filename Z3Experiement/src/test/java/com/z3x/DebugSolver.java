@@ -7,15 +7,9 @@ import java.util.List;
 public class DebugSolver {
     public static void main(String[] args) {
         String src = """
-                (set-logic UFLIA)
-                (declare-fun p (Int Int) Bool)
-                (declare-const a Int)
-                (declare-const b Int)
-                (assert (= a 1))
-                (assert (= b 2))
-                (assert (p 1 2))
-                (assert (p a b))
-                (assert (or (not (and (= b a) (= a b))) (p b a)))
+                (set-logic ALL)
+                (declare-const a String)
+                (assert (< (str.len a) 0))
                 (check-sat)
                 """;
         List<Solver.Verdict> v = new Solver().run(src);

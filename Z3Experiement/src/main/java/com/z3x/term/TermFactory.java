@@ -32,6 +32,21 @@ public final class TermFactory {
         sorts.put("Bool", Sort.BOOL);
         sorts.put("Int", Sort.INT);
         sorts.put("Real", Sort.REAL);
+        sorts.put("String", Sort.STRING);
+        // Pre-declare standard string operations.
+        functions.put("str.++", new Sort.FunSig(List.of(Sort.STRING, Sort.STRING), Sort.STRING));
+        functions.put("str.len", new Sort.FunSig(List.of(Sort.STRING), Sort.INT));
+        functions.put("str.at", new Sort.FunSig(List.of(Sort.STRING, Sort.INT), Sort.STRING));
+        functions.put("str.substr", new Sort.FunSig(List.of(Sort.STRING, Sort.INT, Sort.INT), Sort.STRING));
+        functions.put("str.contains", new Sort.FunSig(List.of(Sort.STRING, Sort.STRING), Sort.BOOL));
+        functions.put("str.prefixof", new Sort.FunSig(List.of(Sort.STRING, Sort.STRING), Sort.BOOL));
+        functions.put("str.suffixof", new Sort.FunSig(List.of(Sort.STRING, Sort.STRING), Sort.BOOL));
+        functions.put("str.indexof", new Sort.FunSig(List.of(Sort.STRING, Sort.STRING, Sort.INT), Sort.INT));
+    }
+
+    /** Hash-cons a string constant. */
+    public Term.StrConst mkStr(String value) {
+        return (Term.StrConst) intern(new Term.Key.StrK(value), id -> new Term.StrConst(id, value));
     }
 
     public List<Term> allTerms() { return List.copyOf(nodes); }

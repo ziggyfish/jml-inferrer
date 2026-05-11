@@ -45,6 +45,8 @@ public final class TermBuilder {
     private Term buildAtom(SExpr.Atom a) {
         String text = a.text();
         switch (a.kind()) {
+            case STRING:
+                return tf.mkStr(text);
             case NUMERAL:
                 return tf.mkInt(new BigInteger(text));
             case DECIMAL: {

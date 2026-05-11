@@ -208,17 +208,40 @@ public final class Quantifiers {
     }
 
     private void emitInstances(Term.Quantifier q, Set<Term> ground) {
-        // Fast path: try the JML-Inferrer spec-pattern shape first.
+        // Fast path 1: spec-pattern (ranged ∀).
         SpecPatternInstantiator spi = new SpecPatternInstantiator(tf);
         SpecPatternInstantiator.RangedForall ranged = spi.match(q);
         if (ranged != null) {
             Set<Term> groundInts = new HashSet<>();
             for (Term g : ground) if (Sort.equal(g.sort, Sort.INT)) groundInts.add(g);
             for (Term inst : spi.instantiate(ranged, groundInts, MAX_INSTANCES_PER_FORALL)) {
-                // Recursively instantiate nested quantifiers exposed by the substitution.
                 sideAssertions.add(instantiate(inst, ground, true));
             }
             return;
+        }
+        // Fast path 2: trigger-based E-matching. For each candidate trigger pattern, search the
+        // ground set for syntactic matches and emit body[sub] for each.
+        EMatcher matcher = new EMatcher(tf);
+        List<EMatcher.Trigger> triggers = matcher.inferTriggers(q.body, q.boundNames);
+        if (!triggers.isEmpty()) {
+            int emitted = 0;
+            Set<Map<String, Term>> seenSubs = new HashSet<>();
+            Set<String> boundSet = new HashSet<>(q.boundNames);
+            for (EMatcher.Trigger trig : triggers) {
+                if (emitted >= MAX_INSTANCES_PER_FORALL) break;
+                for (Term g : ground) {
+                    if (emitted >= MAX_INSTANCES_PER_FORALL) break;
+                    Map<String, Term> sub = matcher.matchPattern(trig.pattern(), g, boundSet);
+                    if (sub == null) continue;
+                    // Only emit when sub covers all bound names (single-trigger sufficient).
+                    if (!sub.keySet().equals(boundSet)) continue;
+                    if (!seenSubs.add(new HashMap<>(sub))) continue;
+                    Term inst = substitute(q.body, sub);
+                    sideAssertions.add(instantiate(inst, ground, true));
+                    emitted++;
+                }
+            }
+            if (emitted > 0) return;
         }
         // Fallback: general cartesian product.
         int emitted = 0;
@@ -229,7 +252,6 @@ public final class Quantifiers {
             Map<String, Term> map = new HashMap<>();
             for (int i = 0; i < q.boundNames.size(); i++) map.put(q.boundNames.get(i), sub.get(i));
             Term inst = substitute(q.body, map);
-            // Recursively instantiate any nested forall that surfaces after substitution.
             sideAssertions.add(instantiate(inst, ground, true));
             emitted++;
         }

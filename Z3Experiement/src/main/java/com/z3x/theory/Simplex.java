@@ -90,6 +90,7 @@ public final class Simplex {
         Var v = vars.get(vId);
         if (v.upper != null && bound.gt(v.upper)) {
             lastConflict = new int[] { reason, v.upperReason };
+            pendingConflict = true;
             return false;
         }
         if (v.lower != null && bound.le(v.lower)) {
@@ -116,6 +117,7 @@ public final class Simplex {
         Var v = vars.get(vId);
         if (v.lower != null && bound.lt(v.lower)) {
             lastConflict = new int[] { reason, v.lowerReason };
+            pendingConflict = true;
             return false;
         }
         if (v.upper != null && bound.ge(v.upper)) {
@@ -217,12 +219,16 @@ public final class Simplex {
         pivot(basicId, nonBasicId);
     }
 
+    /** Set by pushLower/pushUpper when a bound directly contradicts another. */
+    public boolean pendingConflict = false;
+
     /**
      * Run the Bland-rule pivoting search: while some basic violates its bound, find a non-basic
      * that can be moved to fix it. If none, the violating row is a Farkas-style conflict.
      * Returns true on success; populates {@link #lastConflict} on failure.
      */
     public boolean check() {
+        if (pendingConflict) { pendingConflict = false; return false; }
         for (int safety = 0; safety < 100_000; safety++) {
             int badBasic = -1;
             boolean tooLow = false;

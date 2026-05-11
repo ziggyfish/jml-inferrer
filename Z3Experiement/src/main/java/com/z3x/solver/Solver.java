@@ -11,6 +11,8 @@ import com.z3x.term.TermFactory;
 import com.z3x.theory.ArrayExtensionality;
 import com.z3x.theory.ArrayPreprocessor;
 import com.z3x.theory.DatatypeAxioms;
+import com.z3x.theory.NlaAxioms;
+import com.z3x.theory.StringAxioms;
 import com.z3x.theory.BvBlaster;
 import com.z3x.theory.EufTheory;
 import com.z3x.theory.IteEliminator;
@@ -185,6 +187,14 @@ public final class Solver {
             for (Term t : extended) dax.collectFrom(t);
             extended.addAll(dax.axioms());
         }
+        // String axioms: length of literals, concat decomposition, non-negativity.
+        StringAxioms sax = new StringAxioms(tf);
+        for (Term t : extended) sax.collectFrom(t);
+        extended.addAll(sax.axioms());
+        // Best-effort NLA: x*x >= 0 etc. for monomials.
+        NlaAxioms nax = new NlaAxioms(tf);
+        for (Term t : extended) nax.collectFrom(t);
+        extended.addAll(nax.axioms());
         List<Term> qRewritten = q.rewriteAll(extended);
         qRewritten.addAll(q.sideAssertions());
         List<Term> rewritten = new ArrayList<>();
@@ -311,6 +321,7 @@ public final class Solver {
     private boolean logicNeedsLia() {
         if (logic.isEmpty()) return true;
         return logic.contains("LIA") || logic.contains("LRA") || logic.contains("IDL") || logic.contains("RDL")
-                || logic.contains("LIRA") || logic.equals("ALL") || logic.contains("AUF");
+                || logic.contains("LIRA") || logic.equals("ALL") || logic.contains("AUF")
+                || logic.contains("S");  // String theory needs LIA for length reasoning.
     }
 }
