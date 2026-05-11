@@ -40,13 +40,16 @@ public abstract class TestHarness {
             NelsonOppenTest.class,
             ArrayTest.class,
             ArrayExtTest.class,
+            DatatypeTest.class,
             BvTest.class,
             BvArithTest.class,
             BvDivTest.class,
             QuantifierTest.class,
             QuantifierAlternationTest.class,
             SpecPatternTest.class,
-            PortfolioTest.class
+            PortfolioTest.class,
+            PushPopTest.class,
+            UnsatCoreTest.class
     );
 
     public static void main(String[] args) throws Exception {

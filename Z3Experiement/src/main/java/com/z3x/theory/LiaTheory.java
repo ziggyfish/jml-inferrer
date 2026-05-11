@@ -287,9 +287,6 @@ public final class LiaTheory implements TheoryHook {
 
     private int[] formatConflict() {
         int[] c = simplex.lastConflict;
-        // Conservative: include the entire asserted stack negated. Branches don't carry their
-        // own SAT-literal reasons — when the conflict comes from branching, fall back to "all
-        // currently asserted LIA literals are jointly inconsistent".
         if (c == null || c.length == 0 || (c.length == 1 && c[0] == 0)) {
             int[] out = new int[assertedStack.size()];
             for (int i = 0; i < out.length; i++) out[i] = -assertedStack.get(i);

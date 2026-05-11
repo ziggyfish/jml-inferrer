@@ -44,6 +44,11 @@ public final class TermFactory {
         sorts.put(name, new Sort.Uninterp(name, arity));
     }
 
+    /** Replace a sort registration (used when a sort is upgraded e.g. uninterp → datatype). */
+    public void replaceSort(String name, Sort sort) {
+        sorts.put(name, sort);
+    }
+
     public Sort.FunSig lookupFunction(String name) { return functions.get(name); }
 
     public void declareFunction(String name, List<Sort> args, Sort result) {

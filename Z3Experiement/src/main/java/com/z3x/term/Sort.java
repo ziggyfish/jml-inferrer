@@ -30,6 +30,14 @@ public sealed interface Sort {
         @Override public String toString() { return name(); }
     }
 
+    /** Algebraic datatype sort. */
+    record Datatype(String name, List<Constructor> constructors) implements Sort {
+        @Override public String toString() { return name; }
+    }
+
+    record Constructor(String name, List<Selector> selectors) {}
+    record Selector(String name, Sort sort) {}
+
     static Sort fromAtomName(String s) {
         return switch (s) {
             case "Bool" -> BOOL;

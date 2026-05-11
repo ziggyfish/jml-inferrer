@@ -75,6 +75,8 @@ public final class Cdcl {
     /** False if a level-0 conflict was found during initial clause loading. */
     private boolean okay = true;
 
+    private static final boolean DEBUG = Boolean.getBoolean("z3x.cdcl.debug");
+
     public Cdcl(Cnf cnf, TheoryHook theory) {
         this.cnf = cnf;
         this.theory = theory;
@@ -110,6 +112,7 @@ public final class Cdcl {
             int conflict = propagate();
             if (conflict >= 0) {
                 conflictsTotal++;
+                if (DEBUG) System.err.println("[Cdcl] B-conflict on clause " + conflict + " = " + Arrays.toString(clauses.get(conflict)) + " dl=" + decisionLevel);
                 if (decisionLevel == 0) return Result.UNSAT;
                 int[] learnt = analyze(conflict);
                 int btLevel = backtrackLevelFrom(learnt);
@@ -136,8 +139,10 @@ public final class Cdcl {
                     if (!enqueue(lit, -2)) return Result.UNSAT;
                     propagated = true;
                 } else if ((lit > 0 && value[v] == -1) || (lit < 0 && value[v] == 1)) {
-                    // T-prop conflicts with current assignment — explain and treat as conflict
+                    // T-prop conflicts with current assignment.
                     int[] expl = theory.explain(lit);
+                    if (DEBUG) System.err.println("[Cdcl] T-prop-conflict lit=" + lit + " expl=" + Arrays.toString(expl) + " dl=" + decisionLevel);
+                    expl = sortConflictByLevelDesc(expl);
                     int btLevel = backtrackLevelFrom(expl);
                     if (decisionLevel == 0 && btLevel == 0) return Result.UNSAT;
                     int cIdx = addLearnedClause(expl);
@@ -153,6 +158,15 @@ public final class Cdcl {
             if (propagated) continue;
             int[] tConflict = theory.check();
             if (tConflict != null) {
+                if (DEBUG) {
+                    int[] levels = new int[tConflict.length];
+                    for (int i = 0; i < tConflict.length; i++) levels[i] = level[Math.abs(tConflict[i])];
+                    System.err.println("[Cdcl] T-conflict: " + Arrays.toString(tConflict) + " levels=" + Arrays.toString(levels) + " dl=" + decisionLevel);
+                }
+                // Theory may return literals in arbitrary order; reorder so [0] = highest-level
+                // (asserting) literal and [1] = second-highest level — required for CDCL.
+                tConflict = sortConflictByLevelDesc(tConflict);
+                if (DEBUG) System.err.println("[Cdcl] T-conflict-sorted: " + Arrays.toString(tConflict));
                 int btLevel = backtrackLevelFrom(tConflict);
                 if (decisionLevel == 0 && btLevel == 0) return Result.UNSAT;
                 int cIdx = addLearnedClause(tConflict);
@@ -275,7 +289,6 @@ public final class Cdcl {
         int needed = lit > 0 ? 1 : -1;
         if (value[v] != 0) {
             if (value[v] == needed) return true;
-            // Disagrees with current assignment — caller must treat as conflict.
             return false;
         }
         value[v] = needed;
@@ -283,6 +296,7 @@ public final class Cdcl {
         reason[v] = reasonIdx;
         phase[v] = needed;
         trail[trailSize++] = lit;
+        if (DEBUG) System.err.println("[Cdcl] enq " + lit + " @lvl=" + decisionLevel + " reason=" + reasonIdx);
         if (cnf.isTheoryAtom(v)) theory.assertLiteral(lit);
         return true;
     }
@@ -430,6 +444,22 @@ public final class Cdcl {
             }
             int tmp = out[1]; out[1] = out[maxIdx]; out[maxIdx] = tmp;
         }
+        return out;
+    }
+
+    /** Sort a theory-conflict clause so that the highest-level literal is at index 0
+     *  (the asserting position) and the second-highest at index 1 (the watch). */
+    private int[] sortConflictByLevelDesc(int[] cl) {
+        if (cl.length <= 1) return cl;
+        Integer[] boxed = new Integer[cl.length];
+        for (int i = 0; i < cl.length; i++) boxed[i] = cl[i];
+        Arrays.sort(boxed, (a, b) -> {
+            int la = level[Math.abs(a)];
+            int lb = level[Math.abs(b)];
+            return Integer.compare(lb, la);
+        });
+        int[] out = new int[cl.length];
+        for (int i = 0; i < cl.length; i++) out[i] = boxed[i];
         return out;
     }
 
