@@ -25,6 +25,8 @@ public final class MultiTheory implements TheoryHook {
         this.theories = List.copyOf(theories);
     }
 
+    public List<TheoryHook> theories() { return theories; }
+
     @Override public void registerAtom(int var) {
         for (TheoryHook t : theories) t.registerAtom(var);
     }

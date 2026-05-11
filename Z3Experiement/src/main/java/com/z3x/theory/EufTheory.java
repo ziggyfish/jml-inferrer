@@ -115,6 +115,18 @@ public final class EufTheory implements TheoryHook {
         return out;
     }
 
+    /** Return a canonical representative for the equivalence class of {@code t}. */
+    public Term canonicalOf(Term t) {
+        try {
+            int rep = eg.repOfTerm(t);
+            // Walk back to find a Var or constant if available, else the term itself.
+            // (EGraph doesn't expose class members directly; just return the rep's term.)
+            return eg.termOfRep(rep);
+        } catch (Exception e) {
+            return t;
+        }
+    }
+
     @Override
     public int[] explain(int propagatedLit) {
         int var = Math.abs(propagatedLit);

@@ -43,14 +43,40 @@ public final class NlaAxioms {
             Term a = app.args.get(0);
             Term b = app.args.get(1);
             if (a == b) {
-                // x * x ≥ 0
                 axioms.add(tf.mkGe(t, tf.mkInt(0)));
-                // x * x = 0 ⇒ x = 0  (one direction; the other is trivial).
                 Term xIsZero = tf.mkEq(a, tf.mkInt(0));
                 Term sqIsZero = tf.mkEq(t, tf.mkInt(0));
                 axioms.add(tf.mkImplies(sqIsZero, xIsZero));
                 axioms.add(tf.mkImplies(xIsZero, sqIsZero));
+                // Monotone bound: |x| ≤ K ⇒ x*x ≤ K*K when K ≥ 0.
+                // Handled by interval propagation below.
             }
+            // Sign-aware bound implications: (x ≥ 0 ∧ y ≥ 0) ⇒ x*y ≥ 0; similar for other sign combos.
+            // These let LIA reason about non-negativity of products without doing full multiplication.
+            Term aGE0 = tf.mkGe(a, tf.mkInt(0));
+            Term aLE0 = tf.mkLe(a, tf.mkInt(0));
+            Term bGE0 = tf.mkGe(b, tf.mkInt(0));
+            Term bLE0 = tf.mkLe(b, tf.mkInt(0));
+            Term mulGE0 = tf.mkGe(t, tf.mkInt(0));
+            Term mulLE0 = tf.mkLe(t, tf.mkInt(0));
+            // both non-negative ⇒ product non-negative
+            axioms.add(tf.mkImplies(tf.mkAnd(List.of(aGE0, bGE0)), mulGE0));
+            // both non-positive ⇒ product non-negative
+            axioms.add(tf.mkImplies(tf.mkAnd(List.of(aLE0, bLE0)), mulGE0));
+            // one non-negative, one non-positive ⇒ product non-positive
+            axioms.add(tf.mkImplies(tf.mkAnd(List.of(aGE0, bLE0)), mulLE0));
+            axioms.add(tf.mkImplies(tf.mkAnd(List.of(aLE0, bGE0)), mulLE0));
+            // Zero propagation: if either factor is 0, product is 0.
+            Term aIsZero = tf.mkEq(a, tf.mkInt(0));
+            Term bIsZero = tf.mkEq(b, tf.mkInt(0));
+            Term tIsZero = tf.mkEq(t, tf.mkInt(0));
+            axioms.add(tf.mkImplies(tf.mkOr(List.of(aIsZero, bIsZero)), tIsZero));
+            // Identity: a*1 = a.
+            axioms.add(tf.mkImplies(tf.mkEq(a, tf.mkInt(1)), tf.mkEq(t, b)));
+            axioms.add(tf.mkImplies(tf.mkEq(b, tf.mkInt(1)), tf.mkEq(t, a)));
+            // Negation: a*(-1) = -a.
+            axioms.add(tf.mkImplies(tf.mkEq(a, tf.mkInt(-1)), tf.mkEq(t, tf.mkSub(List.of(b)))));
+            axioms.add(tf.mkImplies(tf.mkEq(b, tf.mkInt(-1)), tf.mkEq(t, tf.mkSub(List.of(a)))));
         }
     }
 }

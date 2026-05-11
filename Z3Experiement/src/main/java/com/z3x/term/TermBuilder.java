@@ -30,6 +30,12 @@ public final class TermBuilder {
                         && l.items().get(2) instanceof SExpr.Atom w) {
                     return new Sort.BitVec(Integer.parseInt(w.text()));
                 }
+                if (head.text().equals("_") && l.items().size() == 4
+                        && l.items().get(1) instanceof SExpr.Atom fp && fp.text().equals("FloatingPoint")
+                        && l.items().get(2) instanceof SExpr.Atom eb
+                        && l.items().get(3) instanceof SExpr.Atom sb) {
+                    return new Sort.FloatingPoint(Integer.parseInt(eb.text()), Integer.parseInt(sb.text()));
+                }
             }
         }
         throw new IllegalStateException("Cannot parse sort: " + e);
@@ -63,6 +69,11 @@ public final class TermBuilder {
             case SYMBOL:
                 if (text.equals("true")) return tf.mkBool(true);
                 if (text.equals("false")) return tf.mkBool(false);
+                if (text.equals("RNE") || text.equals("roundNearestTiesToEven")) return tf.mkRm(Term.RmConst.Mode.RNE);
+                if (text.equals("RNA") || text.equals("roundNearestTiesToAway")) return tf.mkRm(Term.RmConst.Mode.RNA);
+                if (text.equals("RTP") || text.equals("roundTowardPositive")) return tf.mkRm(Term.RmConst.Mode.RTP);
+                if (text.equals("RTN") || text.equals("roundTowardNegative")) return tf.mkRm(Term.RmConst.Mode.RTN);
+                if (text.equals("RTZ") || text.equals("roundTowardZero")) return tf.mkRm(Term.RmConst.Mode.RTZ);
                 Term let = letBindings.get(text);
                 if (let != null) return let;
                 if (text.startsWith("#b")) {
@@ -87,6 +98,11 @@ public final class TermBuilder {
     private Term buildList(SExpr.SList l) {
         if (l.items().isEmpty()) throw new IllegalStateException("Empty application");
         SExpr head = l.items().get(0);
+        // Indexed BV ops have compound heads: ((_ extract HI LO) bv), etc.
+        if (head instanceof SExpr.SList headList && headList.items().size() >= 2
+                && headList.items().get(0) instanceof SExpr.Atom headAt && headAt.text().equals("_")) {
+            return buildIndexedOp(headList, l);
+        }
         if (!(head instanceof SExpr.Atom op)) {
             throw new IllegalStateException("Compound head not yet supported: " + head);
         }
@@ -101,14 +117,42 @@ public final class TermBuilder {
             // (! body :pattern ...) — strip annotations, keep body.
             return build(l.items().get(1));
         }
-        if (name.equals("_") && l.items().size() == 3) {
-            // (_ bvN W) bit-vector literal
+        if (name.equals("_") && l.items().size() >= 3) {
             SExpr.Atom valAtom = (SExpr.Atom) l.items().get(1);
             String valName = valAtom.text();
             if (valName.startsWith("bv")) {
                 BigInteger val = new BigInteger(valName.substring(2));
                 int w = Integer.parseInt(((SExpr.Atom) l.items().get(2)).text());
                 return tf.mkBv(val, w);
+            }
+            // FP special values: (_ +zero EB SB), (_ -zero EB SB), (_ +oo EB SB), (_ -oo EB SB), (_ NaN EB SB).
+            if ((valName.equals("+zero") || valName.equals("-zero") || valName.equals("+oo")
+                    || valName.equals("-oo") || valName.equals("NaN")) && l.items().size() == 4) {
+                int eb = Integer.parseInt(((SExpr.Atom) l.items().get(2)).text());
+                int sb = Integer.parseInt(((SExpr.Atom) l.items().get(3)).text());
+                Term.FpConst.Kind kind = switch (valName) {
+                    case "+zero" -> Term.FpConst.Kind.PLUS_ZERO;
+                    case "-zero" -> Term.FpConst.Kind.MINUS_ZERO;
+                    case "+oo"   -> Term.FpConst.Kind.PLUS_INF;
+                    case "-oo"   -> Term.FpConst.Kind.MINUS_INF;
+                    default      -> Term.FpConst.Kind.NAN;
+                };
+                return tf.mkFp(valName.startsWith("-"), BigInteger.ZERO, BigInteger.ZERO, eb, sb, kind);
+            }
+        }
+        // (fp #bs #be #bm) literal.
+        if (name.equals("fp") && l.items().size() == 4) {
+            String s = ((SExpr.Atom) l.items().get(1)).text();
+            String e = ((SExpr.Atom) l.items().get(2)).text();
+            String m = ((SExpr.Atom) l.items().get(3)).text();
+            if (s.startsWith("#b") && e.startsWith("#b") && m.startsWith("#b")) {
+                boolean sign = s.equals("#b1");
+                BigInteger exp = new BigInteger(e.substring(2), 2);
+                BigInteger sig = new BigInteger(m.substring(2), 2);
+                int eb = e.length() - 2;
+                int sb = m.length() - 2 + 1; // significand including hidden bit
+                Term.FpConst.Kind kind = classifyFp(sign, exp, sig, eb, sb);
+                return tf.mkFp(sign, exp, sig, eb, sb, kind);
             }
         }
         List<Term> args = new ArrayList<>(l.items().size() - 1);
@@ -146,10 +190,70 @@ public final class TermBuilder {
             case "bvadd","bvsub","bvneg","bvnot","bvand","bvor","bvxor","bvmul",
                  "bvshl","bvlshr","bvashr","bvudiv","bvurem","bvsdiv","bvsrem","bvsmod"
                     -> tf.mkAppRaw(name, args, args.get(0).sort);
+            case "concat" -> {
+                int w = 0;
+                for (Term a : args) w += ((Sort.BitVec) a.sort).width();
+                yield tf.mkAppRaw("concat", args, new Sort.BitVec(w));
+            }
+            // FP predicates — Bool result.
+            case "fp.isNaN","fp.isInfinite","fp.isZero","fp.isNormal","fp.isSubnormal",
+                 "fp.isPositive","fp.isNegative","fp.eq","fp.lt","fp.leq","fp.gt","fp.geq"
+                    -> tf.mkAppRaw(name, args, Sort.BOOL);
+            // FP arithmetic (parsed but unfolded only for special cases).
+            case "fp.neg","fp.abs" -> tf.mkAppRaw(name, args, args.get(0).sort);
+            case "fp.add","fp.sub","fp.mul","fp.div","fp.rem","fp.sqrt","fp.fma","fp.min","fp.max"
+                    -> {
+                // The result sort = first non-rounding-mode arg's sort.
+                Sort outSort = null;
+                for (Term a : args) if (!(a.sort instanceof Sort.Builtin b && b.name().equals("RoundingMode"))) { outSort = a.sort; break; }
+                yield tf.mkAppRaw(name, args, outSort != null ? outSort : args.get(args.size() - 1).sort);
+            }
             case "bvult","bvule","bvugt","bvuge","bvslt","bvsle","bvsgt","bvsge"
                     -> tf.mkAppRaw(name, args, Sort.BOOL);
             default         -> tf.mkApp(name, args);
         };
+    }
+
+    private static Term.FpConst.Kind classifyFp(boolean sign, BigInteger exp, BigInteger sig, int eb, int sb) {
+        BigInteger allOnesExp = BigInteger.ONE.shiftLeft(eb).subtract(BigInteger.ONE);
+        if (exp.signum() == 0 && sig.signum() == 0) return sign ? Term.FpConst.Kind.MINUS_ZERO : Term.FpConst.Kind.PLUS_ZERO;
+        if (exp.equals(allOnesExp)) {
+            if (sig.signum() == 0) return sign ? Term.FpConst.Kind.MINUS_INF : Term.FpConst.Kind.PLUS_INF;
+            return Term.FpConst.Kind.NAN;
+        }
+        return Term.FpConst.Kind.NORMAL;
+    }
+
+    private Term buildIndexedOp(SExpr.SList headList, SExpr.SList l) {
+        String idxOp = ((SExpr.Atom) headList.items().get(1)).text();
+        List<SExpr> idxs = headList.items().subList(2, headList.items().size());
+        List<Term> args = new ArrayList<>(l.items().size() - 1);
+        for (int i = 1; i < l.items().size(); i++) args.add(build(l.items().get(i)));
+        switch (idxOp) {
+            case "extract": {
+                int hi = Integer.parseInt(((SExpr.Atom) idxs.get(0)).text());
+                int lo = Integer.parseInt(((SExpr.Atom) idxs.get(1)).text());
+                Sort outSort = new Sort.BitVec(hi - lo + 1);
+                return tf.mkAppRaw("(_ extract " + hi + " " + lo + ")", args, outSort);
+            }
+            case "zero_extend":
+            case "sign_extend": {
+                int n = Integer.parseInt(((SExpr.Atom) idxs.get(0)).text());
+                Sort.BitVec srcSort = (Sort.BitVec) args.get(0).sort;
+                Sort outSort = new Sort.BitVec(srcSort.width() + n);
+                return tf.mkAppRaw("(_ " + idxOp + " " + n + ")", args, outSort);
+            }
+            case "rotate_left":
+            case "rotate_right":
+            case "repeat": {
+                int n = Integer.parseInt(((SExpr.Atom) idxs.get(0)).text());
+                Sort.BitVec srcSort = (Sort.BitVec) args.get(0).sort;
+                Sort outSort = idxOp.equals("repeat") ? new Sort.BitVec(srcSort.width() * n) : srcSort;
+                return tf.mkAppRaw("(_ " + idxOp + " " + n + ")", args, outSort);
+            }
+            default:
+                throw new IllegalStateException("Unsupported indexed op: " + idxOp);
+        }
     }
 
     private Term buildQuantifier(String name, SExpr.SList l) {

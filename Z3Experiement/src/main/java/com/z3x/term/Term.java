@@ -117,6 +117,41 @@ public abstract sealed class Term {
         }
     }
 
+    /** IEEE-754 floating-point literal. Stored as packed bits (sign:1, exp:eb, sig:sb-1). */
+    public static final class FpConst extends Term {
+        public final boolean sign;
+        public final java.math.BigInteger exp; // unsigned exponent bits
+        public final java.math.BigInteger sig; // unsigned significand bits (without hidden 1)
+        public final int eb, sb;
+        /** Tag for special values. */
+        public enum Kind { NORMAL, PLUS_ZERO, MINUS_ZERO, PLUS_INF, MINUS_INF, NAN }
+        public final Kind kind;
+        public FpConst(int id, boolean sign, java.math.BigInteger exp, java.math.BigInteger sig, int eb, int sb, Kind kind) {
+            super(id, new Sort.FloatingPoint(eb, sb));
+            this.sign = sign; this.exp = exp; this.sig = sig; this.eb = eb; this.sb = sb; this.kind = kind;
+        }
+        @Override public List<Term> children() { return List.of(); }
+        @Override public String head() {
+            return switch (kind) {
+                case PLUS_ZERO  -> "(_ +zero "  + eb + " " + sb + ")";
+                case MINUS_ZERO -> "(_ -zero "  + eb + " " + sb + ")";
+                case PLUS_INF   -> "(_ +oo "    + eb + " " + sb + ")";
+                case MINUS_INF  -> "(_ -oo "    + eb + " " + sb + ")";
+                case NAN        -> "(_ NaN "    + eb + " " + sb + ")";
+                default         -> "(fp " + (sign ? "#b1" : "#b0") + " #b" + exp.toString(2) + " #b" + sig.toString(2) + ")";
+            };
+        }
+    }
+
+    /** Rounding mode constant: RNE, RNA, RTP, RTN, RTZ. */
+    public static final class RmConst extends Term {
+        public enum Mode { RNE, RNA, RTP, RTN, RTZ }
+        public final Mode mode;
+        public RmConst(int id, Mode mode) { super(id, Sort.ROUNDING_MODE); this.mode = mode; }
+        @Override public List<Term> children() { return List.of(); }
+        @Override public String head() { return mode.name(); }
+    }
+
     public static final class StrConst extends Term {
         public final String value;
         public StrConst(int id, String value) { super(id, Sort.STRING); this.value = value; }
@@ -152,6 +187,8 @@ public abstract sealed class Term {
             public QuantK { names = List.copyOf(names); sorts = List.copyOf(sorts); }
         }
         record StrK(String value) implements Key {}
+        record FpK(boolean sign, java.math.BigInteger exp, java.math.BigInteger sig, int eb, int sb, FpConst.Kind kind) implements Key {}
+        record RmK(RmConst.Mode mode) implements Key {}
     }
 
     public static int hash(Key k) { return Objects.hashCode(k); }

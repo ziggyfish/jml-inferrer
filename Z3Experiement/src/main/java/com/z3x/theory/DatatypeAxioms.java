@@ -117,20 +117,25 @@ public final class DatatypeAxioms {
 
     private void emitCtorAxioms(Term.App ctorApp, Sort.Datatype dt, Sort.Constructor ctor) {
         if (!seenCtorTerms.add(ctorApp.id)) return;
-        // Selector axioms: sel_i(C(x1..xn)) = x_i.
         for (int i = 0; i < ctor.selectors().size(); i++) {
             Sort.Selector sel = ctor.selectors().get(i);
             Term selApp = tf.mkAppRaw(sel.name(), List.of(ctorApp), sel.sort());
             axioms.add(tf.mkEq(selApp, ctorApp.args.get(i)));
         }
-        // Tester positive: is-C(C(args)) = true.
         Term testerThis = tf.mkAppRaw("is-" + ctor.name(), List.of(ctorApp), Sort.BOOL);
         axioms.add(testerThis);
-        // Tester negative + disjointness: for every other constructor D ≠ C.
         for (Sort.Constructor other : dt.constructors()) {
             if (other.name().equals(ctor.name())) continue;
             Term testerOther = tf.mkAppRaw("is-" + other.name(), List.of(ctorApp), Sort.BOOL);
             axioms.add(tf.mkNot(testerOther));
+        }
+        // Acyclicity: (C ... t ...) ≠ t for any recursive arg t of datatype sort.
+        // This ensures cons-cons chains can't form cycles like x = (cons _ x).
+        for (int i = 0; i < ctorApp.args.size(); i++) {
+            Term arg = ctorApp.args.get(i);
+            if (Sort.equal(arg.sort, dt)) {
+                axioms.add(tf.mkNot(tf.mkEq(ctorApp, arg)));
+            }
         }
     }
 }

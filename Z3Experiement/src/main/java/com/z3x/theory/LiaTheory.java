@@ -326,10 +326,16 @@ public final class LiaTheory implements TheoryHook {
 
     @Override
     public int[] explain(int propagatedLit) {
-        // Conservative: the entire asserted LIA stack implies the propagation.
         int[] out = new int[assertedStack.size() + 1];
         for (int i = 0; i < assertedStack.size(); i++) out[i] = -assertedStack.get(i);
         out[out.length - 1] = propagatedLit;
         return out;
+    }
+
+    /** Best-effort model extraction: return the Simplex value of any registered atomic Int/Real term. */
+    public Rational modelValue(Term t) {
+        Integer v = termIdToVar.get(t.id);
+        if (v == null) return null;
+        return simplex.valueOf(v);
     }
 }

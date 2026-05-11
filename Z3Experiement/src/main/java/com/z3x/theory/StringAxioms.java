@@ -41,7 +41,6 @@ public final class StringAxioms {
         if (t instanceof Term.StrConst sc) {
             Term lenLit = tf.mkAppRaw("str.len", List.of((Term) sc), Sort.INT);
             axioms.add(tf.mkEq(lenLit, tf.mkInt(sc.value.length())));
-            // Also assert (str.len lit) >= 0 directly so the bound is in LIA scope.
             axioms.add(tf.mkGe(lenLit, tf.mkInt(0)));
         }
         if (t instanceof Term.App app) {
@@ -57,8 +56,62 @@ public final class StringAxioms {
             if (app.symbol.equals("str.len")) {
                 axioms.add(tf.mkGe(t, tf.mkInt(0)));
             }
+            if (app.symbol.equals("str.at") && app.args.size() == 2) {
+                // str.at returns a string of length 1 when index is in-bounds, else "".
+                Term s = app.args.get(0);
+                Term idx = app.args.get(1);
+                Term lenS = tf.mkAppRaw("str.len", List.of(s), Sort.INT);
+                Term lenAt = tf.mkAppRaw("str.len", List.of((Term) app), Sort.INT);
+                Term inBounds = tf.mkAnd(List.of(tf.mkGe(idx, tf.mkInt(0)), tf.mkLt(idx, lenS)));
+                axioms.add(tf.mkEq(lenAt, tf.mkIte(inBounds, tf.mkInt(1), tf.mkInt(0))));
+            }
+            if (app.symbol.equals("str.substr") && app.args.size() == 3) {
+                // str.substr s start len: result length = max(0, min(len, len(s) - start)) if start in [0, len(s)] else 0.
+                Term s = app.args.get(0);
+                Term start = app.args.get(1);
+                Term l = app.args.get(2);
+                Term lenS = tf.mkAppRaw("str.len", List.of(s), Sort.INT);
+                Term lenSub = tf.mkAppRaw("str.len", List.of((Term) app), Sort.INT);
+                Term validStart = tf.mkAnd(List.of(tf.mkGe(start, tf.mkInt(0)), tf.mkLe(start, lenS)));
+                Term remaining = tf.mkSub(List.of(lenS, start));
+                // Upper bound: min(l, remaining), clamped at 0.
+                Term capped = tf.mkIte(tf.mkLt(l, remaining), l, remaining);
+                Term nonNeg = tf.mkIte(tf.mkLt(capped, tf.mkInt(0)), tf.mkInt(0), capped);
+                axioms.add(tf.mkEq(lenSub, tf.mkIte(validStart, nonNeg, tf.mkInt(0))));
+                axioms.add(tf.mkGe(lenSub, tf.mkInt(0)));
+            }
+            if (app.symbol.equals("str.contains") && app.args.size() == 2) {
+                // s contains t implies len(t) <= len(s).
+                Term s = app.args.get(0);
+                Term sub = app.args.get(1);
+                Term lenS = tf.mkAppRaw("str.len", List.of(s), Sort.INT);
+                Term lenSub = tf.mkAppRaw("str.len", List.of(sub), Sort.INT);
+                axioms.add(tf.mkImplies((Term) app, tf.mkLe(lenSub, lenS)));
+            }
+            if (app.symbol.equals("str.prefixof") && app.args.size() == 2) {
+                // prefix t of s implies len(t) <= len(s).
+                Term pre = app.args.get(0);
+                Term s = app.args.get(1);
+                axioms.add(tf.mkImplies((Term) app,
+                        tf.mkLe(tf.mkAppRaw("str.len", List.of(pre), Sort.INT),
+                                tf.mkAppRaw("str.len", List.of(s), Sort.INT))));
+            }
+            if (app.symbol.equals("str.suffixof") && app.args.size() == 2) {
+                Term suf = app.args.get(0);
+                Term s = app.args.get(1);
+                axioms.add(tf.mkImplies((Term) app,
+                        tf.mkLe(tf.mkAppRaw("str.len", List.of(suf), Sort.INT),
+                                tf.mkAppRaw("str.len", List.of(s), Sort.INT))));
+            }
+            if (app.symbol.equals("str.indexof") && app.args.size() == 3) {
+                // result is -1 (not found) or in [0, len(s)).
+                Term s = app.args.get(0);
+                Term lenS = tf.mkAppRaw("str.len", List.of(s), Sort.INT);
+                axioms.add(tf.mkOr(List.of(
+                        tf.mkEq((Term) app, tf.mkInt(-1)),
+                        tf.mkAnd(List.of(tf.mkGe((Term) app, tf.mkInt(0)), tf.mkLt((Term) app, lenS))))));
+            }
         }
-        // For every String-sorted term occurrence, also produce (str.len t) >= 0.
         if (Sort.equal(t.sort, Sort.STRING)) {
             Term lenT = tf.mkAppRaw("str.len", List.of(t), Sort.INT);
             axioms.add(tf.mkGe(lenT, tf.mkInt(0)));

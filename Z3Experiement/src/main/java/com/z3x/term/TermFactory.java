@@ -49,6 +49,15 @@ public final class TermFactory {
         return (Term.StrConst) intern(new Term.Key.StrK(value), id -> new Term.StrConst(id, value));
     }
 
+    public Term.FpConst mkFp(boolean sign, BigInteger exp, BigInteger sig, int eb, int sb, Term.FpConst.Kind kind) {
+        return (Term.FpConst) intern(new Term.Key.FpK(sign, exp, sig, eb, sb, kind),
+                id -> new Term.FpConst(id, sign, exp, sig, eb, sb, kind));
+    }
+
+    public Term.RmConst mkRm(Term.RmConst.Mode mode) {
+        return (Term.RmConst) intern(new Term.Key.RmK(mode), id -> new Term.RmConst(id, mode));
+    }
+
     public List<Term> allTerms() { return List.copyOf(nodes); }
 
     public Term termById(int id) { return nodes.get(id); }
@@ -201,12 +210,16 @@ public final class TermFactory {
             throw new IllegalStateException("= sort mismatch: " + a.sort + " vs " + b.sort);
         }
         if (a == b) return mkBool(true);
-        // Constant folding: any two structurally distinct constants of the same sort are unequal.
         if (a instanceof Term.BoolConst && b instanceof Term.BoolConst) return mkBool(false);
         if (a instanceof Term.IntConst && b instanceof Term.IntConst) return mkBool(false);
         if (a instanceof Term.RatConst && b instanceof Term.RatConst) return mkBool(false);
         if (a instanceof Term.BvConst ba && b instanceof Term.BvConst bb) {
             return mkBool(ba.width == bb.width && ba.value.equals(bb.value));
+        }
+        // Boolean equality with a constant: (= X true) → X, (= X false) → (not X).
+        if (a.sort == Sort.BOOL) {
+            if (a instanceof Term.BoolConst ac) return ac.value ? b : mkNot(b);
+            if (b instanceof Term.BoolConst bc) return bc.value ? a : mkNot(a);
         }
         return mkAppRaw("=", List.of(a, b), Sort.BOOL);
     }

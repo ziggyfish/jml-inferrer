@@ -12,6 +12,7 @@ import com.z3x.theory.ArrayExtensionality;
 import com.z3x.theory.ArrayPreprocessor;
 import com.z3x.theory.DatatypeAxioms;
 import com.z3x.theory.ConstantPropagator;
+import com.z3x.theory.FpAxioms;
 import com.z3x.theory.NlaAxioms;
 import com.z3x.theory.RecursiveExpander;
 import com.z3x.theory.StringAxioms;
@@ -38,6 +39,8 @@ public final class Solver {
     private final TermBuilder tb = new TermBuilder(tf);
     private final List<List<Term>> assertionStack = new ArrayList<>();
     private final List<List<String>> assertionNameStack = new ArrayList<>();
+    /** declared (declare-const NAME SORT) tracked here so get-model can dump their values. */
+    private final java.util.Map<String, Term> declaredConstants = new java.util.LinkedHashMap<>();
     private String logic = "";
     /** Last seen (set-info :status ...) value, or empty if none. */
     private String declaredStatus = "";
@@ -114,6 +117,7 @@ public final class Solver {
                 String name = ((SExpr.Atom) l.items().get(1)).text();
                 Sort s = tb.resolveSort(l.items().get(2));
                 tf.declareFunction(name, List.of(), s);
+                declaredConstants.put(name, tf.mkVar(name, s));
             }
             case "declare-datatypes" -> handleDeclareDatatypes(l);
             case "declare-datatype" -> handleDeclareDatatype(l);
@@ -243,6 +247,14 @@ public final class Solver {
                 extended.addAll(nax.axioms());
             }
         }
+        if (ff.hasFp) {
+            FpAxioms fpx = new FpAxioms(tf);
+            for (Term t : extended) fpx.collectFrom(t);
+            if (!fpx.axioms().isEmpty()) {
+                if (extended == all) extended = new ArrayList<>(all);
+                extended.addAll(fpx.axioms());
+            }
+        }
         List<Term> qRewritten;
         Quantifiers q = null;
         // Array extensionality may have just introduced foralls; if hasArrays force quantifier pass.
@@ -308,13 +320,36 @@ public final class Solver {
         }
         if (r == Cdcl.Result.SAT && produceModels) {
             lastModel.clear();
-            // Extract value assignments for declared int/bool constants. Theory-specific value
-            // reconstruction (LIA's Simplex values, EUF's class representatives) is a follow-up.
+            // Boolean variables: pull from SAT assignment.
             for (int v = 1; v <= cnf.numVars(); v++) {
                 Term t = cnf.termForVar(v);
-                if (t instanceof Term.Var var) {
+                if (t instanceof Term.Var var && var.sort == Sort.BOOL) {
                     int val = sat.valueOf(v);
-                    lastModel.put(var.name, val == 1 ? tf.mkBool(true) : val == -1 ? tf.mkBool(false) : t);
+                    if (val != 0) lastModel.put(var.name, tf.mkBool(val == 1));
+                }
+            }
+            // LIA values: ask the theory for the Simplex assignment of declared Int/Real constants.
+            LiaTheory liaT = findTheory(theory, LiaTheory.class);
+            EufTheory eufT = findTheory(theory, EufTheory.class);
+            for (var entry : declaredConstants.entrySet()) {
+                Term t = entry.getValue();
+                if (lastModel.containsKey(entry.getKey())) continue;
+                if (t.sort == Sort.INT || t.sort == Sort.REAL) {
+                    if (liaT != null) {
+                        com.z3x.theory.Rational val = liaT.modelValue(t);
+                        if (val != null) {
+                            if (val.isInteger()) lastModel.put(entry.getKey(), tf.mkInt(val.num()));
+                            else lastModel.put(entry.getKey(), tf.mkRat(val.num(), val.den()));
+                            continue;
+                        }
+                    }
+                }
+                if (eufT != null) {
+                    Term canon = eufT.canonicalOf(t);
+                    if (canon != t) lastModel.put(entry.getKey(), canon);
+                    else lastModel.put(entry.getKey(), t);
+                } else {
+                    lastModel.put(entry.getKey(), t);
                 }
             }
         }
@@ -322,7 +357,7 @@ public final class Solver {
     }
 
     private static final class FeatureFlags {
-        boolean hasArrays, hasBv, hasIte, hasQuantifiers, hasStrings, hasMul;
+        boolean hasArrays, hasBv, hasIte, hasQuantifiers, hasStrings, hasMul, hasFp;
     }
 
     private FeatureFlags scanFeatures(List<Term> assertions) {
@@ -360,6 +395,8 @@ public final class Solver {
         }
         if (t instanceof Term.StrConst) ff.hasStrings = true;
         if (t instanceof Term.BvConst) ff.hasBv = true;
+        if (t instanceof Term.FpConst) ff.hasFp = true;
+        if (t.sort instanceof Sort.FloatingPoint) ff.hasFp = true;
         for (Term c : t.children()) scanRec(c, ff, seen);
     }
 
@@ -475,8 +512,11 @@ public final class Solver {
     }
 
     private void registerDatatype(String dname, SExpr.SList ctorList) {
-        // First pass: parse the structure without registering any functions yet, so we can
-        // build the final Sort.Datatype instance before any function signatures reference it.
+        // Install the datatype sort with empty ctors first, so recursive references in selector
+        // sorts (e.g. (tail List)) resolve to this same Datatype instance. Then fill in ctors.
+        Sort.Datatype dtSort = new Sort.Datatype(dname, new ArrayList<>());
+        tf.replaceSort(dname, dtSort);
+        datatypes.put(dname, dtSort);
         List<Sort.Constructor> ctors = new ArrayList<>();
         List<List<Sort>> ctorArgSorts = new ArrayList<>();
         for (SExpr c : ctorList.items()) {
@@ -494,10 +534,7 @@ public final class Solver {
             ctors.add(new Sort.Constructor(cname, sels));
             ctorArgSorts.add(argSorts);
         }
-        Sort.Datatype dtSort = new Sort.Datatype(dname, ctors);
-        tf.replaceSort(dname, dtSort);
-        datatypes.put(dname, dtSort);
-        // Second pass: now register constructors, selectors, testers with the final dtSort.
+        dtSort.setConstructors(ctors);
         for (int ci = 0; ci < ctors.size(); ci++) {
             Sort.Constructor c = ctors.get(ci);
             List<Sort> argSorts = ctorArgSorts.get(ci);
@@ -507,6 +544,15 @@ public final class Solver {
                 tf.declareFunction(sel.name(), List.of((Sort) dtSort), sel.sort());
             }
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends TheoryHook> T findTheory(TheoryHook root, Class<T> cls) {
+        if (cls.isInstance(root)) return (T) root;
+        if (root instanceof com.z3x.theory.MultiTheory mt) {
+            for (var sub : mt.theories()) if (cls.isInstance(sub)) return (T) sub;
+        }
+        return null;
     }
 
     private boolean logicNeedsEuf() {

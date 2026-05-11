@@ -115,6 +115,56 @@ public final class BvBlaster {
             return out;
         }
         if (t instanceof Term.App app) {
+            // Indexed BV ops have synthesized symbols like "(_ extract HI LO)".
+            if (app.symbol.startsWith("(_ ")) {
+                String body = app.symbol.substring(3, app.symbol.length() - 1); // strip "(_ " and ")"
+                String[] parts = body.split(" ");
+                String op = parts[0];
+                if (op.equals("extract")) {
+                    int hi = Integer.parseInt(parts[1]);
+                    int lo = Integer.parseInt(parts[2]);
+                    List<Term> src = blastBv(app.args.get(0));
+                    List<Term> out = new ArrayList<>(hi - lo + 1);
+                    for (int i = lo; i <= hi; i++) out.add(src.get(i));
+                    return out;
+                }
+                if (op.equals("zero_extend")) {
+                    int n = Integer.parseInt(parts[1]);
+                    List<Term> src = blastBv(app.args.get(0));
+                    List<Term> out = new ArrayList<>(src.size() + n);
+                    out.addAll(src);
+                    for (int i = 0; i < n; i++) out.add(tf.mkBool(false));
+                    return out;
+                }
+                if (op.equals("sign_extend")) {
+                    int n = Integer.parseInt(parts[1]);
+                    List<Term> src = blastBv(app.args.get(0));
+                    Term sign = src.get(src.size() - 1);
+                    List<Term> out = new ArrayList<>(src.size() + n);
+                    out.addAll(src);
+                    for (int i = 0; i < n; i++) out.add(sign);
+                    return out;
+                }
+                if (op.equals("rotate_left") || op.equals("rotate_right")) {
+                    int n = Integer.parseInt(parts[1]);
+                    List<Term> src = blastBv(app.args.get(0));
+                    int w = src.size();
+                    n = ((n % w) + w) % w;
+                    List<Term> out = new ArrayList<>(w);
+                    for (int i = 0; i < w; i++) {
+                        int srcIdx = op.equals("rotate_left") ? ((i - n + w) % w) : ((i + n) % w);
+                        out.add(src.get(srcIdx));
+                    }
+                    return out;
+                }
+                if (op.equals("repeat")) {
+                    int n = Integer.parseInt(parts[1]);
+                    List<Term> src = blastBv(app.args.get(0));
+                    List<Term> out = new ArrayList<>(src.size() * n);
+                    for (int k = 0; k < n; k++) out.addAll(src);
+                    return out;
+                }
+            }
             switch (app.symbol) {
                 case "bvnot":
                     return mapList(blastBv(app.args.get(0)), tf::mkNot);
@@ -146,6 +196,15 @@ public final class BvBlaster {
                 case "bvsdiv": return signedDivRem(blastBv(app.args.get(0)), blastBv(app.args.get(1)), true, false);
                 case "bvsrem": return signedDivRem(blastBv(app.args.get(0)), blastBv(app.args.get(1)), false, false);
                 case "bvsmod": return signedDivRem(blastBv(app.args.get(0)), blastBv(app.args.get(1)), false, true);
+                case "concat": {
+                    List<Term> out = new ArrayList<>(width);
+                    // SMT-LIB concat: leftmost arg becomes MSB. We store LSB-first internally,
+                    // so the order is: args[last] bits first (low), then args[i-1], ... , args[0] last (high).
+                    for (int i = app.args.size() - 1; i >= 0; i--) {
+                        out.addAll(blastBv(app.args.get(i)));
+                    }
+                    return out;
+                }
                 default: break;
             }
         }

@@ -191,6 +191,22 @@ public final class EGraph {
         }
     }
 
+    /** Return the Term whose node is the given rep id. */
+    public Term termOfRep(int repNodeId) {
+        // Walk the class via the circular next-list and pick the most-constant-looking term.
+        int start = repNodeId;
+        int cur = start;
+        Term best = tf.termById(nodes.get(cur).termId);
+        do {
+            Term t = tf.termById(nodes.get(cur).termId);
+            if (t instanceof Term.IntConst || t instanceof Term.BoolConst || t instanceof Term.RatConst) {
+                return t;
+            }
+            cur = nodes.get(cur).next;
+        } while (cur != start);
+        return best;
+    }
+
     public int rep(int n) {
         Node nd = nodes.get(n);
         while (nd.parent != n) { n = nd.parent; nd = nodes.get(n); }
