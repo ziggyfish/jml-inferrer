@@ -171,35 +171,65 @@ public final class Solver {
     private Verdict checkSat() {
         List<Term> all = new ArrayList<>();
         for (List<Term> frame : assertionStack) all.addAll(frame);
-        Quantifiers q = new Quantifiers(tf);
-        ArrayExtensionality ext = new ArrayExtensionality(tf);
-        ArrayPreprocessor arr = new ArrayPreprocessor(tf);
-        IteEliminator ite = new IteEliminator(tf);
-        BvBlaster bv = new BvBlaster(tf);
+        // Cheap feature-scan: avoid preprocessing passes whose feature isn't present.
+        FeatureFlags ff = scanFeatures(all);
         Cnf cnf = new Cnf();
-        // Extensionality first so the introduced selects flow through array preprocessing
-        // and the introduced forall flows through quantifier handling.
-        List<Term> extended = new ArrayList<>(all.size());
-        for (Term t : all) extended.add(ext.rewrite(t));
-        // Datatype axiom expansion: ground instantiation per constructor occurrence.
+        List<Term> extended;
+        if (ff.hasArrays) {
+            ArrayExtensionality ext = new ArrayExtensionality(tf);
+            extended = new ArrayList<>(all.size());
+            for (Term t : all) extended.add(ext.rewrite(t));
+        } else {
+            extended = all;
+        }
         if (!datatypes.isEmpty()) {
             DatatypeAxioms dax = new DatatypeAxioms(tf, datatypes.values());
             for (Term t : extended) dax.collectFrom(t);
-            extended.addAll(dax.axioms());
+            if (!dax.axioms().isEmpty()) {
+                if (extended == all) extended = new ArrayList<>(all);
+                extended.addAll(dax.axioms());
+            }
         }
-        // String axioms: length of literals, concat decomposition, non-negativity.
-        StringAxioms sax = new StringAxioms(tf);
-        for (Term t : extended) sax.collectFrom(t);
-        extended.addAll(sax.axioms());
-        // Best-effort NLA: x*x >= 0 etc. for monomials.
-        NlaAxioms nax = new NlaAxioms(tf);
-        for (Term t : extended) nax.collectFrom(t);
-        extended.addAll(nax.axioms());
-        List<Term> qRewritten = q.rewriteAll(extended);
-        qRewritten.addAll(q.sideAssertions());
-        List<Term> rewritten = new ArrayList<>();
-        for (Term t : qRewritten) rewritten.add(bv.rewrite(ite.rewrite(arr.rewrite(t))));
-        for (Term t : ite.sideAssertions()) rewritten.add(bv.rewrite(ite.rewrite(arr.rewrite(t))));
+        if (ff.hasStrings) {
+            StringAxioms sax = new StringAxioms(tf);
+            for (Term t : extended) sax.collectFrom(t);
+            if (!sax.axioms().isEmpty()) {
+                if (extended == all) extended = new ArrayList<>(all);
+                extended.addAll(sax.axioms());
+            }
+        }
+        if (ff.hasMul) {
+            NlaAxioms nax = new NlaAxioms(tf);
+            for (Term t : extended) nax.collectFrom(t);
+            if (!nax.axioms().isEmpty()) {
+                if (extended == all) extended = new ArrayList<>(all);
+                extended.addAll(nax.axioms());
+            }
+        }
+        List<Term> qRewritten;
+        Quantifiers q = null;
+        // Array extensionality may have just introduced foralls; if hasArrays force quantifier pass.
+        if (ff.hasQuantifiers || ff.hasArrays) {
+            q = new Quantifiers(tf);
+            qRewritten = q.rewriteAll(extended);
+            qRewritten.addAll(q.sideAssertions());
+        } else {
+            qRewritten = extended;
+        }
+        // ArrayPreprocessor introduces (ite ...) terms over the range sort; BvBlaster's div/rem
+        // also introduce them. Force ITE elim on whenever either preprocessor will run.
+        boolean needIte = ff.hasIte || ff.hasArrays || ff.hasBv;
+        IteEliminator ite = needIte ? new IteEliminator(tf) : null;
+        ArrayPreprocessor arr = ff.hasArrays ? new ArrayPreprocessor(tf) : null;
+        BvBlaster bv = ff.hasBv ? new BvBlaster(tf) : null;
+        List<Term> rewritten;
+        if (ite == null && arr == null && bv == null) {
+            rewritten = qRewritten;
+        } else {
+            rewritten = new ArrayList<>(qRewritten.size());
+            for (Term t : qRewritten) rewritten.add(applyPipeline(t, arr, ite, bv));
+            if (ite != null) for (Term t : ite.sideAssertions()) rewritten.add(applyPipeline(t, arr, ite, bv));
+        }
         if (DEBUG) {
             System.err.println("=== assertions (post-preprocess) ===");
             for (Term t : rewritten) System.err.println("  " + t);
@@ -244,6 +274,56 @@ public final class Solver {
             }
         }
         return r == Cdcl.Result.SAT ? Verdict.SAT : Verdict.UNSAT;
+    }
+
+    private static final class FeatureFlags {
+        boolean hasArrays, hasBv, hasIte, hasQuantifiers, hasStrings, hasMul;
+    }
+
+    private FeatureFlags scanFeatures(List<Term> assertions) {
+        FeatureFlags ff = new FeatureFlags();
+        java.util.IdentityHashMap<Term, Boolean> seen = new java.util.IdentityHashMap<>();
+        for (Term t : assertions) scanRec(t, ff, seen);
+        return ff;
+    }
+
+    private void scanRec(Term t, FeatureFlags ff, java.util.IdentityHashMap<Term, Boolean> seen) {
+        if (seen.put(t, Boolean.TRUE) != null) return;
+        if (t instanceof Term.Quantifier) { ff.hasQuantifiers = true; }
+        if (t instanceof Term.App app) {
+            switch (app.symbol) {
+                case "select", "store" -> ff.hasArrays = true;
+                case "ite" -> { if (app.sort != Sort.BOOL) ff.hasIte = true; }
+                case "*" -> {
+                    // Non-linear multiplication = both operands non-constant.
+                    if (app.args.size() == 2 && !(app.args.get(0) instanceof Term.IntConst)
+                            && !(app.args.get(1) instanceof Term.IntConst)
+                            && !(app.args.get(0) instanceof Term.RatConst)
+                            && !(app.args.get(1) instanceof Term.RatConst)) {
+                        ff.hasMul = true;
+                    }
+                }
+                case "bvadd","bvsub","bvneg","bvnot","bvand","bvor","bvxor","bvmul",
+                     "bvshl","bvlshr","bvashr","bvudiv","bvurem","bvsdiv","bvsrem","bvsmod",
+                     "bvult","bvule","bvugt","bvuge","bvslt","bvsle","bvsgt","bvsge" -> ff.hasBv = true;
+                case "str.++", "str.len", "str.at", "str.substr", "str.contains",
+                     "str.prefixof", "str.suffixof", "str.indexof" -> ff.hasStrings = true;
+                default -> {}
+            }
+            if (t.sort instanceof Sort.Array) ff.hasArrays = true;
+            if (t.sort instanceof Sort.BitVec) ff.hasBv = true;
+        }
+        if (t instanceof Term.StrConst) ff.hasStrings = true;
+        if (t instanceof Term.BvConst) ff.hasBv = true;
+        for (Term c : t.children()) scanRec(c, ff, seen);
+    }
+
+    private Term applyPipeline(Term t, ArrayPreprocessor arr, IteEliminator ite, BvBlaster bv) {
+        Term cur = t;
+        if (arr != null) cur = arr.rewrite(cur);
+        if (ite != null) cur = ite.rewrite(cur);
+        if (bv != null) cur = bv.rewrite(cur);
+        return cur;
     }
 
     /** Registered datatype sorts, indexed by name. */

@@ -47,14 +47,19 @@ public final class EGraph {
     }
 
     /** Trail event types. */
-    private enum Op { UNION, SIG_INSERT, SIG_REMOVE, EQ_ASSERT, DISEQ_ASSERT }
+    private enum Op { UNION, SIG_INSERT_LONG, SIG_INSERT_KEY, EQ_ASSERT, DISEQ_ASSERT }
 
     private static final class Event {
         final Op op;
-        final int a, b, c, d; // free-form payload
+        final int a, b, c, d;
+        final long key;
+        final SigKey sk;
         Event(Op op, int a, int b, int c, int d) {
             this.op = op; this.a = a; this.b = b; this.c = c; this.d = d;
+            this.key = 0; this.sk = null;
         }
+        Event(Op op, long key) { this.op = op; this.a = 0; this.b = 0; this.c = 0; this.d = 0; this.key = key; this.sk = null; }
+        Event(Op op, SigKey sk) { this.op = op; this.a = 0; this.b = 0; this.c = 0; this.d = 0; this.key = 0; this.sk = sk; }
     }
 
     private final TermFactory tf;
@@ -64,8 +69,32 @@ public final class EGraph {
     /** parent edges (term-id -> list of parent application node ids). */
     private final Map<Integer, List<Integer>> parents = new HashMap<>();
 
-    /** signature -> node id (canonical). Signature key uses representative term ids. */
-    private final Map<String, Integer> sigTable = new HashMap<>();
+    /** signature -> node id (canonical). Signature key is a packed long for the common
+     *  unary/binary cases (no String allocation per re-signature), fallback to SigKey for
+     *  higher arity. The Long path is the hot path on JML-shape workloads where most apps
+     *  are 1-2 args (select, p(...), f(...)).
+     */
+    private final Map<Long, Integer> sigTableLong = new HashMap<>();
+    private final Map<SigKey, Integer> sigTableKey = new HashMap<>();
+    /** Interned symbol ids (so we can pack into 32 bits along with reps). */
+    private final Map<String, Integer> symbolId = new HashMap<>();
+    private int nextSymbolId = 1;
+
+    private int symId(String sym) {
+        Integer id = symbolId.get(sym);
+        if (id != null) return id;
+        id = nextSymbolId++;
+        symbolId.put(sym, id);
+        return id;
+    }
+
+    /** Packed signature key for high-arity applications. */
+    private record SigKey(int symbolId, int[] reps) {
+        @Override public boolean equals(Object o) {
+            return o instanceof SigKey sk && sk.symbolId == symbolId && java.util.Arrays.equals(sk.reps, reps);
+        }
+        @Override public int hashCode() { return symbolId * 1315423911 ^ java.util.Arrays.hashCode(reps); }
+    }
 
     /** Trail of events for backtracking. */
     private final List<Event> trail = new ArrayList<>();
@@ -104,8 +133,8 @@ public final class EGraph {
                     oldRep.next = childNext;
                     oldRep.classSize -= childClassSize;
                 }
-                case SIG_INSERT -> sigTable.remove(decodeKey(e.a, e.b, e.c, e.d));
-                case SIG_REMOVE -> sigTable.put(decodeKey(e.a, e.b, e.c, e.d), e.a);
+                case SIG_INSERT_LONG -> sigTableLong.remove(e.key);
+                case SIG_INSERT_KEY -> sigTableKey.remove(e.sk);
                 case EQ_ASSERT, DISEQ_ASSERT -> {
                     if (e.op == Op.DISEQ_ASSERT) {
                         diseqs.remove(diseqs.size() - 1);
@@ -131,21 +160,35 @@ public final class EGraph {
                 int cn = registerTerm(c);
                 parents.computeIfAbsent(rep(cn), k -> new ArrayList<>()).add(id);
             }
-            String key = signature(id);
-            Integer existingSig = sigTable.get(key);
-            if (existingSig != null) {
-                // Will trigger a merge after caller finishes registration:
-                // Defer by enqueueing through immediate union below.
-                trail.add(new Event(Op.SIG_INSERT, id, 0, 0, 0));
-                sigTable.put(key, id);
-                // immediate congruence merge
-                doUnion(id, existingSig, 0);
-            } else {
-                trail.add(new Event(Op.SIG_INSERT, id, 0, 0, 0));
-                sigTable.put(key, id);
-            }
+            insertSig(id);
         }
         return id;
+    }
+
+    private void insertSig(int nodeId) {
+        SigResult sig = signatureOf(nodeId);
+        Integer existing;
+        if (sig.key == null) {
+            existing = sigTableLong.get(sig.longVal);
+            if (existing != null) {
+                sigTableLong.put(sig.longVal, nodeId);
+                trail.add(new Event(Op.SIG_INSERT_LONG, sig.longVal));
+                doUnion(nodeId, existing, 0);
+            } else {
+                sigTableLong.put(sig.longVal, nodeId);
+                trail.add(new Event(Op.SIG_INSERT_LONG, sig.longVal));
+            }
+        } else {
+            existing = sigTableKey.get(sig.key);
+            if (existing != null) {
+                sigTableKey.put(sig.key, nodeId);
+                trail.add(new Event(Op.SIG_INSERT_KEY, sig.key));
+                doUnion(nodeId, existing, 0);
+            } else {
+                sigTableKey.put(sig.key, nodeId);
+                trail.add(new Event(Op.SIG_INSERT_KEY, sig.key));
+            }
+        }
     }
 
     public int rep(int n) {
@@ -249,13 +292,24 @@ public final class EGraph {
             List<Integer> ps = parents.get(cur);
             if (ps != null) {
                 for (Integer pId : ps) {
-                    String oldKey = signatureFromCurrent(pId); // recomputes with current reps
-                    Integer collide = sigTable.get(oldKey);
-                    if (collide == null) {
-                        sigTable.put(oldKey, pId);
-                        trail.add(new Event(Op.SIG_INSERT, pId, 0, 0, 0));
-                    } else if (collide != pId && rep(collide) != rep(pId)) {
-                        if (!doUnion(pId, collide, 0)) return false;
+                    SigResult sig = signatureOf(pId);
+                    Integer collide;
+                    if (sig.key == null) {
+                        collide = sigTableLong.get(sig.longVal);
+                        if (collide == null) {
+                            sigTableLong.put(sig.longVal, pId);
+                            trail.add(new Event(Op.SIG_INSERT_LONG, sig.longVal));
+                        } else if (collide != pId && rep(collide) != rep(pId)) {
+                            if (!doUnion(pId, collide, 0)) return false;
+                        }
+                    } else {
+                        collide = sigTableKey.get(sig.key);
+                        if (collide == null) {
+                            sigTableKey.put(sig.key, pId);
+                            trail.add(new Event(Op.SIG_INSERT_KEY, sig.key));
+                        } else if (collide != pId && rep(collide) != rep(pId)) {
+                            if (!doUnion(pId, collide, 0)) return false;
+                        }
                     }
                 }
             }
@@ -265,19 +319,50 @@ public final class EGraph {
         return true;
     }
 
-    private String signature(int nodeId) {
-        return signatureFromCurrent(nodeId);
-    }
+    /** Compute the signature as either a packed long (lookup in sigTableLong) or a SigKey
+     *  (lookup in sigTableKey). Returns:
+     *    - longVal: the packed long, or Long.MIN_VALUE if not encodable as long.
+     *    - key: the SigKey for non-long-encodable cases.
+     */
+    private static final class SigResult { long longVal; SigKey key; }
+    private final SigResult sigBuf = new SigResult();
 
-    private String signatureFromCurrent(int nodeId) {
+    private SigResult signatureOf(int nodeId) {
         Node n = nodes.get(nodeId);
         Term t = tf.termById(n.termId);
-        if (!(t instanceof Term.App app)) return "atom:" + n.termId;
-        StringBuilder sb = new StringBuilder(app.symbol).append('|');
-        for (Term c : app.args) {
-            sb.append(rep(termIdToNode.get(c.id))).append(',');
+        sigBuf.longVal = Long.MIN_VALUE;
+        sigBuf.key = null;
+        if (!(t instanceof Term.App app)) {
+            sigBuf.longVal = 1L; // sentinel — atoms never collide in sigTable.
+            return sigBuf;
         }
-        return sb.toString();
+        int sym = symId(app.symbol);
+        int arity = app.args.size();
+        if (arity == 0) {
+            // (sym << 32) | 0
+            sigBuf.longVal = ((long) sym) << 32;
+            return sigBuf;
+        }
+        if (arity == 1) {
+            int r0 = rep(termIdToNode.get(app.args.get(0).id));
+            sigBuf.longVal = (((long) sym) << 32) | (r0 & 0xFFFFFFFFL);
+            return sigBuf;
+        }
+        if (arity == 2) {
+            int r0 = rep(termIdToNode.get(app.args.get(0).id));
+            int r1 = rep(termIdToNode.get(app.args.get(1).id));
+            // Three 21-bit slots: sym (top 22 bits incl sign), r0 (mid 21), r1 (low 21).
+            // For symbols and node counts < 2M this is collision-free.
+            if (sym < (1 << 21) && r0 < (1 << 21) && r1 < (1 << 21)) {
+                sigBuf.longVal = (((long) sym) << 42) | (((long) r0) << 21) | r1;
+                return sigBuf;
+            }
+            // Fall through to key.
+        }
+        int[] reps = new int[arity];
+        for (int i = 0; i < arity; i++) reps[i] = rep(termIdToNode.get(app.args.get(i).id));
+        sigBuf.key = new SigKey(sym, reps);
+        return sigBuf;
     }
 
     /** Public: explain why two terms are currently in the same class. */
@@ -331,5 +416,4 @@ public final class EGraph {
         };
     }
 
-    private static String decodeKey(int a, int b, int c, int d) { return a+":"+b+":"+c+":"+d; }
 }

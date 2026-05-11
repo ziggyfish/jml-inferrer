@@ -319,47 +319,54 @@ public final class Cdcl {
         while (qhead < trailSize) {
             int lit = trail[qhead++];
             propagations++;
-            // For each clause watching -lit, find a new watch or propagate / conflict.
             int negLit = -lit;
             int[] ws = (negLit > 0) ? watchPos.get(negLit) : watchNeg.get(-negLit);
-            // Iterate a snapshot because we may detach.
-            int[] snapshot = ws.clone();
-            for (int cIdx : snapshot) {
+            // MiniSat-style in-place compaction. We scan ws and write surviving entries back
+            // into ws starting at `keep`. When a clause finds a new watch elsewhere, we drop
+            // it from ws (don't advance keep). When kept, we copy at keep. Conflicts return
+            // after compacting the prefix so we don't lose entries.
+            int keep = 0;
+            int conflictIdx = -1;
+            int wsLen = ws.length;
+            scan: for (int rIdx = 0; rIdx < wsLen; rIdx++) {
+                int cIdx = ws[rIdx];
                 int[] cl = clauses.get(cIdx);
-                if (cl.length < 2) continue;
-                // Ensure cl[1] is the falsified watched literal (-lit may be cl[0] or cl[1])
+                if (cl.length < 2) { ws[keep++] = cIdx; continue; }
                 if (cl[0] == negLit) {
                     int tmp = cl[0]; cl[0] = cl[1]; cl[1] = tmp;
                 }
-                // cl[1] == negLit now
-                // If cl[0] is true, clause is satisfied — keep watch.
                 int v0 = Math.abs(cl[0]);
-                if (value[v0] == (cl[0] > 0 ? 1 : -1)) continue;
-                // Try to find a non-falsified literal at index >= 2.
-                boolean foundNew = false;
+                if (value[v0] == (cl[0] > 0 ? 1 : -1)) { ws[keep++] = cIdx; continue; }
                 for (int i = 2; i < cl.length; i++) {
                     int li = cl[i];
                     int vi = Math.abs(li);
                     int valLi = (li > 0 ? value[vi] : -value[vi]);
                     if (valLi != -1) {
-                        // swap and rewatch
                         cl[1] = li;
                         cl[i] = negLit;
-                        detach(cIdx, negLit);
+                        // attach to the new watch's list (other list); skip writing to ws.
                         attach(cIdx, li);
-                        foundNew = true;
-                        break;
+                        continue scan;
                     }
                 }
-                if (foundNew) continue;
-                // No new watch — clause is unit or conflicting on cl[0].
+                // Unit or conflict on cl[0].
+                ws[keep++] = cIdx;
                 if (cl[0] > 0 ? value[v0] == -1 : value[v0] == 1) {
-                    // conflict — qhead reset doesn't matter, caller will backtrack which resets it.
-                    return cIdx;
+                    conflictIdx = cIdx;
+                    // Copy remaining unprocessed entries back to preserve them.
+                    for (int r = rIdx + 1; r < wsLen; r++) ws[keep++] = ws[r];
+                    break;
                 }
-                // Propagate cl[0]
                 enqueue(cl[0], cIdx);
             }
+            // Shrink ws to `keep`.
+            if (keep < wsLen) {
+                int[] shrunk = new int[keep];
+                System.arraycopy(ws, 0, shrunk, 0, keep);
+                if (negLit > 0) watchPos.set(negLit, shrunk);
+                else watchNeg.set(-negLit, shrunk);
+            }
+            if (conflictIdx >= 0) return conflictIdx;
         }
         return -1;
     }
