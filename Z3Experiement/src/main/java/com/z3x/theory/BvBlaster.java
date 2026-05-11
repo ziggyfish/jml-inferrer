@@ -141,6 +141,11 @@ public final class BvBlaster {
                 case "bvshl": return shiftLeft(blastBv(app.args.get(0)), blastBv(app.args.get(1)));
                 case "bvlshr": return shiftRight(blastBv(app.args.get(0)), blastBv(app.args.get(1)), false);
                 case "bvashr": return shiftRight(blastBv(app.args.get(0)), blastBv(app.args.get(1)), true);
+                case "bvudiv": return divRem(blastBv(app.args.get(0)), blastBv(app.args.get(1)), true);
+                case "bvurem": return divRem(blastBv(app.args.get(0)), blastBv(app.args.get(1)), false);
+                case "bvsdiv": return signedDivRem(blastBv(app.args.get(0)), blastBv(app.args.get(1)), true, false);
+                case "bvsrem": return signedDivRem(blastBv(app.args.get(0)), blastBv(app.args.get(1)), false, false);
+                case "bvsmod": return signedDivRem(blastBv(app.args.get(0)), blastBv(app.args.get(1)), false, true);
                 default: break;
             }
         }
@@ -214,6 +219,125 @@ public final class BvBlaster {
             cur = chosen;
         }
         return cur;
+    }
+
+    /**
+     * Restoring division: returns the quotient (returnQuot=true) or the remainder (false).
+     * SMT-LIB convention: dividing by zero returns all-ones for div, the dividend for rem.
+     */
+    private List<Term> divRem(List<Term> a, List<Term> b, boolean returnQuot) {
+        int w = a.size();
+        List<Term> q = new ArrayList<>(w);
+        List<Term> r = new ArrayList<>(w);
+        for (int i = 0; i < w; i++) { q.add(tf.mkBool(false)); r.add(tf.mkBool(false)); }
+        // MSB-first iteration
+        for (int i = w - 1; i >= 0; i--) {
+            // r := (r << 1) | a[i]; here lifting the next bit of a into r[0].
+            List<Term> shiftedR = new ArrayList<>(w);
+            shiftedR.add(a.get(i));
+            for (int j = 1; j < w; j++) shiftedR.add(r.get(j - 1));
+            // diff = shiftedR - b (two's-complement subtract)
+            List<Term> negB = rippleAdd(mapList(b, tf::mkNot), ones(w), tf.mkBool(false));
+            // Compute carry-out of the addition shiftedR + negB to detect shiftedR >= b.
+            CarrySum cs = rippleAddWithCarry(shiftedR, negB, tf.mkBool(false));
+            // ge = carry-out of (shiftedR + (~b + 1)). When ge is 1, shiftedR >= b.
+            Term ge = cs.carryOut;
+            // r := ite(ge, diff, shiftedR)
+            List<Term> newR = new ArrayList<>(w);
+            for (int j = 0; j < w; j++) newR.add(tf.mkIte(ge, cs.sum.get(j), shiftedR.get(j)));
+            r = newR;
+            // q[i] = ge
+            q.set(i, ge);
+        }
+        // Handle divide-by-zero: if b == 0, q becomes all 1s, r becomes a.
+        Term bIsZero = bitsEqual(b, zeros(w));
+        if (returnQuot) {
+            List<Term> defaultQ = ones(w);
+            // pad with leading ones
+            List<Term> padded = new ArrayList<>(w);
+            for (int i = 0; i < w; i++) padded.add(tf.mkBool(true));
+            List<Term> out = new ArrayList<>(w);
+            for (int i = 0; i < w; i++) out.add(tf.mkIte(bIsZero, padded.get(i), q.get(i)));
+            return out;
+        } else {
+            List<Term> out = new ArrayList<>(w);
+            for (int i = 0; i < w; i++) out.add(tf.mkIte(bIsZero, a.get(i), r.get(i)));
+            return out;
+        }
+    }
+
+    private static final class CarrySum {
+        final List<Term> sum;
+        final Term carryOut;
+        CarrySum(List<Term> sum, Term carryOut) { this.sum = sum; this.carryOut = carryOut; }
+    }
+
+    private CarrySum rippleAddWithCarry(List<Term> a, List<Term> b, Term carryIn) {
+        int w = a.size();
+        List<Term> sum = new ArrayList<>(w);
+        Term c = carryIn;
+        for (int i = 0; i < w; i++) {
+            Term ai = a.get(i), bi = b.get(i);
+            Term xab = tf.mkNot(tf.mkEq(ai, bi));
+            Term sumBit = tf.mkNot(tf.mkEq(xab, c));
+            Term newC = tf.mkOr(List.of(
+                    tf.mkAnd(List.of(ai, bi)),
+                    tf.mkAnd(List.of(ai, c)),
+                    tf.mkAnd(List.of(bi, c))));
+            sum.add(sumBit);
+            c = newC;
+        }
+        return new CarrySum(sum, c);
+    }
+
+    /**
+     * Signed division/remainder/smod. For sdiv and srem, results follow truncation-toward-zero
+     * semantics (SMT-LIB). For smod, result follows Euclidean modulo (sign of divisor).
+     */
+    private List<Term> signedDivRem(List<Term> a, List<Term> b, boolean returnQuot, boolean smodSemantics) {
+        int w = a.size();
+        Term aNeg = a.get(w - 1);
+        Term bNeg = b.get(w - 1);
+        List<Term> aAbs = condNegate(a, aNeg);
+        List<Term> bAbs = condNegate(b, bNeg);
+        List<Term> uq = divRem(aAbs, bAbs, true);
+        List<Term> ur = divRem(aAbs, bAbs, false);
+        if (returnQuot) {
+            // Truncated quotient: sign = aNeg XOR bNeg
+            Term outNeg = tf.mkNot(tf.mkEq(aNeg, bNeg));
+            return condNegate(uq, outNeg);
+        }
+        if (!smodSemantics) {
+            // srem: sign follows dividend.
+            return condNegate(ur, aNeg);
+        }
+        // smod: Euclidean. If signs of dividend and divisor differ AND remainder != 0, output
+        // is sign-of-divisor (rem with sign of b). Otherwise rem is just signed rem (sign of a).
+        // r_signed = condNegate(ur, aNeg)
+        List<Term> rSigned = condNegate(ur, aNeg);
+        // adjusted = b + rSigned when signs of a and b differ and rSigned != 0; else rSigned.
+        List<Term> adjusted = rippleAdd(b, rSigned, tf.mkBool(false));
+        Term signsDiffer = tf.mkNot(tf.mkEq(aNeg, bNeg));
+        Term remNonZero = tf.mkNot(bitsEqual(rSigned, zeros(w)));
+        Term shouldAdjust = tf.mkAnd(List.of(signsDiffer, remNonZero));
+        List<Term> out = new ArrayList<>(w);
+        for (int i = 0; i < w; i++) out.add(tf.mkIte(shouldAdjust, adjusted.get(i), rSigned.get(i)));
+        return out;
+    }
+
+    /** Conditionally negate (two's complement) a bit-vector. */
+    private List<Term> condNegate(List<Term> a, Term doNegate) {
+        int w = a.size();
+        List<Term> neg = rippleAdd(mapList(a, tf::mkNot), ones(w), tf.mkBool(false));
+        List<Term> out = new ArrayList<>(w);
+        for (int i = 0; i < w; i++) out.add(tf.mkIte(doNegate, neg.get(i), a.get(i)));
+        return out;
+    }
+
+    private List<Term> zeros(int w) {
+        List<Term> r = new ArrayList<>(w);
+        for (int i = 0; i < w; i++) r.add(tf.mkBool(false));
+        return r;
     }
 
     private List<Term> ones(int w) {

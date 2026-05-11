@@ -37,13 +37,16 @@ public abstract class TestHarness {
             EufTest.class,
             LiaTest.class,
             IntegerLiaTest.class,
+            NelsonOppenTest.class,
             ArrayTest.class,
             ArrayExtTest.class,
             BvTest.class,
             BvArithTest.class,
+            BvDivTest.class,
             QuantifierTest.class,
             QuantifierAlternationTest.class,
-            SpecPatternTest.class
+            SpecPatternTest.class,
+            PortfolioTest.class
     );
 
     public static void main(String[] args) throws Exception {

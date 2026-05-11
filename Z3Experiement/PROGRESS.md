@@ -138,12 +138,22 @@ SMT-LIB2 source
 4. **`let` substitution into quantifier bodies** still goes via the symbol-table path (not robust under shadowing); fine for the OpenJML output corpus.
 5. **Branch-and-bound has a depth cap of 32** — pathological QF_LIA cases with deep fractional structure could time out (none observed in the corpus).
 
-## What's next (day 4+)
+## 2026-05-11 — Day 4
 
-- Nelson-Oppen variable-equality propagation between LIA and EUF (closes both #1 and most of #2).
-- Remaining BV division and signed division/rem ops.
-- Profiling pass: where does the wall-clock go on the harder benchmarks? VSIDS, watch-list maintenance, or theory checks?
-- Stretch goal: portfolio runner so OpenJML can call Z3Experiement alongside z3 and take whichever returns first.
+**Landed:**
+- **Nelson-Oppen LIA → SAT/EUF equality propagation** (`LiaTheory.equalityDiffVar`, `propagate`): every registered `(= a b)` atom over arithmetic terms gets a Simplex "diff" variable. When SAT-asserted constraints pin that diff to a single value, `propagate()` emits the corresponding `+atom` (if zero) or `-atom` (if non-zero); EUF receives it through the standard `assertLiteral` channel. Covers cases like `a ∈ [3,3], b ∈ [3,3] ⊢ a = b` and `a ∈ [1,1], b ∈ [5,5] ⊢ a ≠ b`.
+- **Full BV division** (`BvBlaster.divRem`, `signedDivRem`, `condNegate`): bvudiv, bvurem, bvsdiv, bvsrem, bvsmod via textbook restoring division. SMT-LIB divide-by-zero semantics observed (bvudiv x 0 = all-ones, bvurem x 0 = x). Signed forms compute on absolute values then re-sign per SMT-LIB truncation rules; bvsmod adjusts when signs of dividend and divisor differ.
+- **Portfolio runner** (`com.z3x.Portfolio`): races the in-process Z3Experiement against an external z3 subprocess; whichever returns sat/unsat first wins. Falls back to Z3Experiement when the external binary is missing or errors. Intended for OpenJML invocation.
+- **5 new benchmarks**: `qf_bv/{bvudiv_sat, bvurem_sat, bvsdiv_negative_sat}`, `qf_lia/{eq_var_bound_sat, eq_var_disjoint_unsat}`.
+
+**Tests:** 88/88 across 13 suites. New: `NelsonOppenTest` (4), `BvDivTest` (10), `PortfolioTest` (2). Net +16 tests over Day 3.
+
+**Benchmarks:** 32/32 pass, total wall-clock 0.1s.
+
+**Known limitations remaining:**
+1. Nelson-Oppen propagation is only triggered when the Simplex diff variable's bounds are *directly* set. It does not yet do transitive-bound propagation along rows. Concretely: `a ∈ [1,1], b ∈ [2,2]` does not force `(p a b) ≡ (p 1 2)` via congruence, because LIA never tightens the bounds on `a-b` from `a` and `b`'s bounds alone. A real implementation needs to walk Simplex rows and compute bound implications. Workaround for OpenJML callers: spell out the equality directly (`(= a 1)` rather than `(>= a 1) (<= a 1)`).
+2. **Theory of arrays extensionality** still rests on quantifier instantiation; the negative direction (skolem witness) is sound but completion depends on N-O reasoning about the witness index, which inherits limitation #1.
+3. Pathological QF_LIA cases with deep fractional structure could still hit the branch-and-bound depth cap of 32.
 
 ## Daily checkpoint summary
 
@@ -151,4 +161,5 @@ SMT-LIB2 source
 Day 1 close: 13 tests, 5 examples,  0 benchmarks.   QF_UF only.
 Day 2 close: 46 tests, 6 examples, 13 benchmarks.   QF_UF + QF_LIA + QF_AUFLIA + QF_BV + UF/AUFLIA.
 Day 3 close: 72 tests, 6 examples, 27 benchmarks.   + int B&B, BV mul/shifts, nested quantifiers, array extensionality, minimal-cut EUF explain.
+Day 4 close: 88 tests, 6 examples, 32 benchmarks.   + Nelson-Oppen LIA→EUF, BV division, portfolio runner.
 ```

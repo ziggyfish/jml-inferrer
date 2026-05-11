@@ -46,6 +46,17 @@ public final class LiaTheory implements TheoryHook {
     /** Stack of asserted SAT literals (for explanations). */
     private final List<Integer> assertedStack = new ArrayList<>();
 
+    /**
+     * For every shared equality atom <code>(= a b)</code> we register a "diff" simplex variable
+     * representing <code>a - b</code>. When LIA's bounds force d == 0 we know a == b and can
+     * propagate the SAT atom positive; when d's bounds exclude 0 we propagate negative. This
+     * is the equality side of Nelson-Oppen variable propagation toward EUF.
+     */
+    private final Map<Integer, Integer> equalityDiffVar = new HashMap<>();
+
+    /** SAT vars already propagated to avoid loops. */
+    private final java.util.Set<Integer> propagatedSet = new java.util.HashSet<>();
+
     public LiaTheory(TermFactory tf, Cnf cnf) {
         this.tf = tf;
         this.cnf = cnf;
@@ -56,6 +67,15 @@ public final class LiaTheory implements TheoryHook {
         Term t = cnf.termForVar(var);
         if (t instanceof Term.App app && isLinearAtom(app)) {
             for (Term arg : app.args) freshVarFor(arg);
+            // For equality atoms, also build a diff var so propagate() can detect when LIA's
+            // bounds force the equality (positive) or rule it out (negative). This is the
+            // LIA-side of Nelson-Oppen propagation; the diff bounds tighten when the SAT layer
+            // asserts numeric facts on either side.
+            if (app.symbol.equals("=")) {
+                Term diff = tf.mkSub(List.of(app.args.get(0), app.args.get(1)));
+                int dv = freshVarFor(diff);
+                equalityDiffVar.put(var, dv);
+            }
         }
     }
 
@@ -217,6 +237,9 @@ public final class LiaTheory implements TheoryHook {
     public void retractLiteral(int lit) {
         simplex.popLevel();
         if (!assertedStack.isEmpty()) assertedStack.remove(assertedStack.size() - 1);
+        // Allow re-propagation if bounds change again.
+        propagatedSet.remove(lit);
+        propagatedSet.remove(-lit);
     }
 
     @Override
@@ -278,8 +301,38 @@ public final class LiaTheory implements TheoryHook {
     }
 
     @Override
-    public List<Integer> propagate() { return List.of(); }
+    public List<Integer> propagate() {
+        List<Integer> out = new ArrayList<>();
+        for (Map.Entry<Integer, Integer> e : equalityDiffVar.entrySet()) {
+            int satVar = e.getKey();
+            int dv = e.getValue();
+            if (propagatedSet.contains(satVar) || propagatedSet.contains(-satVar)) continue;
+            Rational lo = simplex.lowerOf(dv);
+            Rational hi = simplex.upperOf(dv);
+            if (lo == null || hi == null) continue;
+            int cmp = lo.compareTo(hi);
+            if (cmp == 0) {
+                int lit = lo.isZero() ? satVar : -satVar;
+                propagatedSet.add(lit);
+                out.add(lit);
+            } else if (cmp < 0) {
+                // Bounds disjoint from 0 → diff != 0 → a != b.
+                if (lo.signum() > 0 || hi.signum() < 0) {
+                    int lit = -satVar;
+                    propagatedSet.add(lit);
+                    out.add(lit);
+                }
+            }
+        }
+        return out;
+    }
 
     @Override
-    public int[] explain(int propagatedLit) { return new int[] { propagatedLit }; }
+    public int[] explain(int propagatedLit) {
+        // Conservative: the entire asserted LIA stack implies the propagation.
+        int[] out = new int[assertedStack.size() + 1];
+        for (int i = 0; i < assertedStack.size(); i++) out[i] = -assertedStack.get(i);
+        out[out.length - 1] = propagatedLit;
+        return out;
+    }
 }
