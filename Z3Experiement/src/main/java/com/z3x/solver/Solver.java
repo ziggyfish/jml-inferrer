@@ -100,6 +100,9 @@ public final class Solver {
         return null;
     }
 
+    /** Toggle to dump preprocessing artefacts. Set via {@code -Dz3x.debug=true}. */
+    private static final boolean DEBUG = Boolean.getBoolean("z3x.debug");
+
     private Verdict checkSat() {
         List<Term> all = new ArrayList<>();
         for (List<Term> frame : assertionStack) all.addAll(frame);
@@ -118,6 +121,10 @@ public final class Solver {
         List<Term> rewritten = new ArrayList<>();
         for (Term t : qRewritten) rewritten.add(bv.rewrite(ite.rewrite(arr.rewrite(t))));
         for (Term t : ite.sideAssertions()) rewritten.add(bv.rewrite(ite.rewrite(arr.rewrite(t))));
+        if (DEBUG) {
+            System.err.println("=== assertions (post-preprocess) ===");
+            for (Term t : rewritten) System.err.println("  " + t);
+        }
         for (Term t : rewritten) cnf.assertTerm(t);
         TheoryHook theory;
         boolean wantEuf = logicNeedsEuf();
