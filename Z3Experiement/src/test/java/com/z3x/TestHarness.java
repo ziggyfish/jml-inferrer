@@ -59,7 +59,8 @@ public abstract class TestHarness {
             SpecPatternTest.class,
             PortfolioTest.class,
             PushPopTest.class,
-            UnsatCoreTest.class
+            UnsatCoreTest.class,
+            UnsatCoreTighterTest.class
     );
 
     public static void main(String[] args) throws Exception {

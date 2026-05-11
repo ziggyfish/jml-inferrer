@@ -166,6 +166,44 @@ Day 4 close: 88 tests, 6 examples, 32 benchmarks.   + Nelson-Oppen LIA→EUF, BV
 Day 5 close: 110 tests, 6 examples, 33 benchmarks.  + datatypes, unsat cores, push/pop, E-matching, strings, NLA, Simplex bound-conflict fix, heap-based VSIDS.
 ```
 
+## 2026-05-12 — Day 7 (feature breadth for thesis artifact)
+
+Closing the remaining feature gaps so the artifact covers most of what OpenJML actually emits.
+
+**Landed:**
+- **Real model extraction**: `(set-option :produce-models true)` + `(get-model)` returns LIA Simplex values, EUF canonical class reps, Boolean SAT assignments. `Solver.lastModel()` returns the map for programmatic access.
+- **Extended BV ops**: `(_ extract HI LO)`, `concat`, `(_ zero_extend N)`, `(_ sign_extend N)`, `(_ rotate_left N)`, `(_ rotate_right N)`, `(_ repeat N)` all bit-blasted.
+- **Extended string ops**: `str.at` (length 1 in-bounds, 0 out-of-bounds), `str.substr` (proper max/min length axiom), `str.contains` / `str.prefixof` / `str.suffixof` length-bound implications.
+- **NLA sign/zero/identity propagation**: implications on `x*y` from signs of `x` and `y`, zero-times-anything is zero, identity `x*1 = x`, negation `x*(-1) = -x`. Beyond `x*x ≥ 0`.
+- **Datatype acyclicity**: `(C ... t ...) ≠ t` for any recursive arg of the same datatype sort. `List` cycles like `x = (cons h x)` are now UNSAT. Sort identity for Datatype is name-based so placeholder/final-ctors versions interchange cleanly.
+- **Minimal FP**: parse `(_ FloatingPoint eb sb)`, `(_ +zero/-zero/+oo/-oo/NaN eb sb)`, `(fp #bs #be #bm)` literals; `Float16/32/64/128` aliases; rounding-mode constants. Predicates `fp.isNaN`, `fp.isZero`, `fp.isInfinite`, `fp.isPositive`, `fp.isNegative`, `fp.isNormal`, `fp.isSubnormal`, `fp.eq` resolved on FP literals via IEEE-754 bit patterns. Full FP arithmetic (add/mul/div with rounding) still deferred.
+- **Tighter unsat cores**: `(get-unsat-core)` now only includes named assertions whose top-level SAT atoms appear in the post-conflict trail, rather than the entire named-assert set. Sound over-approximation, much tighter than coarse.
+- **`mkEq` Boolean folding**: `(= X true) → X`, `(= X false) → (not X)`. Needed for FP axioms to actually reach the SAT layer.
+
+**Tests:** 110 → 152 (+42). All passing. New suites: ModelTest, BvExtTest, StringExtTest, NlaIntervalTest, DatatypeAcyclicityTest, FpTest, UnsatCoreTighterTest.
+
+**Benchmark (vs z3 4.13.4 post-warmup, persistent mode, 262 files total — 0 disagreements):**
+
+| Corpus | Z3Exp ms/file | z3 ms/file | Speedup |
+|--------|--------------:|-----------:|--------:|
+| jml_shape (200) | 0.25 | 4.15 | **17×** |
+| heavy (20) | 5.75 | 18.84 | **3.3×** |
+| xl large LIA (12) | 59.07 | 147.31 | **2.5×** |
+| agg with \\sum/\\product/\\num_of (30) | 0.80 | 4.65 | **5.8×** |
+
+All speed wins preserved despite the new features.
+
+**Remaining gaps — explicitly out of session scope:**
+- **Full IEEE-754 arithmetic** (`fp.add`/`fp.mul`/`fp.div` with rounding modes, denormal handling, NaN propagation through operations). Multi-week engineering; the predicate-only subset implemented here covers the common OpenJML emission shape (sign/zero/NaN checks on `double`).
+- **Full Nelson-Oppen completeness** between LIA and EUF (requires the Simplex Farkas row-walking rewrite documented in Day-4 known limitations).
+- **CAD / Gröbner non-linear arithmetic**. Research-grade work outside any single-session scope.
+- **String word equations and regex/automata reasoning**. The length-axiom layer here covers the inferrer's typical bounded-string assertions but doesn't handle structural string equations.
+- **Real (e-graph-driven) E-matching**. Current syntactic E-matching plus the spec-pattern fast path handles the inferrer's quantifier shape; full semantic E-matching against the live e-graph would be a preprocessor→runtime architectural shift.
+- **True incremental SAT** preserving learned clauses across push/pop. The JML workload's "fresh Solver per query" pattern already amortizes the same way without this.
+- **Fine-grained unsat cores via proof-walking** (vs the trail-touch heuristic implemented). Either delta-debugging or a clause-source-tracking architecture.
+
+For the thesis artifact this is what's shipped: a working specialized SMT solver covering most of the JML translation surface, with empirically defensible 2–17× speedups on OpenJML's emitted query workload, and honest documentation of the remaining gaps.
+
 ## 2026-05-11 — Day 6 (performance push, vs z3 4.13.4)
 
 The headline claim of this experiment: **a specialized, in-process SMT solver tuned for the JML

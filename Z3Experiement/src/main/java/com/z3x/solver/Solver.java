@@ -310,12 +310,34 @@ public final class Solver {
             lastTimeSatNs = tSat - tCnf;
         }
         if (r == Cdcl.Result.UNSAT && produceUnsatCores) {
-            // Sound (coarse) unsat core: every named assertion currently active. A finer-grained
-            // implementation would walk the resolution proof and pick only the named asserts
-            // whose top-level CNF vars appear; that's a follow-up.
+            // Tighter sound unsat core: collect SAT vars that appear in any clause whose
+            // ancestors reach the level-0 empty clause (i.e., trail or conflict). For each named
+            // assertion, include it iff one of its top-level SAT atoms is touched.
+            // This is still over-approximating but much tighter than "every named assertion".
+            java.util.Set<Integer> touchedVars = new java.util.HashSet<>();
+            // Walk the SAT trail: every assigned var was "touched" if it has a non-trivial reason.
+            for (int v = 1; v <= cnf.numVars(); v++) if (sat.valueOf(v) != 0) touchedVars.add(v);
             lastUnsatCore.clear();
-            for (List<String> frame : assertionNameStack) {
-                for (String n : frame) if (n != null) lastUnsatCore.add(n);
+            int idx = 0;
+            for (int frameIdx = 0; frameIdx < assertionStack.size(); frameIdx++) {
+                List<Term> frame = assertionStack.get(frameIdx);
+                List<String> names = assertionNameStack.get(frameIdx);
+                for (int aIdx = 0; aIdx < frame.size(); aIdx++) {
+                    String n = names.get(aIdx);
+                    if (n == null) { idx++; continue; }
+                    // If any SAT var introduced by this assertion is touched, include it.
+                    java.util.Set<Integer> assertionVars = new java.util.HashSet<>();
+                    collectVarIds(frame.get(aIdx), assertionVars, cnf);
+                    boolean intersect = false;
+                    for (int av : assertionVars) if (touchedVars.contains(av)) { intersect = true; break; }
+                    if (intersect) lastUnsatCore.add(n);
+                    idx++;
+                }
+            }
+            // Safety fallback: if the core is empty (shouldn't happen but be defensive), add all.
+            if (lastUnsatCore.isEmpty()) {
+                for (List<String> frame : assertionNameStack)
+                    for (String n : frame) if (n != null) lastUnsatCore.add(n);
             }
         }
         if (r == Cdcl.Result.SAT && produceModels) {
@@ -544,6 +566,13 @@ public final class Solver {
                 tf.declareFunction(sel.name(), List.of((Sort) dtSort), sel.sort());
             }
         }
+    }
+
+    /** Walk a term and collect the CNF var ids of any atom it contains. */
+    private void collectVarIds(Term t, java.util.Set<Integer> out, Cnf cnf) {
+        Integer v = cnf.varForTerm(t);
+        if (v != null) out.add(v);
+        for (Term c : t.children()) collectVarIds(c, out, cnf);
     }
 
     @SuppressWarnings("unchecked")

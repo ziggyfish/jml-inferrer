@@ -66,6 +66,13 @@ public final class Cnf {
     /** Term backing each variable, or null for the index-0 sentinel. */
     public Term termForVar(int var) { return varToTerm.get(var); }
 
+    /** Inverse: SAT var id for the term, or null if not encoded. */
+    public Integer varForTerm(Term t) {
+        Integer v = termToVar.get(t);
+        if (v == null) return null;
+        return Math.abs(v);
+    }
+
     public boolean isTheoryAtom(int var) { return isTheoryAtom.get(var); }
 
     public List<Term> atomTerms() {
