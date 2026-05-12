@@ -1,4 +1,4 @@
-\begin{thebibliography}{54}
+\begin{thebibliography}{59}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -63,14 +63,18 @@ Patrice Chalin, Joseph~R. Kiniry, Gary~T. Leavens, and Erik Poll.
   342--363, 2006.
 \newblock \doi{10.1007/11804192_16}.
 
-\bibitem[Chen et~al.(2023)]{chen2022codet}
-Bei Chen et~al.
+\bibitem[Chen et~al.(2023)Chen, Zhang, Nguyen, Zan, Lin, Lou, and
+  Chen]{chen2022codet}
+Bei Chen, Fengji Zhang, Anh Nguyen, Daoguang Zan, Zeqi Lin, Jian-Guang Lou, and
+  Weizhu Chen.
 \newblock {CodeT}: Code generation with generated tests.
 \newblock In \emph{International Conference on Learning Representations
   (ICLR)}, 2023.
 
-\bibitem[Chen et~al.(2021)Chen, Tworek, Jun, Yuan, et~al.]{chen2021codex}
-Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, et~al.
+\bibitem[Chen et~al.(2021)Chen, Tworek, Jun, Yuan, de~Oliveira~Pinto, Kaplan,
+  Edwards, Burda, et~al.]{chen2021codex}
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique~Ponde
+  de~Oliveira~Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, et~al.
 \newblock Evaluating large language models trained on code.
 \newblock \emph{arXiv preprint arXiv:2107.03374}, 2021.
 
@@ -116,6 +120,14 @@ Edsger~W. Dijkstra.
 \newblock \emph{A Discipline of Programming}.
 \newblock Prentice-Hall, Englewood Cliffs, NJ, USA, 1976.
 
+\bibitem[Dinella et~al.(2022)Dinella, Ryan, Mytkowicz, and
+  Lahiri]{dinella2022toga}
+Elizabeth Dinella, Gabriel Ryan, Todd Mytkowicz, and Shuvendu~K. Lahiri.
+\newblock {TOGA}: A neural method for test oracle generation.
+\newblock In \emph{44th International Conference on Software Engineering
+  (ICSE)}, pages 2130--2141, 2022.
+\newblock \doi{10.1145/3510003.3510141}.
+
 \bibitem[Dragan et~al.(2006)Dragan, Collard, and Maletic]{dragan2006reverse}
 Natalia Dragan, Michael~L. Collard, and Jonathan~I. Maletic.
 \newblock Reverse engineering method stereotypes.
@@ -128,10 +140,9 @@ Natalia Dragan, Michael~L. Collard, and Jonathan~I. Maletic.
 Madeline Endres, Sarah Fakhoury, Saikat Chakraborty, and Shuvendu~K. Lahiri.
 \newblock Can large language models transform natural language intent into
   formal method postconditions?
-\newblock In \emph{ACM Joint European Software Engineering Conference and
-  Symposium on the Foundations of Software Engineering (ESEC/FSE)}, pages
-  1--12, 2024.
-\newblock \doi{10.1145/3660773}.
+\newblock \emph{Proceedings of the ACM on Software Engineering (PACMSE)},
+  1\penalty0 (FSE):\penalty0 1889--1912, 2024.
+\newblock \doi{10.1145/3660791}.
 
 \bibitem[Ernst et~al.(2007)Ernst, Perkins, Guo, McCamant, Pacheco, Tschantz,
   and Xiao]{ernst2007daikon}
@@ -141,6 +152,13 @@ Michael~D. Ernst, Jeff~H. Perkins, Philip~J. Guo, Stephen McCamant, Carlos
 \newblock \emph{Science of Computer Programming}, 69\penalty0 (1--3):\penalty0
   35--45, 2007.
 \newblock \doi{10.1016/j.scico.2007.01.015}.
+
+\bibitem[Flanagan and Leino(2001)]{flanagan2001houdini}
+Cormac Flanagan and K.~Rustan~M. Leino.
+\newblock Houdini, an annotation assistant for {ESC/Java}.
+\newblock In \emph{International Symposium of Formal Methods Europe (FME)},
+  volume 2021 of \emph{LNCS}, pages 500--517. Springer, 2001.
+\newblock \doi{10.1007/3-540-45251-6\_29}.
 
 \bibitem[Flanagan et~al.(2002)Flanagan, Leino, Lillibridge, Nelson, Saxe, and
   Stata]{flanagan2002extended}
@@ -158,6 +176,7 @@ Christopher Foster, Abhishek Gulati, Mark Harman, Inna Harper, Ke~Mao, Jillian
 \newblock Mutation-guided {LLM}-based test generation at {Meta}.
 \newblock In \emph{Companion Proceedings of the 33rd ACM International
   Conference on the Foundations of Software Engineering (FSE Industry)}, 2025.
+\newblock \doi{10.1145/3696630.3728544}.
 
 \bibitem[Fraser and Arcuri(2011)]{fraser2011evosuite}
 Gordon Fraser and Andrea Arcuri.
@@ -187,6 +206,11 @@ C.~A.~R. Hoare.
   576--580, 1969.
 \newblock \doi{10.1145/363235.363259}.
 
+\bibitem[Hossain and Dwyer(2024)]{hossain2024togll}
+Soneya~Binta Hossain and Matthew Dwyer.
+\newblock {TOGLL}: Correct and strong test oracle generation with {LLM}s.
+\newblock \emph{arXiv preprint arXiv:2405.03786}, 2024.
+
 \bibitem[Hovemeyer and Pugh(2004)]{hovemeyer2004finding}
 David Hovemeyer and William Pugh.
 \newblock Finding bugs is easy.
@@ -205,6 +229,14 @@ Juyong Jiang, Fan Wang, Jiasi Shen, Sungju Kim, and Sunghun Kim.
 \newblock A survey on large language models for code generation.
 \newblock \emph{arXiv preprint arXiv:2406.00515}, 2024.
 
+\bibitem[Kang et~al.(2023)Kang, Yoon, and Yoo]{kang2023libro}
+Sungmin Kang, Juyeon Yoon, and Shin Yoo.
+\newblock Large language models are few-shot testers: Exploring {LLM}-based
+  general bug reproduction.
+\newblock In \emph{45th IEEE/ACM International Conference on Software
+  Engineering (ICSE)}, pages 2312--2323, 2023.
+\newblock \doi{10.1109/ICSE48619.2023.00194}.
+
 \bibitem[King(1976)]{king1976symbolic}
 James~C. King.
 \newblock Symbolic execution and program testing.
@@ -212,8 +244,10 @@ James~C. King.
   1976.
 \newblock \doi{10.1145/360248.360252}.
 
-\bibitem[Klein et~al.(2014)]{klein2014sel4}
-Gerwin Klein et~al.
+\bibitem[Klein et~al.(2014)Klein, Andronick, Elphinstone, Murray, Sewell,
+  Kolanski, and Heiser]{klein2014sel4}
+Gerwin Klein, June Andronick, Kevin Elphinstone, Toby~C. Murray, Thomas Sewell,
+  Rafal Kolanski, and Gernot Heiser.
 \newblock Comprehensive formal verification of an {OS} microkernel.
 \newblock \emph{ACM Transactions on Computer Systems}, 32\penalty0
   (1):\penalty0 2:1--2:70, 2014.
@@ -240,8 +274,9 @@ Gary~T. Leavens et~al.
 \newblock \url{http://www.jmlspecs.org}, 2013.
 \newblock Accessed: 2025-01-15.
 
-\bibitem[Lemieux et~al.(2023)]{lemieux2023codamosa}
-Caroline Lemieux et~al.
+\bibitem[Lemieux et~al.(2023)Lemieux, Inala, Lahiri, and
+  Sen]{lemieux2023codamosa}
+Caroline Lemieux, Jeevana~Priya Inala, Shuvendu~K. Lahiri, and Siddhartha Sen.
 \newblock {CodaMOSA}: Escaping coverage plateaus in test generation with
   pre-trained large language models.
 \newblock In \emph{45th International Conference on Software Engineering
@@ -318,8 +353,9 @@ Cedric Richter and Heike Wehrheim.
   contracts for automatic software verification?
 \newblock \emph{arXiv preprint arXiv:2510.12702}, 2025.
 
-\bibitem[Sch{\"a}fer et~al.(2024)]{schafer2023adaptive}
-Max Sch{\"a}fer et~al.
+\bibitem[Sch{\"a}fer et~al.(2024)Sch{\"a}fer, Nadi, Eghbali, and
+  Tip]{schafer2023adaptive}
+Max Sch{\"a}fer, Sarah Nadi, Aryaz Eghbali, and Frank Tip.
 \newblock An empirical evaluation of using large language models for automated
   unit test generation.
 \newblock \emph{IEEE Transactions on Software Engineering}, 50\penalty0
@@ -346,6 +382,13 @@ Frank Tip, Peter~F. Sweeney, Chris Laffra, Aldo Eisma, and David Streeter.
 \newblock \emph{ACM Transactions on Programming Languages and Systems},
   24\penalty0 (6):\penalty0 625--666, 2002.
 \newblock \doi{10.1145/586088.586090}.
+
+\bibitem[Tufano et~al.(2020)Tufano, Drain, Svyatkovskiy, Deng, and
+  Sundaresan]{tufano2020athenatest}
+Michele Tufano, Dawn Drain, Alexey Svyatkovskiy, Shao~Kun Deng, and Neel
+  Sundaresan.
+\newblock Unit test case generation with transformers and focal context.
+\newblock \emph{arXiv preprint arXiv:2009.05617}, 2020.
 
 \bibitem[Wang et~al.(2024)Wang, Chen, Deng, Lin, Harman, Papadakis, and
   Zhang]{wang2024llmmutation}

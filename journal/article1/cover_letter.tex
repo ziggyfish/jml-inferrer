@@ -1,0 +1,32 @@
+\documentclass[11pt]{letter}
+\usepackage[margin=1in]{geometry}
+\usepackage{times}
+\usepackage{hyperref}
+\usepackage[english]{babel}
+
+\signature{Brendan Edmonds \\ UQ Cyber, School of EECS \\ University of Queensland \\ St Lucia QLD 4067, Australia \\ b.edmonds@uq.edu.au}
+\address{Brendan Edmonds \\ UQ Cyber, School of Electrical Engineering and Computer Science \\ University of Queensland \\ St Lucia QLD 4067, Australia}
+
+\begin{document}
+
+\begin{letter}{The Editor-in-Chief \\ \emph{Journal of Software: Evolution and Process} \\ John Wiley \& Sons, Ltd}
+
+\opening{Dear Editor,}
+
+We are pleased to submit our research article, titled \emph{``Do Specifications Help LLMs Write Better Unit Tests?''}, for consideration as a regular research paper in the \emph{Journal of Software: Evolution and Process}.
+
+The article addresses a question that sits at the intersection of two strands of long-standing interest to the journal's readership: the use of formal specifications as a tool for software evolution, and the increasingly pressing question of how to discipline large-language-model code generation so that the resulting artefacts are trustworthy enough to enter a production codebase. Concretely, we ask whether providing an LLM with a specification of a method's intended behaviour measurably improves the unit tests it writes, with test quality assessed by mutation score on a corpus of 312 methods from Apache Commons Lang.
+
+The answer is affirmative and the effect is large: specifications raise mutation score by 40.7~percentage points and test count by 272\% relative to signature-only generation ($p < 0.001$, Cohen's $d = 2.41$). To enable the comparison at scale, we developed JML-Inferrer, a heuristic static-analysis system that produces JML specifications organised by weakest-precondition and strongest-postcondition reasoning and validated through OpenJML's Extended Static Checker. The tool is not the contribution being evaluated---it is the means by which the empirical question becomes answerable for 312 methods rather than for a handful---and the article foregrounds the empirical result accordingly.
+
+We believe this work is a fit for \emph{JSEP} for three reasons. First, the article directly addresses how a software process can absorb LLM-generated tests without sacrificing oracle quality, which we expect to be a topic of growing concern for industrial and research readers alike. Second, the inference instrument and the test-generation experiment together form a single pipeline, and the article reports both ends in detail---spec-accuracy validation against two independent raters and OpenJML discharge of every inferred clause---which is the depth of methodological reporting that the journal favours. Third, we provide a full replication package, including raw mutation logs, prompt templates, all 6{,}240 generated test suites, and the containerised toolchain, which we hope will support follow-up work in the journal's community.
+
+This article has not been published previously and is not under consideration elsewhere. All authors have approved the manuscript and agree with its submission. We declare no conflicts of interest.
+
+We thank you for your consideration and look forward to your response.
+
+\closing{Yours sincerely,}
+
+\end{letter}
+
+\end{document}

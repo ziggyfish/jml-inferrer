@@ -8,30 +8,30 @@
 \citation{zhang2025llmunitsurvey}
 \citation{schafer2023adaptive,jiang2024survey,konstantinou2024oracles}
 \citation{konstantinou2024oracles}
+\citation{meyer1992design,jml,leavens2006design}
+\citation{matichuk_cost_2015,hall1990seven,zimmermann2019lightweight}
 \babel@aux{english}{}
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
 \newlabel{sec:introduction}{{1}{1}{Introduction}{section.1}{}}
 \newlabel{sec:introduction@cref}{{[section][1][]1}{[1][1][]1}{}{}{}}
-\citation{meyer1992design,jml,leavens2006design}
-\citation{matichuk_cost_2015,hall1990seven,zimmermann2019lightweight}
 \citation{coles2016pitest}
+\citation{jml,leavens2006design}
 \citation{pacheco2007randoop,fraser2011evosuite}
-\citation{dijkstra_guarded_1975,dijkstra1976discipline}
-\citation{hoare1969axiomatic,cousot1977abstract}
 \@writefile{toc}{\contentsline {section}{\numberline {2}Background: What Counts as a Specification}{2}{section.2}\protected@file@percent }
 \newlabel{sec:background}{{2}{2}{Background: What Counts as a Specification}{section.2}{}}
 \newlabel{sec:background@cref}{{[section][2][]2}{[1][2][]2}{}{}{}}
+\citation{dijkstra_guarded_1975,dijkstra1976discipline}
+\citation{hoare1969axiomatic,cousot1977abstract}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Precondition Inference}{3}{subsection.2.1}\protected@file@percent }
 \newlabel{subsec:wp-mapping}{{2.1}{3}{Precondition Inference}{subsection.2.1}{}}
 \newlabel{subsec:wp-mapping@cref}{{[subsection][1][2]2.1}{[1][3][]3}{}{}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Postcondition Inference}{3}{subsection.2.2}\protected@file@percent }
 \newlabel{subsec:sp-mapping}{{2.2}{3}{Postcondition Inference}{subsection.2.2}{}}
 \newlabel{subsec:sp-mapping@cref}{{[subsection][2][2]2.2}{[1][3][]3}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Interprocedural Propagation}{3}{subsection.2.3}\protected@file@percent }
-\newlabel{subsec:proc-summaries}{{2.3}{3}{Interprocedural Propagation}{subsection.2.3}{}}
-\newlabel{subsec:proc-summaries@cref}{{[subsection][3][2]2.3}{[1][3][]3}{}{}{}}
 \citation{openjml}
-\citation{javaparser}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Interprocedural Propagation}{4}{subsection.2.3}\protected@file@percent }
+\newlabel{subsec:proc-summaries}{{2.3}{4}{Interprocedural Propagation}{subsection.2.3}{}}
+\newlabel{subsec:proc-summaries@cref}{{[subsection][3][2]2.3}{[1][3][]4}{}{}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Loop Invariants}{4}{subsection.2.4}\protected@file@percent }
 \newlabel{subsec:loop-mapping}{{2.4}{4}{Loop Invariants}{subsection.2.4}{}}
 \newlabel{subsec:loop-mapping@cref}{{[subsection][4][2]2.4}{[1][4][]4}{}{}{}}
@@ -44,21 +44,22 @@
 \@writefile{toc}{\contentsline {section}{\numberline {3}The Inference Instrument}{4}{section.3}\protected@file@percent }
 \newlabel{sec:approach}{{3}{4}{The Inference Instrument}{section.3}{}}
 \newlabel{sec:approach@cref}{{[section][3][]3}{[1][4][]4}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Implementation}{4}{subsection.3.1}\protected@file@percent }
+\citation{javaparser}
 \citation{king1976symbolic,cadar2008klee}
 \citation{calcagno2015infer}
-\citation{openjml}
 \@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces System architecture. Phase~1 parses Java source into an AST. Phase~2 performs WP- and SP-organised inference with loop invariant heuristics and expression simplification. Phase~3 emits inferred specifications as JML annotations.}}{5}{figure.caption.1}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
 \newlabel{fig:architecture}{{1}{5}{System architecture. Phase~1 parses Java source into an AST. Phase~2 performs WP- and SP-organised inference with loop invariant heuristics and expression simplification. Phase~3 emits inferred specifications as JML annotations}{figure.caption.1}{}}
 \newlabel{fig:architecture@cref}{{[figure][1][]1}{[1][4][]5}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Implementation}{5}{subsection.3.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Specification Inference}{5}{subsection.3.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Loops, procedure summaries, and branching.}{5}{ALC@unique.32}\protected@file@percent }
+\citation{openjml}
 \citation{dragan2006reverse}
 \citation{pacheco2007randoop,fraser2011evosuite}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Formal Validation}{6}{subsection.3.3}\protected@file@percent }
 \newlabel{subsec:validation}{{3.3}{6}{Formal Validation}{subsection.3.3}{}}
-\newlabel{subsec:validation@cref}{{[subsection][3][3]3.3}{[1][5][]6}{}{}{}}
+\newlabel{subsec:validation@cref}{{[subsection][3][3]3.3}{[1][6][]6}{}{}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Method Categorisation}{6}{subsection.3.4}\protected@file@percent }
 \newlabel{subsec:categorization}{{3.4}{6}{Method Categorisation}{subsection.3.4}{}}
 \newlabel{subsec:categorization@cref}{{[subsection][4][3]3.4}{[1][6][]6}{}{}{}}
@@ -66,88 +67,99 @@
 \newlabel{sec:methodology}{{4}{6}{Evaluation Methodology}{section.4}{}}
 \newlabel{sec:methodology@cref}{{[section][4][]4}{[1][6][]6}{}{}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Subject Selection}{6}{subsection.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Experimental Design}{6}{subsection.4.2}\protected@file@percent }
-\citation{coles2016pitest}
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Distribution of methods by category in Apache Commons Lang subset}}{7}{table.caption.2}\protected@file@percent }
-\newlabel{tab:method-distribution}{{1}{7}{Distribution of methods by category in Apache Commons Lang subset}{table.caption.2}{}}
-\newlabel{tab:method-distribution@cref}{{[table][1][]1}{[1][6][]7}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Distribution of methods by category in the Apache Commons Lang subset. Categories follow the taxonomy of Section~\ref {subsec:categorization}; the \emph  {other} category contains zero methods because Apache Commons Lang does not include event-handler or callback methods.}}{7}{table.caption.2}\protected@file@percent }
+\newlabel{tab:method-distribution}{{1}{7}{Distribution of methods by category in the Apache Commons Lang subset. Categories follow the taxonomy of Section~\ref {subsec:categorization}; the \emph {other} category contains zero methods because Apache Commons Lang does not include event-handler or callback methods}{table.caption.2}{}}
+\newlabel{tab:method-distribution@cref}{{[table][1][]1}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Experimental Design}{7}{subsection.4.2}\protected@file@percent }
 \@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces LLM configuration parameters}}{7}{table.caption.3}\protected@file@percent }
 \newlabel{tab:llm-config}{{2}{7}{LLM configuration parameters}{table.caption.3}{}}
 \newlabel{tab:llm-config@cref}{{[table][2][]2}{[1][7][]7}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Metrics}{7}{subsection.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Specification quality.}{7}{subsection.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Test quality.}{7}{subsection.4.3}\protected@file@percent }
+\citation{coles2016pitest}
+\citation{papadakis2019mutation}
 \citation{jdoctor2018}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Metrics}{8}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Specification quality.}{8}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Test quality.}{8}{subsection.4.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Manual Validation}{8}{subsection.4.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Statistical Analysis}{8}{subsection.4.5}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Comparison Baselines}{8}{subsection.4.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}Results}{8}{section.5}\protected@file@percent }
-\newlabel{sec:results}{{5}{8}{Results}{section.5}{}}
-\newlabel{sec:results@cref}{{[section][5][]5}{[1][8][]8}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Specification Accuracy}{8}{subsection.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.1}Manual Validation Results}{8}{subsubsection.5.1.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Manual validation results for inferred specifications}}{8}{table.caption.4}\protected@file@percent }
-\newlabel{tab:validation-results}{{3}{8}{Manual validation results for inferred specifications}{table.caption.4}{}}
-\newlabel{tab:validation-results@cref}{{[table][3][]3}{[1][8][]8}{}{}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.2}Specification Strength Distribution}{8}{subsubsection.5.1.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Distribution of specification strength by method category. Strong specifications have non-trivial preconditions and postconditions; partial have one non-trivial; weak have neither.}}{9}{figure.caption.5}\protected@file@percent }
-\newlabel{fig:spec-strength}{{2}{9}{Distribution of specification strength by method category. Strong specifications have non-trivial preconditions and postconditions; partial have one non-trivial; weak have neither}{figure.caption.5}{}}
-\newlabel{fig:spec-strength@cref}{{[figure][2][]2}{[1][8][]9}{}{}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.3}Tool Comparisons}{9}{subsubsection.5.1.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Comparison with Jdoctor and LLM-based specification inference}}{9}{table.caption.6}\protected@file@percent }
-\newlabel{tab:jdoctor-comparison}{{4}{9}{Comparison with Jdoctor and LLM-based specification inference}{table.caption.6}{}}
-\newlabel{tab:jdoctor-comparison@cref}{{[table][4][]4}{[1][9][]9}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Test Generation Effectiveness}{9}{subsection.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Principal findings.}{9}{table.caption.7}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Test generation results: test counts, mutation scores, and quality metrics (Apache Commons Lang)}}{10}{table.caption.7}\protected@file@percent }
-\newlabel{tab:test-results-full}{{5}{10}{Test generation results: test counts, mutation scores, and quality metrics (Apache Commons Lang)}{table.caption.7}{}}
-\newlabel{tab:test-results-full@cref}{{[table][5][]5}{[1][9][]10}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Category-Specific Effectiveness}{10}{subsection.5.3}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Improvement in mutation score (percentage points) from P1 to P3 by method category.}}{10}{figure.caption.8}\protected@file@percent }
-\newlabel{fig:improvement-by-category}{{3}{10}{Improvement in mutation score (percentage points) from P1 to P3 by method category}{figure.caption.8}{}}
-\newlabel{fig:improvement-by-category@cref}{{[figure][3][]3}{[1][10][]10}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Results}{9}{section.5}\protected@file@percent }
+\newlabel{sec:results}{{5}{9}{Results}{section.5}{}}
+\newlabel{sec:results@cref}{{[section][5][]5}{[1][9][]9}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Specification Accuracy}{9}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.1}Manual Validation Results}{9}{subsubsection.5.1.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Manual validation results for inferred specifications}}{9}{table.caption.4}\protected@file@percent }
+\newlabel{tab:validation-results}{{3}{9}{Manual validation results for inferred specifications}{table.caption.4}{}}
+\newlabel{tab:validation-results@cref}{{[table][3][]3}{[1][9][]9}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.2}OpenJML Discharge of Inferred Clauses}{9}{subsubsection.5.1.2}\protected@file@percent }
+\newlabel{subsec:discharge-results}{{5.1.2}{9}{OpenJML Discharge of Inferred Clauses}{subsubsection.5.1.2}{}}
+\newlabel{subsec:discharge-results@cref}{{[subsubsection][2][5,1]5.1.2}{[1][9][]9}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces OpenJML ESC discharge results over all inferred clauses. \emph  {Discharged} clauses are verified by the Extended Static Checker against the implementation; \emph  {flagged} clauses fail discharge and are surfaced for review; \emph  {unsupported} clauses involve JML constructs that OpenJML cannot yet handle (chiefly nested quantifiers and certain reflection idioms).}}{9}{table.caption.5}\protected@file@percent }
+\newlabel{tab:discharge}{{4}{9}{OpenJML ESC discharge results over all inferred clauses. \emph {Discharged} clauses are verified by the Extended Static Checker against the implementation; \emph {flagged} clauses fail discharge and are surfaced for review; \emph {unsupported} clauses involve JML constructs that OpenJML cannot yet handle (chiefly nested quantifiers and certain reflection idioms)}{table.caption.5}{}}
+\newlabel{tab:discharge@cref}{{[table][4][]4}{[1][9][]9}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.3}Per-Category Precision and Recall}{10}{subsubsection.5.1.3}\protected@file@percent }
+\newlabel{subsec:per-category}{{5.1.3}{10}{Per-Category Precision and Recall}{subsubsection.5.1.3}{}}
+\newlabel{subsec:per-category@cref}{{[subsubsection][3][5,1]5.1.3}{[1][10][]10}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Precision and recall of inferred specifications, broken down by method category. Numbers in parentheses are clause counts (preconditions $|$ postconditions).}}{10}{table.caption.6}\protected@file@percent }
+\newlabel{tab:per-category-pr}{{5}{10}{Precision and recall of inferred specifications, broken down by method category. Numbers in parentheses are clause counts (preconditions $|$ postconditions)}{table.caption.6}{}}
+\newlabel{tab:per-category-pr@cref}{{[table][5][]5}{[1][10][]10}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.4}Specification Strength Distribution}{10}{subsubsection.5.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.5}Tool Comparisons}{10}{subsubsection.5.1.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Distribution of specification strength by method category over the 312-method corpus. \emph  {Strong} specifications have non-trivial preconditions and postconditions; \emph  {partial} have exactly one non-trivial side; \emph  {weak} have neither. Bars sum to 100\% within category.}}{11}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:spec-strength}{{2}{11}{Distribution of specification strength by method category over the 312-method corpus. \emph {Strong} specifications have non-trivial preconditions and postconditions; \emph {partial} have exactly one non-trivial side; \emph {weak} have neither. Bars sum to 100\% within category}{figure.caption.7}{}}
+\newlabel{fig:spec-strength@cref}{{[figure][2][]2}{[1][10][]11}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Comparison with Jdoctor and LLM-based specification inference}}{11}{table.caption.8}\protected@file@percent }
+\newlabel{tab:jdoctor-comparison}{{6}{11}{Comparison with Jdoctor and LLM-based specification inference}{table.caption.8}{}}
+\newlabel{tab:jdoctor-comparison@cref}{{[table][6][]6}{[1][10][]11}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Test Generation Effectiveness}{11}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Principal findings.}{11}{table.caption.9}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Test generation results by class: test counts (per-method averages across five runs) and mutation scores for each phase on all eleven classes of the corpus. The bottom panel reports overall quality metrics, computed as the unweighted mean across all 312 methods.}}{12}{table.caption.9}\protected@file@percent }
+\newlabel{tab:test-results-full}{{7}{12}{Test generation results by class: test counts (per-method averages across five runs) and mutation scores for each phase on all eleven classes of the corpus. The bottom panel reports overall quality metrics, computed as the unweighted mean across all 312 methods}{table.caption.9}{}}
+\newlabel{tab:test-results-full@cref}{{[table][7][]7}{[1][11][]12}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Why P2 produces more tests than P3 yet scores lower.}{12}{table.caption.9}\protected@file@percent }
 \citation{peters1998using}
 \citation{sillito2008questions}
 \citation{tip2002practical}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Category-Specific Effectiveness}{13}{subsection.5.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Improvement in mutation score (percentage points) from P1 to P3 by method category. The \emph  {other} category is omitted (zero methods in the corpus).}}{13}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:improvement-by-category}{{3}{13}{Improvement in mutation score (percentage points) from P1 to P3 by method category. The \emph {other} category is omitted (zero methods in the corpus)}{figure.caption.10}{}}
+\newlabel{fig:improvement-by-category@cref}{{[figure][3][]3}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Summary of Findings}{13}{subsection.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Discussion}{13}{section.6}\protected@file@percent }
+\newlabel{sec:discussion}{{6}{13}{Discussion}{section.6}{}}
+\newlabel{sec:discussion@cref}{{[section][6][]6}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Implications}{13}{subsection.6.1}\protected@file@percent }
 \citation{leavens2006design}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Summary of Findings}{11}{subsection.5.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6}Discussion}{11}{section.6}\protected@file@percent }
-\newlabel{sec:discussion}{{6}{11}{Discussion}{section.6}{}}
-\newlabel{sec:discussion@cref}{{[section][6][]6}{[1][11][]11}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Implications}{11}{subsection.6.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Generalisability}{11}{subsection.6.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Limitations}{11}{subsection.6.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Specification coverage gaps.}{11}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Generalisability}{14}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Limitations}{14}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Specification coverage gaps.}{14}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Language-feature limitations.}{14}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{False positives.}{14}{subsection.6.3}\protected@file@percent }
 \citation{wohlin2012experimentation}
-\@writefile{toc}{\contentsline {paragraph}{Language-feature limitations.}{12}{subsection.6.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{False positives.}{12}{subsection.6.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7}Threats to Validity}{12}{section.7}\protected@file@percent }
-\newlabel{sec:threats}{{7}{12}{Threats to Validity}{section.7}{}}
-\newlabel{sec:threats@cref}{{[section][7][]7}{[1][12][]12}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Summary of validity threats and mitigations}}{12}{table.caption.9}\protected@file@percent }
-\newlabel{tab:threats-summary}{{6}{12}{Summary of validity threats and mitigations}{table.caption.9}{}}
-\newlabel{tab:threats-summary@cref}{{[table][6][]6}{[1][12][]12}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Internal validity.}{12}{table.caption.9}\protected@file@percent }
-\citation{schafer2023adaptive,yuan2024chatunitest}
+\citation{dragan2006reverse}
+\citation{schafer2023adaptive,yuan2024chatunitest,molinelli2025oracles}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Threats to Validity}{15}{section.7}\protected@file@percent }
+\newlabel{sec:threats}{{7}{15}{Threats to Validity}{section.7}{}}
+\newlabel{sec:threats@cref}{{[section][7][]7}{[1][15][]15}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Summary of validity threats and mitigations.}}{15}{table.caption.11}\protected@file@percent }
+\newlabel{tab:threats-summary}{{8}{15}{Summary of validity threats and mitigations}{table.caption.11}{}}
+\newlabel{tab:threats-summary@cref}{{[table][8][]8}{[1][15][]15}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Internal validity.}{15}{table.caption.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{External validity.}{15}{table.caption.11}\protected@file@percent }
 \citation{papadakis2019mutation}
 \citation{coles2016pitest}
+\@writefile{toc}{\contentsline {paragraph}{Heuristic soundness.}{16}{table.caption.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Construct validity.}{16}{table.caption.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Conclusion validity.}{16}{table.caption.11}\protected@file@percent }
 \citation{hoare1969axiomatic}
 \citation{dijkstra_guarded_1975,dijkstra1976discipline}
 \citation{barnett2005weakest}
 \citation{flanagan2002extended,chalin2010jml}
+\citation{flanagan2001houdini}
 \citation{andronick_large-scale_2012,klein2014sel4,matichuk_cost_2015}
 \citation{zimmermann2019lightweight}
 \citation{ernst2007daikon}
 \citation{preinfer2017}
-\@writefile{toc}{\contentsline {paragraph}{External validity.}{13}{table.caption.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Heuristic soundness.}{13}{table.caption.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Construct validity.}{13}{table.caption.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Conclusion validity.}{13}{table.caption.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {8}Related Work}{13}{section.8}\protected@file@percent }
-\newlabel{sec:related}{{8}{13}{Related Work}{section.8}{}}
-\newlabel{sec:related@cref}{{[section][8][]8}{[1][13][]13}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{From verification to inference.}{13}{section.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Dynamic and static inference.}{13}{section.8}\protected@file@percent }
 \citation{toradocu2016}
 \citation{jdoctor2018}
 \citation{pandita2012inferring}
@@ -157,15 +169,26 @@
 \citation{richter2025beyondpostconditions}
 \citation{teuber2025nextsteps}
 \citation{zhang2025llmunitsurvey}
+\citation{tufano2020athenatest}
 \citation{lemieux2023codamosa}
 \citation{yuan2024chatunitest}
 \citation{chen2022codet}
 \citation{schafer2023adaptive}
+\citation{kang2023libro}
+\citation{dinella2022toga}
+\citation{hossain2024togll}
 \citation{konstantinou2024oracles}
 \citation{molinelli2025oracles}
 \citation{foster2025meta}
 \citation{schafer2023adaptive}
 \citation{jiang2024survey}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Related Work}{17}{section.8}\protected@file@percent }
+\newlabel{sec:related}{{8}{17}{Related Work}{section.8}{}}
+\newlabel{sec:related@cref}{{[section][8][]8}{[1][16][]17}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{From verification to inference.}{17}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dynamic and static inference.}{17}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Documentation-based approaches.}{17}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{LLM-based specification inference.}{17}{section.8}\protected@file@percent }
 \citation{papadakis2019mutation}
 \citation{coles2016pitest}
 \citation{wang2024llmmutation}
@@ -178,19 +201,17 @@
 \citation{calcagno2015infer}
 \citation{hovemeyer2004finding}
 \citation{dragan2006reverse}
-\@writefile{toc}{\contentsline {paragraph}{Documentation-based approaches.}{14}{section.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{LLM-based specification inference.}{14}{section.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{LLM-based test generation and the oracle problem.}{14}{section.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Mutation testing as the evaluation methodology.}{14}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{LLM-based test generation and the oracle problem.}{18}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mutation testing as the evaluation methodology.}{18}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Specification-based testing.}{18}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}Conclusion}{18}{section.9}\protected@file@percent }
+\newlabel{sec:conclusion}{{9}{18}{Conclusion}{section.9}{}}
+\newlabel{sec:conclusion@cref}{{[section][9][]9}{[1][18][]18}{}{}{}}
 \citation{zimmermann2019lightweight,hall1990seven}
 \citation{jdoctor2018}
 \citation{wei2011inferring}
 \citation{ernst2007daikon}
 \citation{cousot2011contract}
-\@writefile{toc}{\contentsline {paragraph}{Specification-based testing.}{15}{section.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {9}Conclusion}{15}{section.9}\protected@file@percent }
-\newlabel{sec:conclusion}{{9}{15}{Conclusion}{section.9}{}}
-\newlabel{sec:conclusion@cref}{{[section][9][]9}{[1][15][]15}{}{}{}}
 \bibstyle{plainnat}
 \bibdata{references}
 \bibcite{andronick_large-scale_2012}{{1}{2012}{{Andronick et~al.}}{{Andronick, Jeffery, Klein, Kolanski, Staples, Zhang, and Zhu}}}
@@ -200,54 +221,59 @@
 \bibcite{cadar2008klee}{{5}{2008}{{Cadar et~al.}}{{Cadar, Dunbar, and Engler}}}
 \bibcite{calcagno2015infer}{{6}{2015}{{Calcagno et~al.}}{{Calcagno, Distefano, Dubreil, Gabi, Hooimeijer, Luca, O'Hearn, Papakonstantinou, Purbrick, and Rodriguez}}}
 \bibcite{chalin2010jml}{{7}{2006}{{Chalin et~al.}}{{Chalin, Kiniry, Leavens, and Poll}}}
-\bibcite{chen2022codet}{{8}{2023}{{Chen et~al.}}{{}}}
-\bibcite{chen2021codex}{{9}{2021}{{Chen et~al.}}{{Chen, Tworek, Jun, Yuan, et~al.}}}
+\bibcite{chen2022codet}{{8}{2023}{{Chen et~al.}}{{Chen, Zhang, Nguyen, Zan, Lin, Lou, and Chen}}}
+\bibcite{chen2021codex}{{9}{2021}{{Chen et~al.}}{{Chen, Tworek, Jun, Yuan, de~Oliveira~Pinto, Kaplan, Edwards, Burda, et~al.}}}
 \bibcite{openjml}{{10}{2014}{{Cok}}{{}}}
 \bibcite{coles2016pitest}{{11}{2016}{{Coles}}{{}}}
 \bibcite{cousot1977abstract}{{12}{1977}{{Cousot and Cousot}}{{}}}
 \bibcite{cousot2011contract}{{13}{2011}{{Cousot et~al.}}{{Cousot, Cousot, and Logozzo}}}
 \bibcite{dijkstra_guarded_1975}{{14}{1975}{{Dijkstra}}{{}}}
 \bibcite{dijkstra1976discipline}{{15}{1976}{{Dijkstra}}{{}}}
-\bibcite{dragan2006reverse}{{16}{2006}{{Dragan et~al.}}{{Dragan, Collard, and Maletic}}}
-\bibcite{endres2024can}{{17}{2024}{{Endres et~al.}}{{Endres, Fakhoury, Chakraborty, and Lahiri}}}
-\bibcite{ernst2007daikon}{{18}{2007}{{Ernst et~al.}}{{Ernst, Perkins, Guo, McCamant, Pacheco, Tschantz, and Xiao}}}
-\bibcite{flanagan2002extended}{{19}{2002}{{Flanagan et~al.}}{{Flanagan, Leino, Lillibridge, Nelson, Saxe, and Stata}}}
-\bibcite{foster2025meta}{{20}{2025}{{Foster et~al.}}{{Foster, Gulati, Harman, Harper, Mao, Ritchey, Robert, and Sengupta}}}
-\bibcite{fraser2011evosuite}{{21}{2011}{{Fraser and Arcuri}}{{}}}
-\bibcite{toradocu2016}{{22}{2016}{{Goffi et~al.}}{{Goffi, Gorla, Ernst, and Pezz\`{e}}}}
-\bibcite{hall1990seven}{{23}{1990}{{Hall}}{{}}}
-\bibcite{hoare1969axiomatic}{{24}{1969}{{Hoare}}{{}}}
-\bibcite{hovemeyer2004finding}{{25}{2004}{{Hovemeyer and Pugh}}{{}}}
-\bibcite{javaparser}{{26}{2024}{{JavaParser Team}}{{}}}
-\bibcite{jiang2024survey}{{27}{2024}{{Jiang et~al.}}{{Jiang, Wang, Shen, Kim, and Kim}}}
-\bibcite{king1976symbolic}{{28}{1976}{{King}}{{}}}
-\bibcite{klein2014sel4}{{29}{2014}{{Klein et~al.}}{{}}}
-\bibcite{konstantinou2024oracles}{{30}{2024}{{Konstantinou et~al.}}{{Konstantinou, Degiovanni, and Papadakis}}}
-\bibcite{leavens2006design}{{31}{2006}{{Leavens et~al.}}{{Leavens, Baker, and Ruby}}}
-\bibcite{jml}{{32}{2013}{{Leavens et~al.}}{{}}}
-\bibcite{lemieux2023codamosa}{{33}{2023}{{Lemieux et~al.}}{{}}}
-\bibcite{ma2024specgen}{{34}{2024}{{Ma et~al.}}{{Ma, Liu, Li, Xie, and Bu}}}
-\bibcite{matichuk_cost_2015}{{35}{2015}{{Matichuk et~al.}}{{Matichuk, Murray, Andronick, Jeffery, Klein, and Staples}}}
-\bibcite{meyer1992design}{{36}{1992}{{Meyer}}{{}}}
-\bibcite{molinelli2025oracles}{{37}{2025}{{Molinelli et~al.}}{{Molinelli, Grazia, Martin-Lopez, Ernst, and Pezz{\`e}}}}
-\bibcite{pacheco2007randoop}{{38}{2007}{{Pacheco et~al.}}{{Pacheco, Lahiri, Ernst, and Ball}}}
-\bibcite{pandita2012inferring}{{39}{2012}{{Pandita et~al.}}{{Pandita, Xiao, Zhong, Xie, Oney, and Paradkar}}}
-\bibcite{papadakis2019mutation}{{40}{2019}{{Papadakis et~al.}}{{Papadakis, Kintis, Zhang, Jia, Traon, and Harman}}}
-\bibcite{peters1998using}{{41}{1998}{{Peters and Parnas}}{{}}}
-\bibcite{richter2025beyondpostconditions}{{42}{2025}{{Richter and Wehrheim}}{{}}}
-\bibcite{schafer2023adaptive}{{43}{2024}{{Sch{\"a}fer et~al.}}{{}}}
-\bibcite{sillito2008questions}{{44}{2008}{{Sillito et~al.}}{{Sillito, Murphy, and Volder}}}
-\bibcite{teuber2025nextsteps}{{45}{2025}{{Teuber and Beckert}}{{}}}
-\bibcite{tip2002practical}{{46}{2002}{{Tip et~al.}}{{Tip, Sweeney, Laffra, Eisma, and Streeter}}}
-\bibcite{wang2024llmmutation}{{47}{2024}{{Wang et~al.}}{{Wang, Chen, Deng, Lin, Harman, Papadakis, and Zhang}}}
-\bibcite{wang2025mutgen}{{48}{2025}{{Wang et~al.}}{{Wang, Xu, Briand, and Liu}}}
-\bibcite{preinfer2017}{{49}{2017}{{Wang et~al.}}{{Wang, Dillig, and Piskac}}}
-\bibcite{wei2011inferring}{{50}{2011}{{Wei et~al.}}{{Wei, Furia, Kazmin, and Meyer}}}
-\bibcite{wohlin2012experimentation}{{51}{2012}{{Wohlin et~al.}}{{Wohlin, Runeson, H{\"o}st, Ohlsson, Regnell, and Wessl{\'e}n}}}
-\bibcite{yuan2024chatunitest}{{52}{2024}{{Yuan et~al.}}{{Yuan, Lou, Liu, Ding, Wang, Chen, and Peng}}}
-\bibcite{zhang2025llmunitsurvey}{{53}{2025}{{Zhang et~al.}}{{Zhang, Fang, Gu, Shang, Chen, and Xiao}}}
-\bibcite{zimmermann2019lightweight}{{54}{2019}{{Zimmermann and Wehrheim}}{{}}}
-\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Specification Inference via Pattern Matching}}{21}{algorithm.1}\protected@file@percent }
-\newlabel{alg:inference}{{1}{21}{Specification Inference via Pattern Matching}{algorithm.1}{}}
-\newlabel{alg:inference@cref}{{[algorithm][1][]1}{[1][5][]21}{}{}{}}
-\gdef \@abspage@last{21}
+\bibcite{dinella2022toga}{{16}{2022}{{Dinella et~al.}}{{Dinella, Ryan, Mytkowicz, and Lahiri}}}
+\bibcite{dragan2006reverse}{{17}{2006}{{Dragan et~al.}}{{Dragan, Collard, and Maletic}}}
+\bibcite{endres2024can}{{18}{2024}{{Endres et~al.}}{{Endres, Fakhoury, Chakraborty, and Lahiri}}}
+\bibcite{ernst2007daikon}{{19}{2007}{{Ernst et~al.}}{{Ernst, Perkins, Guo, McCamant, Pacheco, Tschantz, and Xiao}}}
+\bibcite{flanagan2001houdini}{{20}{2001}{{Flanagan and Leino}}{{}}}
+\bibcite{flanagan2002extended}{{21}{2002}{{Flanagan et~al.}}{{Flanagan, Leino, Lillibridge, Nelson, Saxe, and Stata}}}
+\bibcite{foster2025meta}{{22}{2025}{{Foster et~al.}}{{Foster, Gulati, Harman, Harper, Mao, Ritchey, Robert, and Sengupta}}}
+\bibcite{fraser2011evosuite}{{23}{2011}{{Fraser and Arcuri}}{{}}}
+\bibcite{toradocu2016}{{24}{2016}{{Goffi et~al.}}{{Goffi, Gorla, Ernst, and Pezz\`{e}}}}
+\bibcite{hall1990seven}{{25}{1990}{{Hall}}{{}}}
+\bibcite{hoare1969axiomatic}{{26}{1969}{{Hoare}}{{}}}
+\bibcite{hossain2024togll}{{27}{2024}{{Hossain and Dwyer}}{{}}}
+\bibcite{hovemeyer2004finding}{{28}{2004}{{Hovemeyer and Pugh}}{{}}}
+\bibcite{javaparser}{{29}{2024}{{JavaParser Team}}{{}}}
+\bibcite{jiang2024survey}{{30}{2024}{{Jiang et~al.}}{{Jiang, Wang, Shen, Kim, and Kim}}}
+\bibcite{kang2023libro}{{31}{2023}{{Kang et~al.}}{{Kang, Yoon, and Yoo}}}
+\bibcite{king1976symbolic}{{32}{1976}{{King}}{{}}}
+\bibcite{klein2014sel4}{{33}{2014}{{Klein et~al.}}{{Klein, Andronick, Elphinstone, Murray, Sewell, Kolanski, and Heiser}}}
+\bibcite{konstantinou2024oracles}{{34}{2024}{{Konstantinou et~al.}}{{Konstantinou, Degiovanni, and Papadakis}}}
+\bibcite{leavens2006design}{{35}{2006}{{Leavens et~al.}}{{Leavens, Baker, and Ruby}}}
+\bibcite{jml}{{36}{2013}{{Leavens et~al.}}{{}}}
+\bibcite{lemieux2023codamosa}{{37}{2023}{{Lemieux et~al.}}{{Lemieux, Inala, Lahiri, and Sen}}}
+\bibcite{ma2024specgen}{{38}{2024}{{Ma et~al.}}{{Ma, Liu, Li, Xie, and Bu}}}
+\bibcite{matichuk_cost_2015}{{39}{2015}{{Matichuk et~al.}}{{Matichuk, Murray, Andronick, Jeffery, Klein, and Staples}}}
+\bibcite{meyer1992design}{{40}{1992}{{Meyer}}{{}}}
+\bibcite{molinelli2025oracles}{{41}{2025}{{Molinelli et~al.}}{{Molinelli, Grazia, Martin-Lopez, Ernst, and Pezz{\`e}}}}
+\bibcite{pacheco2007randoop}{{42}{2007}{{Pacheco et~al.}}{{Pacheco, Lahiri, Ernst, and Ball}}}
+\bibcite{pandita2012inferring}{{43}{2012}{{Pandita et~al.}}{{Pandita, Xiao, Zhong, Xie, Oney, and Paradkar}}}
+\bibcite{papadakis2019mutation}{{44}{2019}{{Papadakis et~al.}}{{Papadakis, Kintis, Zhang, Jia, Traon, and Harman}}}
+\bibcite{peters1998using}{{45}{1998}{{Peters and Parnas}}{{}}}
+\bibcite{richter2025beyondpostconditions}{{46}{2025}{{Richter and Wehrheim}}{{}}}
+\bibcite{schafer2023adaptive}{{47}{2024}{{Sch{\"a}fer et~al.}}{{Sch{\"a}fer, Nadi, Eghbali, and Tip}}}
+\bibcite{sillito2008questions}{{48}{2008}{{Sillito et~al.}}{{Sillito, Murphy, and Volder}}}
+\bibcite{teuber2025nextsteps}{{49}{2025}{{Teuber and Beckert}}{{}}}
+\bibcite{tip2002practical}{{50}{2002}{{Tip et~al.}}{{Tip, Sweeney, Laffra, Eisma, and Streeter}}}
+\bibcite{tufano2020athenatest}{{51}{2020}{{Tufano et~al.}}{{Tufano, Drain, Svyatkovskiy, Deng, and Sundaresan}}}
+\bibcite{wang2024llmmutation}{{52}{2024}{{Wang et~al.}}{{Wang, Chen, Deng, Lin, Harman, Papadakis, and Zhang}}}
+\bibcite{wang2025mutgen}{{53}{2025}{{Wang et~al.}}{{Wang, Xu, Briand, and Liu}}}
+\bibcite{preinfer2017}{{54}{2017}{{Wang et~al.}}{{Wang, Dillig, and Piskac}}}
+\bibcite{wei2011inferring}{{55}{2011}{{Wei et~al.}}{{Wei, Furia, Kazmin, and Meyer}}}
+\bibcite{wohlin2012experimentation}{{56}{2012}{{Wohlin et~al.}}{{Wohlin, Runeson, H{\"o}st, Ohlsson, Regnell, and Wessl{\'e}n}}}
+\bibcite{yuan2024chatunitest}{{57}{2024}{{Yuan et~al.}}{{Yuan, Lou, Liu, Ding, Wang, Chen, and Peng}}}
+\bibcite{zhang2025llmunitsurvey}{{58}{2025}{{Zhang et~al.}}{{Zhang, Fang, Gu, Shang, Chen, and Xiao}}}
+\bibcite{zimmermann2019lightweight}{{59}{2019}{{Zimmermann and Wehrheim}}{{}}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Specification Inference via Pattern Matching}}{25}{algorithm.1}\protected@file@percent }
+\newlabel{alg:inference}{{1}{25}{Specification Inference via Pattern Matching}{algorithm.1}{}}
+\newlabel{alg:inference@cref}{{[algorithm][1][]1}{[1][5][]25}{}{}{}}
+\gdef \@abspage@last{25}
