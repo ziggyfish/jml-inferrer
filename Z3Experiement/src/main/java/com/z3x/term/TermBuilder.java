@@ -13,17 +13,44 @@ public final class TermBuilder {
 
     public TermBuilder(TermFactory tf) { this.tf = tf; }
 
+    private final java.util.Map<String, ParamSort> paramSorts = new java.util.HashMap<>();
+    private record ParamSort(List<String> params, SExpr body) {}
+
+    public void registerParameterizedSort(String name, List<String> params, SExpr body) {
+        paramSorts.put(name, new ParamSort(List.copyOf(params), body));
+    }
+
     public Sort resolveSort(SExpr e) {
+        return resolveSort(e, java.util.Map.of());
+    }
+
+    private Sort resolveSort(SExpr e, java.util.Map<String, Sort> subs) {
         if (e instanceof SExpr.Atom a) {
-            Sort s = tf.lookupSort(a.text());
-            if (s == null) throw new IllegalStateException("Unknown sort: " + a.text());
-            return s;
+            String text = a.text();
+            Sort sub = subs.get(text);
+            if (sub != null) return sub;
+            Sort s = tf.lookupSort(text);
+            if (s != null) return s;
+            // Parameterized sort with no args (e.g. SEQ used bare — shouldn't happen).
+            ParamSort ps = paramSorts.get(text);
+            if (ps != null && ps.params.isEmpty()) return resolveSort(ps.body, java.util.Map.of());
+            throw new IllegalStateException("Unknown sort: " + text);
         }
         if (e instanceof SExpr.SList l) {
-            // (Array K V), (_ BitVec n)
+            // (NAME ARGS...) — could be a parameterized sort.
+            if (!l.items().isEmpty() && l.items().get(0) instanceof SExpr.Atom head) {
+                ParamSort ps = paramSorts.get(head.text());
+                if (ps != null && ps.params.size() == l.items().size() - 1) {
+                    java.util.Map<String, Sort> bindings = new java.util.HashMap<>(subs);
+                    for (int i = 0; i < ps.params.size(); i++) {
+                        bindings.put(ps.params.get(i), resolveSort(l.items().get(i + 1), subs));
+                    }
+                    return resolveSort(ps.body, bindings);
+                }
+            }
             if (!l.items().isEmpty() && l.items().get(0) instanceof SExpr.Atom head) {
                 if (head.text().equals("Array") && l.items().size() == 3) {
-                    return new Sort.Array(resolveSort(l.items().get(1)), resolveSort(l.items().get(2)));
+                    return new Sort.Array(resolveSort(l.items().get(1), subs), resolveSort(l.items().get(2), subs));
                 }
                 if (head.text().equals("_") && l.items().size() == 3
                         && l.items().get(1) instanceof SExpr.Atom bv && bv.text().equals("BitVec")
@@ -76,11 +103,11 @@ public final class TermBuilder {
                 if (text.equals("RTZ") || text.equals("roundTowardZero")) return tf.mkRm(Term.RmConst.Mode.RTZ);
                 Term let = letBindings.get(text);
                 if (let != null) return let;
-                if (text.startsWith("#b")) {
+                if (text.startsWith("#b") && text.length() > 2 && text.substring(2).matches("[01]+")) {
                     String bits = text.substring(2);
                     return tf.mkBv(new BigInteger(bits, 2), bits.length());
                 }
-                if (text.startsWith("#x")) {
+                if (text.startsWith("#x") && text.length() > 2 && text.substring(2).matches("[0-9a-fA-F]+")) {
                     String hex = text.substring(2);
                     return tf.mkBv(new BigInteger(hex, 16), hex.length() * 4);
                 }

@@ -151,7 +151,14 @@ public class OpenJMLInvoker {
             Path z3_4_7 = solversDir.resolve("z3-4.7.1");
             Path z3_4_13 = solversDir.resolve("z3-4.13.4");
             Path z3_4_16 = solversDir.resolve("z3-4.16.0");
-            if ("cvc5".equalsIgnoreCase(preferred) && java.nio.file.Files.isExecutable(cvc5)) {
+            Path z3exp = solversDir.resolve("z3exp");
+            if ("z3exp".equalsIgnoreCase(preferred) && java.nio.file.Files.isExecutable(z3exp)) {
+                // Specialized in-process Z3Experiement (Day-7 artifact). Uses the z3_4_3 adapter
+                // because Z3Experiement implements the same SMT-LIB2 subset.
+                command.add("--prover=z3_4_3");
+                command.add("--exec");
+                command.add(z3exp.toAbsolutePath().toString());
+            } else if ("cvc5".equalsIgnoreCase(preferred) && java.nio.file.Files.isExecutable(cvc5)) {
                 command.add("--prover=cvc5");
                 command.add("--exec");
                 command.add(cvc5.toAbsolutePath().toString());

@@ -121,6 +121,7 @@ public final class Solver {
             }
             case "declare-datatypes" -> handleDeclareDatatypes(l);
             case "declare-datatype" -> handleDeclareDatatype(l);
+            case "define-sort" -> handleDefineSort(l);
             case "declare-fun" -> {
                 String name = ((SExpr.Atom) l.items().get(1)).text();
                 List<Sort> args = new ArrayList<>();
@@ -437,6 +438,24 @@ public final class Solver {
                          Sort returnSort, Term body, boolean recursive) {}
     private final java.util.Map<String, FunDef> funDefs = new java.util.LinkedHashMap<>();
     public java.util.Map<String, FunDef> functionDefinitions() { return funDefs; }
+
+    private void handleDefineSort(SExpr.SList l) {
+        // (define-sort NAME (PARAM1 ... PARAMn) BODY)
+        // For non-parameterized aliases (n == 0): NAME → resolveSort(BODY).
+        // For parameterized: store the template and substitute on lookup.
+        String name = ((SExpr.Atom) l.items().get(1)).text();
+        SExpr.SList params = (SExpr.SList) l.items().get(2);
+        SExpr body = l.items().get(3);
+        if (params.items().isEmpty()) {
+            Sort resolved = tb.resolveSort(body);
+            tf.replaceSort(name, resolved);
+        } else {
+            // Register parameterized sort alias. Resolution time substitutes the params.
+            List<String> paramNames = new ArrayList<>();
+            for (SExpr p : params.items()) paramNames.add(((SExpr.Atom) p).text());
+            tb.registerParameterizedSort(name, paramNames, body);
+        }
+    }
 
     private void handleDefineFun(SExpr.SList l, boolean rec) {
         // (define-fun NAME ((p1 T1) ...) ReturnSort body)

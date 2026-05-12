@@ -1,0 +1,53 @@
+# =============================================================================
+# JML Inferrer - Test Runner with Z3Experiement as the SMT solver
+# =============================================================================
+# Identical to Dockerfile.test except the solver is the in-process Z3Experiement
+# rather than the bundled z3. Sets OPENJML_PROVER=z3exp so OpenJMLInvoker selects
+# our launcher.
+# =============================================================================
+
+FROM maven:3.9.6-eclipse-temurin-21
+
+RUN apt-get update && apt-get install -y --no-install-recommends unzip curl libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV OPENJML_VERSION=21-0.23
+ENV OPENJML_HOME=/opt/openjml
+ENV OPENJML_PLATFORM=openjml-ubuntu-22.04
+ENV OPENJML_PROVER=z3exp
+
+RUN mkdir -p "$OPENJML_HOME" \
+    && curl -L --progress-bar -o /tmp/openjml.zip \
+       "https://github.com/OpenJML/OpenJML/releases/download/${OPENJML_VERSION}/${OPENJML_PLATFORM}-${OPENJML_VERSION}.zip" \
+    && unzip -q /tmp/openjml.zip -d "$OPENJML_HOME" \
+    && if [ ! -f "$OPENJML_HOME/openjml" ]; then \
+         INNER=$(find "$OPENJML_HOME" -maxdepth 1 -type d ! -path "$OPENJML_HOME" | head -1); \
+         if [ -n "$INNER" ] && [ -f "$INNER/openjml" ]; then \
+           mv "$INNER"/* "$OPENJML_HOME/" 2>/dev/null || true; \
+           rmdir "$INNER" 2>/dev/null || true; \
+         fi; \
+       fi \
+    && chmod +x "$OPENJML_HOME/openjml" \
+    && rm -f /tmp/openjml.zip
+
+# Install Z3Experiement as a z3-compatible launcher.
+COPY Z3Experiement/out/z3exp.jar /opt/z3exp/z3exp.jar
+RUN cat > /opt/openjml/Solvers-linux/z3exp <<'EOF' \
+ && chmod +x /opt/openjml/Solvers-linux/z3exp
+#!/bin/sh
+# z3-compatible launcher for Z3Experiement. Reads SMT-LIB2 from stdin, prints sat/unsat.
+exec java -Xss32m -Xmx2g -jar /opt/z3exp/z3exp.jar "$@"
+EOF
+
+WORKDIR /app
+
+# Install the sibling jml-embedder module first (the inferrer depends on it).
+COPY jml-embedder/ ./jml-embedder/
+RUN cd jml-embedder && mvn install -DskipTests -B
+
+COPY pom.xml ./
+
+COPY src/ ./src/
+
+# Run verification-only tests so we see SMT-solver-driven failures specifically.
+CMD ["mvn", "test", "-B", "-Dtest=com.jml.inferrer.verification.*"]
