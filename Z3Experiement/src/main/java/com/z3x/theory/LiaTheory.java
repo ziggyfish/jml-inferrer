@@ -54,8 +54,21 @@ public final class LiaTheory implements TheoryHook {
      */
     private final Map<Integer, Integer> equalityDiffVar = new HashMap<>();
 
+    /** Per ordering-atom: SAT var → (diff var, op). Used to propagate ordering atoms whose truth
+     *  is forced by current Simplex bounds — same idea as equalityDiffVar but for &lt;, &lt;=, &gt;, &gt;=. */
+    private static final class OrderAtom {
+        final int diffVar;
+        final String op; // "<", "<=", ">", ">="
+        final boolean isInt;
+        OrderAtom(int dv, String op, boolean isInt) { this.diffVar = dv; this.op = op; this.isInt = isInt; }
+    }
+    private final Map<Integer, OrderAtom> orderAtoms = new HashMap<>();
+
     /** SAT vars already propagated to avoid loops. */
     private final java.util.Set<Integer> propagatedSet = new java.util.HashSet<>();
+
+    /** Per-propagation reasons captured at propagate-time (so explain can return tight reasons). */
+    private final Map<Integer, int[]> propagationReasons = new HashMap<>();
 
     public LiaTheory(TermFactory tf, Cnf cnf) {
         this.tf = tf;
@@ -75,6 +88,12 @@ public final class LiaTheory implements TheoryHook {
                 Term diff = tf.mkSub(List.of(app.args.get(0), app.args.get(1)));
                 int dv = freshVarFor(diff);
                 equalityDiffVar.put(var, dv);
+            } else if (app.symbol.equals("<") || app.symbol.equals("<=")
+                    || app.symbol.equals(">") || app.symbol.equals(">=")) {
+                Term diff = tf.mkSub(List.of(app.args.get(0), app.args.get(1)));
+                int dv = freshVarFor(diff);
+                boolean isInt = isIntDiff(app);
+                orderAtoms.put(var, new OrderAtom(dv, app.symbol, isInt));
             }
         }
     }
@@ -221,6 +240,24 @@ public final class LiaTheory implements TheoryHook {
                 if (pos) {
                     simplex.pushLower(sv, Rational.ZERO, lit);
                     simplex.pushUpper(sv, Rational.ZERO, lit);
+                    // Eager direct-bound push: (= var const) → set var.lower = var.upper = const.
+                    // This makes the constant visible to non-linear axioms and other diff vars.
+                    Rational cVal = constantValue(app.args.get(1));
+                    Term lhs = app.args.get(0);
+                    Rational lhsConst = constantValue(lhs);
+                    if (cVal != null && lhsConst == null && lhs instanceof Term.Var) {
+                        Integer vv = termIdToVar.get(lhs.id);
+                        if (vv != null) {
+                            simplex.pushLower(vv, cVal, lit);
+                            simplex.pushUpper(vv, cVal, lit);
+                        }
+                    } else if (lhsConst != null && cVal == null && app.args.get(1) instanceof Term.Var) {
+                        Integer vv = termIdToVar.get(app.args.get(1).id);
+                        if (vv != null) {
+                            simplex.pushLower(vv, lhsConst, lit);
+                            simplex.pushUpper(vv, lhsConst, lit);
+                        }
+                    }
                 }
                 // If negative we can't directly encode disequality in Simplex; fall back to
                 // doing a check that splits later via the SAT layer. For now no-op; theory will
@@ -300,25 +337,109 @@ public final class LiaTheory implements TheoryHook {
     @Override
     public List<Integer> propagate() {
         List<Integer> out = new ArrayList<>();
+        // Pivot to a consistent assignment so impliedBounds/isPinned see post-pivot state. If the
+        // pivot detects a conflict, set pendingConflict back so theory.check (called next) re-fires
+        // it instead of declaring SAT.
+        if (!simplex.check()) {
+            simplex.pendingConflict = true;
+            return out;
+        }
         for (Map.Entry<Integer, Integer> e : equalityDiffVar.entrySet()) {
             int satVar = e.getKey();
             int dv = e.getValue();
             if (propagatedSet.contains(satVar) || propagatedSet.contains(-satVar)) continue;
+            // Direct bounds path.
             Rational lo = simplex.lowerOf(dv);
             Rational hi = simplex.upperOf(dv);
+            java.util.Set<Integer> reasons = new java.util.LinkedHashSet<>();
+            // Implied-bounds path: tighten lo/hi using row reasoning. This catches cases where
+            // a and b are each pinned to the same value via separate constraints (a=1, b=1) so
+            // the diff variable's row evaluates to a single point even though the diff itself
+            // never received a direct bound.
+            if (simplex.isBasic(dv)) {
+                Rational[] implied = simplex.impliedBounds(dv, reasons);
+                if (implied[0] != null && (lo == null || implied[0].gt(lo))) lo = implied[0];
+                if (implied[1] != null && (hi == null || implied[1].lt(hi))) hi = implied[1];
+            } else {
+                if (simplex.lowerReasonOf(dv) != 0) reasons.add(simplex.lowerReasonOf(dv));
+                if (simplex.upperReasonOf(dv) != 0) reasons.add(simplex.upperReasonOf(dv));
+            }
+            // Transitive value-pinning: if the diff var is forced to a unique value via
+            // chained basic rows whose non-basics are all pinned, use that value.
+            if ((lo == null || hi == null) && simplex.isPinned(dv, reasons)) {
+                Rational pinned = simplex.valueOf(dv);
+                if (lo == null) lo = pinned;
+                if (hi == null) hi = pinned;
+            }
             if (lo == null || hi == null) continue;
             int cmp = lo.compareTo(hi);
+            int lit = 0;
             if (cmp == 0) {
-                int lit = lo.isZero() ? satVar : -satVar;
+                lit = lo.isZero() ? satVar : -satVar;
+            } else if (cmp < 0) {
+                if (lo.signum() > 0 || hi.signum() < 0) lit = -satVar;
+            }
+            if (lit != 0) {
                 propagatedSet.add(lit);
                 out.add(lit);
-            } else if (cmp < 0) {
-                // Bounds disjoint from 0 → diff != 0 → a != b.
-                if (lo.signum() > 0 || hi.signum() < 0) {
-                    int lit = -satVar;
-                    propagatedSet.add(lit);
-                    out.add(lit);
-                }
+                int[] reasonArr = new int[reasons.size()];
+                int i = 0; for (int r : reasons) reasonArr[i++] = r;
+                propagationReasons.put(lit, reasonArr);
+            }
+        }
+        // Ordering atoms: similarly compute lo/hi for the diff and check if op is forced.
+        for (Map.Entry<Integer, OrderAtom> e : orderAtoms.entrySet()) {
+            int satVar = e.getKey();
+            if (propagatedSet.contains(satVar) || propagatedSet.contains(-satVar)) continue;
+            OrderAtom oa = e.getValue();
+            int dv = oa.diffVar;
+            Rational lo = simplex.lowerOf(dv);
+            Rational hi = simplex.upperOf(dv);
+            java.util.Set<Integer> reasons = new java.util.LinkedHashSet<>();
+            if (simplex.isBasic(dv)) {
+                Rational[] implied = simplex.impliedBounds(dv, reasons);
+                if (implied[0] != null && (lo == null || implied[0].gt(lo))) lo = implied[0];
+                if (implied[1] != null && (hi == null || implied[1].lt(hi))) hi = implied[1];
+            } else {
+                if (simplex.lowerReasonOf(dv) != 0) reasons.add(simplex.lowerReasonOf(dv));
+                if (simplex.upperReasonOf(dv) != 0) reasons.add(simplex.upperReasonOf(dv));
+            }
+            if ((lo == null || hi == null) && simplex.isPinned(dv, reasons)) {
+                Rational pinned = simplex.valueOf(dv);
+                if (lo == null) lo = pinned;
+                if (hi == null) hi = pinned;
+            }
+            // diff = a - b. op:
+            //   "<"  → a <  b ↔ diff <  0
+            //   "<=" → a <= b ↔ diff <= 0
+            //   ">"  → diff > 0
+            //   ">=" → diff >= 0
+            Boolean truth = null;
+            switch (oa.op) {
+                case "<":
+                    if (hi != null && hi.signum() < 0) truth = true;
+                    else if (lo != null && lo.signum() >= 0) truth = false;
+                    break;
+                case "<=":
+                    if (hi != null && hi.signum() <= 0) truth = true;
+                    else if (lo != null && lo.signum() > 0) truth = false;
+                    break;
+                case ">":
+                    if (lo != null && lo.signum() > 0) truth = true;
+                    else if (hi != null && hi.signum() <= 0) truth = false;
+                    break;
+                case ">=":
+                    if (lo != null && lo.signum() >= 0) truth = true;
+                    else if (hi != null && hi.signum() < 0) truth = false;
+                    break;
+            }
+            if (truth != null) {
+                int lit = truth ? satVar : -satVar;
+                propagatedSet.add(lit);
+                out.add(lit);
+                int[] reasonArr = new int[reasons.size()];
+                int i = 0; for (int r : reasons) reasonArr[i++] = r;
+                propagationReasons.put(lit, reasonArr);
             }
         }
         return out;
@@ -326,6 +447,13 @@ public final class LiaTheory implements TheoryHook {
 
     @Override
     public int[] explain(int propagatedLit) {
+        int[] reasons = propagationReasons.get(propagatedLit);
+        if (reasons != null && reasons.length > 0) {
+            int[] out = new int[reasons.length + 1];
+            for (int i = 0; i < reasons.length; i++) out[i] = -reasons[i];
+            out[out.length - 1] = propagatedLit;
+            return out;
+        }
         int[] out = new int[assertedStack.size() + 1];
         for (int i = 0; i < assertedStack.size(); i++) out[i] = -assertedStack.get(i);
         out[out.length - 1] = propagatedLit;

@@ -27,6 +27,35 @@ public class ModelTest extends TestHarness {
         assertEquals("8", model.get("y").toString());
     }
 
+    public void testArrayModelSat() {
+        Solver s = new Solver();
+        var v = s.run("""
+                (set-option :produce-models true)
+                (set-logic AUFLIA)
+                (declare-const a (Array Int Int))
+                (assert (= (select a 0) 7))
+                (check-sat)
+                """);
+        assertEquals(List.of(Solver.Verdict.SAT), v);
+        Map<String, Term> model = s.lastModel();
+        assertTrue(model.containsKey("a"), "model should contain a");
+    }
+
+    public void testDatatypeModelSat() {
+        Solver s = new Solver();
+        var v = s.run("""
+                (set-option :produce-models true)
+                (set-logic ALL)
+                (declare-datatype Color ((Red) (Green) (Blue)))
+                (declare-const c Color)
+                (assert (= c Red))
+                (check-sat)
+                """);
+        assertEquals(List.of(Solver.Verdict.SAT), v);
+        Map<String, Term> model = s.lastModel();
+        assertTrue(model.containsKey("c"), "model should contain c");
+    }
+
     public void testBoolModelSat() {
         Solver s = new Solver();
         var v = s.run("""

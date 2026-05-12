@@ -83,6 +83,12 @@ public final class Cnf {
         return out;
     }
 
+    /** Register a Boolean term as an atom without asserting it. Used by N-O so equalities
+     *  between shared LIA terms become SAT atoms that LiaTheory.propagate can flip. */
+    public int registerAtom(Term term) {
+        return encode(term);
+    }
+
     /** Recursively encode a Boolean term, returning the literal that represents it. */
     private int encode(Term t) {
         if (t.sort != Sort.BOOL) {

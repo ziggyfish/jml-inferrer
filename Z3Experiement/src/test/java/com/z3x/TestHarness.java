@@ -44,8 +44,11 @@ public abstract class TestHarness {
             DatatypeAcyclicityTest.class,
             StringTest.class,
             StringExtTest.class,
+            SeqTest.class,
+            RegexTest.class,
             NlaTest.class,
             NlaIntervalTest.class,
+            NlaDistributeTest.class,
             AggregateTest.class,
             ModelTest.class,
             BvTest.class,
@@ -53,6 +56,7 @@ public abstract class TestHarness {
             BvDivTest.class,
             BvExtTest.class,
             FpTest.class,
+            FpArithTest.class,
             QuantifierTest.class,
             QuantifierAlternationTest.class,
             EMatchingTest.class,
@@ -60,7 +64,8 @@ public abstract class TestHarness {
             PortfolioTest.class,
             PushPopTest.class,
             UnsatCoreTest.class,
-            UnsatCoreTighterTest.class
+            UnsatCoreTighterTest.class,
+            ProofTest.class
     );
 
     public static void main(String[] args) throws Exception {

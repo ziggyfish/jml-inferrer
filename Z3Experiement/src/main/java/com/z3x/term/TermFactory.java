@@ -42,6 +42,10 @@ public final class TermFactory {
         functions.put("str.prefixof", new Sort.FunSig(List.of(Sort.STRING, Sort.STRING), Sort.BOOL));
         functions.put("str.suffixof", new Sort.FunSig(List.of(Sort.STRING, Sort.STRING), Sort.BOOL));
         functions.put("str.indexof", new Sort.FunSig(List.of(Sort.STRING, Sort.STRING, Sort.INT), Sort.INT));
+        // Regex nullary atoms.
+        functions.put("re.none", new Sort.FunSig(List.of(), Sort.REGEX));
+        functions.put("re.all", new Sort.FunSig(List.of(), Sort.REGEX));
+        functions.put("re.allchar", new Sort.FunSig(List.of(), Sort.REGEX));
     }
 
     /** Hash-cons a string constant. */

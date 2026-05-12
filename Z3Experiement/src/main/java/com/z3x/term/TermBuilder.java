@@ -31,6 +31,9 @@ public final class TermBuilder {
             if (sub != null) return sub;
             Sort s = tf.lookupSort(text);
             if (s != null) return s;
+            // Built-in compound aliases: Float16/32/64/128, RoundingMode.
+            Sort builtin = Sort.fromAtomName(text);
+            if (builtin != null) return builtin;
             // Parameterized sort with no args (e.g. SEQ used bare — shouldn't happen).
             ParamSort ps = paramSorts.get(text);
             if (ps != null && ps.params.isEmpty()) return resolveSort(ps.body, java.util.Map.of());
@@ -51,6 +54,9 @@ public final class TermBuilder {
             if (!l.items().isEmpty() && l.items().get(0) instanceof SExpr.Atom head) {
                 if (head.text().equals("Array") && l.items().size() == 3) {
                     return new Sort.Array(resolveSort(l.items().get(1), subs), resolveSort(l.items().get(2), subs));
+                }
+                if (head.text().equals("Seq") && l.items().size() == 2) {
+                    return new Sort.Seq(resolveSort(l.items().get(1), subs));
                 }
                 if (head.text().equals("_") && l.items().size() == 3
                         && l.items().get(1) instanceof SExpr.Atom bv && bv.text().equals("BitVec")
@@ -226,6 +232,21 @@ public final class TermBuilder {
             case "fp.isNaN","fp.isInfinite","fp.isZero","fp.isNormal","fp.isSubnormal",
                  "fp.isPositive","fp.isNegative","fp.eq","fp.lt","fp.leq","fp.gt","fp.geq"
                     -> tf.mkAppRaw(name, args, Sort.BOOL);
+            // Sequences.
+            case "seq.++" -> tf.mkAppRaw(name, args, args.get(0).sort);
+            case "seq.len" -> tf.mkAppRaw(name, args, Sort.INT);
+            case "seq.unit" -> tf.mkAppRaw(name, args, new Sort.Seq(args.get(0).sort));
+            case "seq.at"  -> tf.mkAppRaw(name, args, args.get(0).sort);
+            case "seq.nth" -> tf.mkAppRaw(name, args, ((Sort.Seq) args.get(0).sort).element());
+            case "seq.extract" -> tf.mkAppRaw(name, args, args.get(0).sort);
+            case "seq.contains","seq.prefixof","seq.suffixof" -> tf.mkAppRaw(name, args, Sort.BOOL);
+            case "seq.indexof" -> tf.mkAppRaw(name, args, Sort.INT);
+            case "seq.replace" -> tf.mkAppRaw(name, args, args.get(0).sort);
+            // Regex.
+            case "str.to_re","re.++","re.union","re.inter","re.*","re.+","re.opt","re.range",
+                 "re.diff","re.comp","re.none","re.all","re.allchar"
+                    -> tf.mkAppRaw(name, args, Sort.REGEX);
+            case "str.in_re" -> tf.mkAppRaw(name, args, Sort.BOOL);
             // FP arithmetic (parsed but unfolded only for special cases).
             case "fp.neg","fp.abs" -> tf.mkAppRaw(name, args, args.get(0).sort);
             case "fp.add","fp.sub","fp.mul","fp.div","fp.rem","fp.sqrt","fp.fma","fp.min","fp.max"
@@ -235,6 +256,7 @@ public final class TermBuilder {
                 for (Term a : args) if (!(a.sort instanceof Sort.Builtin b && b.name().equals("RoundingMode"))) { outSort = a.sort; break; }
                 yield tf.mkAppRaw(name, args, outSort != null ? outSort : args.get(args.size() - 1).sort);
             }
+            case "fp.to_real" -> tf.mkAppRaw(name, args, Sort.REAL);
             case "bvult","bvule","bvugt","bvuge","bvslt","bvsle","bvsgt","bvsge"
                     -> tf.mkAppRaw(name, args, Sort.BOOL);
             default         -> tf.mkApp(name, args);
@@ -277,6 +299,19 @@ public final class TermBuilder {
                 Sort.BitVec srcSort = (Sort.BitVec) args.get(0).sort;
                 Sort outSort = idxOp.equals("repeat") ? new Sort.BitVec(srcSort.width() * n) : srcSort;
                 return tf.mkAppRaw("(_ " + idxOp + " " + n + ")", args, outSort);
+            }
+            case "to_fp":
+            case "to_fp_unsigned": {
+                int eb = Integer.parseInt(((SExpr.Atom) idxs.get(0)).text());
+                int sb = Integer.parseInt(((SExpr.Atom) idxs.get(1)).text());
+                Sort outSort = new Sort.FloatingPoint(eb, sb);
+                return tf.mkAppRaw("(_ " + idxOp + " " + eb + " " + sb + ")", args, outSort);
+            }
+            case "fp.to_sbv":
+            case "fp.to_ubv": {
+                int w = Integer.parseInt(((SExpr.Atom) idxs.get(0)).text());
+                Sort outSort = new Sort.BitVec(w);
+                return tf.mkAppRaw("(_ " + idxOp + " " + w + ")", args, outSort);
             }
             default:
                 throw new IllegalStateException("Unsupported indexed op: " + idxOp);

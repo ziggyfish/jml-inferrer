@@ -75,6 +75,13 @@ public final class Cdcl {
     /** False if a level-0 conflict was found during initial clause loading. */
     private boolean okay = true;
 
+    /** Vars that contributed to ANY conflict's 1UIP analysis. Used by the unsat-core extractor
+     *  for a tighter result than "every assigned var". Populated as a side-effect of analyze(). */
+    public final java.util.HashSet<Integer> conflictTouchedVars = new java.util.HashSet<>();
+
+    /** Description of the final conflict that proved UNSAT (if applicable). */
+    public String lastFinalConflict = "";
+
     private static final boolean DEBUG = Boolean.getBoolean("z3x.cdcl.debug");
 
     public Cdcl(Cnf cnf, TheoryHook theory) {
@@ -113,7 +120,11 @@ public final class Cdcl {
             if (conflict >= 0) {
                 conflictsTotal++;
                 if (DEBUG) System.err.println("[Cdcl] B-conflict on clause " + conflict + " = " + Arrays.toString(clauses.get(conflict)) + " dl=" + decisionLevel);
-                if (decisionLevel == 0) return Result.UNSAT;
+                if (decisionLevel == 0) {
+                    // Walk the conflict's antecedent chain so callers can extract a tighter unsat core.
+                    walkConflictForCore(conflict);
+                    return Result.UNSAT;
+                }
                 int[] learnt = analyze(conflict);
                 int btLevel = backtrackLevelFrom(learnt);
                 cancelUntil(btLevel);
@@ -132,6 +143,7 @@ public final class Cdcl {
             // No Boolean conflict — consult theory.
             // First, T-propagate.
             List<Integer> tp = theory.propagate();
+            if (DEBUG && !tp.isEmpty()) System.err.println("[Cdcl] T-prop list: " + tp);
             boolean propagated = false;
             for (int lit : tp) {
                 int v = Math.abs(lit);
@@ -168,7 +180,11 @@ public final class Cdcl {
                 tConflict = sortConflictByLevelDesc(tConflict);
                 if (DEBUG) System.err.println("[Cdcl] T-conflict-sorted: " + Arrays.toString(tConflict));
                 int btLevel = backtrackLevelFrom(tConflict);
-                if (decisionLevel == 0 && btLevel == 0) return Result.UNSAT;
+                if (decisionLevel == 0 && btLevel == 0) {
+                    // Walk theory-conflict lits' reasons so the unsat core stays tight.
+                    walkConflictForCore(tConflict);
+                    return Result.UNSAT;
+                }
                 int cIdx = addLearnedClause(tConflict);
                 cancelUntil(btLevel);
                 boolean ok = (tConflict.length == 1)
@@ -189,6 +205,34 @@ public final class Cdcl {
     }
 
     public int valueOf(int var) { return value[var]; }
+
+    /** Walk the conflict's antecedent reasons, marking every variable that contributed.
+     *  Used for level-0 conflicts where 1UIP analysis isn't run. */
+    private void walkConflictForCore(int conflictIdx) {
+        walkConflictForCore(clauses.get(conflictIdx));
+    }
+    /** Same, given the conflict literals directly (used for theory conflicts at level 0). */
+    private void walkConflictForCore(int[] startCl) {
+        java.util.ArrayDeque<int[]> stack = new java.util.ArrayDeque<>();
+        stack.push(startCl);
+        java.util.HashSet<Integer> visitedClauses = new java.util.HashSet<>();
+        while (!stack.isEmpty()) {
+            int[] cl = stack.pop();
+            for (int lit : cl) {
+                int v = Math.abs(lit);
+                if (v < 1 || v > nVars) continue;
+                if (!conflictTouchedVars.add(v)) continue;
+                int rIdx = reason[v];
+                if (rIdx >= 0 && visitedClauses.add(rIdx)) {
+                    stack.push(clauses.get(rIdx));
+                } else if (rIdx == -2) {
+                    // T-propagated: ask theory for the proof clause and recurse.
+                    int[] expl = theory.explain(value[v] == 1 ? v : -v);
+                    if (expl != null && expl.length > 0) stack.push(expl);
+                }
+            }
+        }
+    }
 
     // ---------- watch lists ----------
 
@@ -407,6 +451,7 @@ public final class Cdcl {
                 if (!seen[v] && level[v] > 0) {
                     bumpVar(v);
                     seen[v] = true;
+                    conflictTouchedVars.add(v);
                     if (level[v] >= decisionLevel) counter++;
                     else learnt.add(q);
                 }

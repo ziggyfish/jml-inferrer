@@ -77,6 +77,22 @@ public final class NlaAxioms {
             // Negation: a*(-1) = -a.
             axioms.add(tf.mkImplies(tf.mkEq(a, tf.mkInt(-1)), tf.mkEq(t, tf.mkSub(List.of(b)))));
             axioms.add(tf.mkImplies(tf.mkEq(b, tf.mkInt(-1)), tf.mkEq(t, tf.mkSub(List.of(a)))));
+            // Distributivity over a sum: c * (x + y) = c*x + c*y when c is a constant.
+            // Emits unconditionally (both arg orders) so Simplex sees the linear expansion.
+            tryDistribute(t, a, b);
+            tryDistribute(t, b, a);
         }
+    }
+
+    /** If {@code outer = (* c (+ x y))} where {@code c} is a constant, emit the distributive
+     *  axiom {@code outer = (+ (* c x) (* c y))}. Generalises to n-ary sums. */
+    private void tryDistribute(Term outer, Term c, Term sum) {
+        if (!(c instanceof Term.IntConst || c instanceof Term.RatConst)) return;
+        if (!(sum instanceof Term.App sapp) || !sapp.symbol.equals("+")) return;
+        List<Term> products = new ArrayList<>();
+        for (Term term : sapp.args) {
+            products.add(tf.mkMul(List.of(c, term)));
+        }
+        axioms.add(tf.mkEq(outer, tf.mkAdd(products)));
     }
 }

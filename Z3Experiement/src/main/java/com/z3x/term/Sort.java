@@ -40,6 +40,15 @@ public sealed interface Sort {
         @Override public String toString() { return name(); }
     }
 
+    /** SMT-LIB Sequences theory: parameterized by the element sort. */
+    record Seq(Sort element) implements Sort {
+        @Override public String name() { return "(Seq " + element + ")"; }
+        @Override public String toString() { return name(); }
+    }
+
+    /** SMT-LIB Regular Expressions theory. (RegLan in SMT-LIB.) */
+    Sort REGEX = new Builtin("RegLan");
+
     /** Algebraic datatype sort. Identity = name (so a placeholder during declaration is
      *  interchangeable with the final-ctors version). */
     final class Datatype implements Sort {
@@ -66,6 +75,7 @@ public sealed interface Sort {
             case "Int"          -> INT;
             case "Real"         -> REAL;
             case "String"       -> STRING;
+            case "RegLan"       -> REGEX;
             case "RoundingMode" -> ROUNDING_MODE;
             // Aliases for FP common widths.
             case "Float16"      -> new FloatingPoint(5, 11);

@@ -91,7 +91,10 @@ public final class Simplex {
 
     public int numVars() { return vars.size(); }
 
-    /** Make a basic variable equal to a linear combination of others (on creation). */
+    /** Make a basic variable equal to a linear combination of others (on creation).
+     *  If any coefficient references a variable that is currently basic, substitute that
+     *  variable's row in. Otherwise simplex invariants would be violated (basic rows must be
+     *  expressed over non-basics only). */
     public void defineBasic(int basicId, Map<Integer, Rational> coeffs) {
         Var b = vars.get(basicId);
         if (!b.basic) throw new IllegalStateException("not basic: " + basicId);
@@ -99,7 +102,24 @@ public final class Simplex {
             for (Integer nb : b.row.keySet()) usedIn.get(nb).remove(basicId);
         }
         b.row.clear();
+        // Expand basic-referencing entries.
+        LinkedHashMap<Integer, Rational> expanded = new LinkedHashMap<>();
         for (Map.Entry<Integer, Rational> e : coeffs.entrySet()) {
+            int v = e.getKey();
+            Rational c = e.getValue();
+            if (c.isZero()) continue;
+            Var nv = vars.get(v);
+            if (nv.basic && v != basicId) {
+                // substitute nv's row scaled by c
+                for (Map.Entry<Integer, Rational> sub : nv.row.entrySet()) {
+                    Rational add = c.mul(sub.getValue());
+                    expanded.merge(sub.getKey(), add, Rational::add);
+                }
+            } else {
+                expanded.merge(v, c, Rational::add);
+            }
+        }
+        for (Map.Entry<Integer, Rational> e : expanded.entrySet()) {
             if (!e.getValue().isZero()) {
                 b.row.put(e.getKey(), e.getValue());
                 usedIn.get(e.getKey()).add(basicId);
@@ -356,5 +376,87 @@ public final class Simplex {
     /** Quick visibility for tests. */
     public Rational lowerOf(int v) { return vars.get(v).lower; }
     public Rational upperOf(int v) { return vars.get(v).upper; }
+    public int lowerReasonOf(int v) { return vars.get(v).lowerReason; }
+    public int upperReasonOf(int v) { return vars.get(v).upperReason; }
     public boolean isBasic(int v) { return vars.get(v).basic; }
+
+    /** Read access to the row coefficients of a basic variable. Caller must not mutate. */
+    public Map<Integer, Rational> rowOf(int basicId) {
+        Var v = vars.get(basicId);
+        return v.basic ? v.row : null;
+    }
+
+    /** True iff the variable's value is uniquely determined by the asserted bounds. Direct case:
+     *  lower == upper. Transitive case: var is basic and every non-basic in its row is pinned.
+     *  {@code reasonsOut}, if non-null, is populated with the literal IDs that justify the pinning. */
+    public boolean isPinned(int vId, java.util.Set<Integer> reasonsOut) {
+        return isPinnedRec(vId, reasonsOut, new java.util.HashSet<>());
+    }
+    private boolean isPinnedRec(int vId, java.util.Set<Integer> reasonsOut, java.util.Set<Integer> visited) {
+        if (!visited.add(vId)) return false; // cycle guard (shouldn't happen)
+        Var v = vars.get(vId);
+        if (v.lower != null && v.upper != null && v.lower.compareTo(v.upper) == 0) {
+            if (reasonsOut != null) {
+                if (v.lowerReason != 0) reasonsOut.add(v.lowerReason);
+                if (v.upperReason != 0) reasonsOut.add(v.upperReason);
+            }
+            return true;
+        }
+        if (!v.basic) return false;
+        for (Map.Entry<Integer, Rational> e : v.row.entrySet()) {
+            if (!isPinnedRec(e.getKey(), reasonsOut, visited)) return false;
+        }
+        return true;
+    }
+
+    /** Compute implied [lo, hi] of a basic variable from the row coefficients combined with
+     *  the bounds on its non-basic constituents. {@code null} on an end means unbounded.
+     *  Also populates {@code reasons} with the literal ids (lowerReason/upperReason) that
+     *  bound each non-basic in the relevant direction. */
+    public Rational[] impliedBounds(int basicId, java.util.Set<Integer> reasons) {
+        Var b = vars.get(basicId);
+        if (!b.basic) {
+            // Treat as a row of just itself.
+            Rational[] out = new Rational[2];
+            if (b.lower != null) { out[0] = b.lower; if (b.lowerReason != 0) reasons.add(b.lowerReason); }
+            if (b.upper != null) { out[1] = b.upper; if (b.upperReason != 0) reasons.add(b.upperReason); }
+            return out;
+        }
+        Rational lo = Rational.ZERO;
+        Rational hi = Rational.ZERO;
+        boolean loInf = false, hiInf = false;
+        for (Map.Entry<Integer, Rational> e : b.row.entrySet()) {
+            int nb = e.getKey();
+            Var nv = vars.get(nb);
+            Rational c = e.getValue();
+            if (c.signum() > 0) {
+                // contributes c*lower(nb) to lo, c*upper(nb) to hi
+                if (nv.lower == null) loInf = true; else lo = lo.add(c.mul(nv.lower));
+                if (nv.upper == null) hiInf = true; else hi = hi.add(c.mul(nv.upper));
+            } else {
+                if (nv.upper == null) loInf = true; else lo = lo.add(c.mul(nv.upper));
+                if (nv.lower == null) hiInf = true; else hi = hi.add(c.mul(nv.lower));
+            }
+        }
+        // Collect reasons for the bounds we report (only after we know they're not infinite).
+        if (!loInf) {
+            for (Map.Entry<Integer, Rational> e : b.row.entrySet()) {
+                int nb = e.getKey();
+                Var nv = vars.get(nb);
+                Rational c = e.getValue();
+                int rsn = c.signum() > 0 ? nv.lowerReason : nv.upperReason;
+                if (rsn != 0) reasons.add(rsn);
+            }
+        }
+        if (!hiInf) {
+            for (Map.Entry<Integer, Rational> e : b.row.entrySet()) {
+                int nb = e.getKey();
+                Var nv = vars.get(nb);
+                Rational c = e.getValue();
+                int rsn = c.signum() > 0 ? nv.upperReason : nv.lowerReason;
+                if (rsn != 0) reasons.add(rsn);
+            }
+        }
+        return new Rational[] { loInf ? null : lo, hiInf ? null : hi };
+    }
 }

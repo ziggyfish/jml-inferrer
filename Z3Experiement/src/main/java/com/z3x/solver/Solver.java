@@ -12,8 +12,11 @@ import com.z3x.theory.ArrayExtensionality;
 import com.z3x.theory.ArrayPreprocessor;
 import com.z3x.theory.DatatypeAxioms;
 import com.z3x.theory.ConstantPropagator;
+import com.z3x.theory.FpArith;
 import com.z3x.theory.FpAxioms;
 import com.z3x.theory.NlaAxioms;
+import com.z3x.theory.RegexEval;
+import com.z3x.theory.SeqAxioms;
 import com.z3x.theory.RecursiveExpander;
 import com.z3x.theory.StringAxioms;
 import com.z3x.theory.BvBlaster;
@@ -46,6 +49,8 @@ public final class Solver {
     private String declaredStatus = "";
     /** Last unsat core (names of assertions involved in the proof). */
     private List<String> lastUnsatCore = new ArrayList<>();
+    /** Last proof summary: conflict count, learned clauses count, etc. */
+    private String lastProof = "";
     /** Last produced model, mapping declared symbol name to value term. */
     private java.util.Map<String, Term> lastModel = new java.util.LinkedHashMap<>();
     private boolean produceUnsatCores = false;
@@ -54,6 +59,7 @@ public final class Solver {
     public String declaredStatus() { return declaredStatus; }
     public List<String> lastUnsatCore() { return List.copyOf(lastUnsatCore); }
     public java.util.Map<String, Term> lastModel() { return java.util.Map.copyOf(lastModel); }
+    public String lastProof() { return lastProof; }
 
     public Solver() {
         assertionStack.add(new ArrayList<>());
@@ -89,6 +95,9 @@ public final class Solver {
                     if ((key.equals(":produce-unsat-cores") || key.equals("produce-unsat-cores")) && val.equals("true")) produceUnsatCores = true;
                     if ((key.equals(":produce-models") || key.equals("produce-models")) && val.equals("true")) produceModels = true;
                 }
+            }
+            case "get-proof" -> {
+                System.out.println(lastProof);
             }
             case "get-unsat-core" -> {
                 StringBuilder sb = new StringBuilder("(");
@@ -240,6 +249,22 @@ public final class Solver {
                 extended.addAll(sax.axioms());
             }
         }
+        if (ff.hasSeq) {
+            SeqAxioms qax = new SeqAxioms(tf);
+            for (Term t : extended) qax.collectFrom(t);
+            if (!qax.axioms().isEmpty()) {
+                if (extended == all) extended = new ArrayList<>(all);
+                extended.addAll(qax.axioms());
+            }
+        }
+        if (ff.hasRegex) {
+            RegexEval rex = new RegexEval(tf);
+            for (Term t : extended) rex.collectFrom(t);
+            if (!rex.axioms().isEmpty()) {
+                if (extended == all) extended = new ArrayList<>(all);
+                extended.addAll(rex.axioms());
+            }
+        }
         if (ff.hasMul) {
             NlaAxioms nax = new NlaAxioms(tf);
             for (Term t : extended) nax.collectFrom(t);
@@ -249,11 +274,35 @@ public final class Solver {
             }
         }
         if (ff.hasFp) {
-            FpAxioms fpx = new FpAxioms(tf);
-            for (Term t : extended) fpx.collectFrom(t);
-            if (!fpx.axioms().isEmpty()) {
-                if (extended == all) extended = new ArrayList<>(all);
-                extended.addAll(fpx.axioms());
+            // Iterate FpArith ↔ substitute ↔ FpAxioms to a fixpoint. Each FpArith resolution can
+            // expose a new literal that lets FpAxioms / a follow-up FpArith pass discharge an outer
+            // predicate. The corpus rarely needs more than 2 rounds.
+            for (int round = 0; round < 4; round++) {
+                FpArith fpa = new FpArith(tf);
+                for (Term t : extended) fpa.collectFrom(t);
+                boolean changed = false;
+                if (!fpa.substitutions().isEmpty()) {
+                    if (extended == all) extended = new ArrayList<>(all);
+                    java.util.List<Term> next = new ArrayList<>(extended.size());
+                    for (Term t : extended) {
+                        Term r = fpa.substitute(t);
+                        if (r != t) changed = true;
+                        next.add(r);
+                    }
+                    extended = next;
+                }
+                if (!fpa.axioms().isEmpty()) {
+                    if (extended == all) extended = new ArrayList<>(all);
+                    extended.addAll(fpa.axioms());
+                }
+                FpAxioms fpx = new FpAxioms(tf);
+                for (Term t : extended) fpx.collectFrom(t);
+                if (!fpx.axioms().isEmpty()) {
+                    if (extended == all) extended = new ArrayList<>(all);
+                    extended.addAll(fpx.axioms());
+                    changed = true;
+                }
+                if (!changed) break;
             }
         }
         List<Term> qRewritten;
@@ -268,7 +317,7 @@ public final class Solver {
         }
         // ArrayPreprocessor introduces (ite ...) terms over the range sort; BvBlaster's div/rem
         // also introduce them. Force ITE elim on whenever either preprocessor will run.
-        boolean needIte = ff.hasIte || ff.hasArrays || ff.hasBv;
+        boolean needIte = ff.hasIte || ff.hasArrays || ff.hasBv || ff.hasStrings || ff.hasSeq || ff.hasFp;
         IteEliminator ite = needIte ? new IteEliminator(tf) : null;
         ArrayPreprocessor arr = ff.hasArrays ? new ArrayPreprocessor(tf) : null;
         BvBlaster bv = ff.hasBv ? new BvBlaster(tf) : null;
@@ -286,6 +335,11 @@ public final class Solver {
         }
         long tPre = PROF ? System.nanoTime() : 0;
         for (Term t : rewritten) cnf.assertTerm(t);
+        // Register pairwise equalities between shared Int/Real terms so LIA→EUF propagation has
+        // SAT atoms to flip. Without this, LIA can know a=3 internally but EUF never gets told.
+        if (Boolean.parseBoolean(System.getProperty("z3x.shared_eq", "true"))) {
+            registerSharedEqualityAtoms(rewritten, cnf);
+        }
         long tCnf = PROF ? System.nanoTime() : 0;
         TheoryHook theory;
         boolean wantEuf = logicNeedsEuf();
@@ -310,14 +364,29 @@ public final class Solver {
             lastTimeCnfNs = tCnf - tPre;
             lastTimeSatNs = tSat - tCnf;
         }
+        if (r == Cdcl.Result.UNSAT) {
+            // Always emit a proof summary string; (get-proof) reads from lastProof.
+            lastProof = "(proof "
+                    + "(conflicts " + sat.conflictsTotal + ") "
+                    + "(decisions " + sat.decisions + ") "
+                    + "(learned-clauses " + sat.learnedClauses + ") "
+                    + "(touched-vars " + sat.conflictTouchedVars.size() + ")"
+                    + ")";
+        }
         if (r == Cdcl.Result.UNSAT && produceUnsatCores) {
             // Tighter sound unsat core: collect SAT vars that appear in any clause whose
             // ancestors reach the level-0 empty clause (i.e., trail or conflict). For each named
             // assertion, include it iff one of its top-level SAT atoms is touched.
             // This is still over-approximating but much tighter than "every named assertion".
-            java.util.Set<Integer> touchedVars = new java.util.HashSet<>();
-            // Walk the SAT trail: every assigned var was "touched" if it has a non-trivial reason.
-            for (int v = 1; v <= cnf.numVars(); v++) if (sat.valueOf(v) != 0) touchedVars.add(v);
+            java.util.Set<Integer> touchedVars;
+            // Prefer the conflict-analysis "seen" set: it identifies vars that genuinely
+            // participated in deriving the contradiction. Much tighter than "every assigned var".
+            if (!sat.conflictTouchedVars.isEmpty()) {
+                touchedVars = sat.conflictTouchedVars;
+            } else {
+                touchedVars = new java.util.HashSet<>();
+                for (int v = 1; v <= cnf.numVars(); v++) if (sat.valueOf(v) != 0) touchedVars.add(v);
+            }
             lastUnsatCore.clear();
             int idx = 0;
             for (int frameIdx = 0; frameIdx < assertionStack.size(); frameIdx++) {
@@ -380,7 +449,7 @@ public final class Solver {
     }
 
     private static final class FeatureFlags {
-        boolean hasArrays, hasBv, hasIte, hasQuantifiers, hasStrings, hasMul, hasFp;
+        boolean hasArrays, hasBv, hasIte, hasQuantifiers, hasStrings, hasMul, hasFp, hasSeq, hasRegex;
     }
 
     private FeatureFlags scanFeatures(List<Term> assertions) {
@@ -405,16 +474,33 @@ public final class Solver {
                             && !(app.args.get(1) instanceof Term.RatConst)) {
                         ff.hasMul = true;
                     }
+                    // Distributivity opportunity: (* CONST (+ x y)) — flag for NlaAxioms.
+                    if (app.args.size() == 2) {
+                        for (int i = 0; i < 2; i++) {
+                            Term other = app.args.get(1 - i);
+                            if ((app.args.get(i) instanceof Term.IntConst || app.args.get(i) instanceof Term.RatConst)
+                                    && other instanceof Term.App oa && oa.symbol.equals("+")) {
+                                ff.hasMul = true;
+                            }
+                        }
+                    }
                 }
                 case "bvadd","bvsub","bvneg","bvnot","bvand","bvor","bvxor","bvmul",
                      "bvshl","bvlshr","bvashr","bvudiv","bvurem","bvsdiv","bvsrem","bvsmod",
                      "bvult","bvule","bvugt","bvuge","bvslt","bvsle","bvsgt","bvsge" -> ff.hasBv = true;
                 case "str.++", "str.len", "str.at", "str.substr", "str.contains",
                      "str.prefixof", "str.suffixof", "str.indexof" -> ff.hasStrings = true;
+                case "seq.++", "seq.len", "seq.at", "seq.unit", "seq.nth", "seq.extract",
+                     "seq.contains", "seq.prefixof", "seq.suffixof", "seq.indexof", "seq.replace"
+                        -> ff.hasSeq = true;
+                case "str.in_re", "str.to_re", "re.++", "re.union", "re.inter", "re.*",
+                     "re.+", "re.opt", "re.range", "re.diff", "re.comp", "re.none",
+                     "re.all", "re.allchar" -> ff.hasRegex = true;
                 default -> {}
             }
             if (t.sort instanceof Sort.Array) ff.hasArrays = true;
             if (t.sort instanceof Sort.BitVec) ff.hasBv = true;
+            if (t.sort instanceof Sort.Seq) ff.hasSeq = true;
         }
         if (t instanceof Term.StrConst) ff.hasStrings = true;
         if (t instanceof Term.BvConst) ff.hasBv = true;
@@ -603,6 +689,87 @@ public final class Solver {
         return null;
     }
 
+    /** Walk the asserted terms and register `(= a b)` SAT atoms for every pair of shared
+     *  Int/Real terms (variables, integer/rational literals, and predicate-arg expressions).
+     *  Capped at {@link #SHARED_PAIR_CAP} pairs to avoid blowing up large-arithmetic problems. */
+    private static final int SHARED_PAIR_CAP = 5000;
+    private void registerSharedEqualityAtoms(List<Term> asserts, Cnf cnf) {
+        java.util.LinkedHashMap<Integer, Term> sharedById = new java.util.LinkedHashMap<>();
+        // Visited keys: term-id concatenated with the context bit. Walking the same term in two
+        // different contexts (UF vs arithmetic) needs both passes.
+        java.util.HashSet<Long> seenInCtx = new java.util.HashSet<>();
+        for (Term t : asserts) collectSharedTerms(t, sharedById, seenInCtx, false);
+        if (sharedById.size() < 2) return;
+        java.util.List<Term> shared = new java.util.ArrayList<>(sharedById.values());
+        int pairs = 0;
+        for (int i = 0; i < shared.size() && pairs < SHARED_PAIR_CAP; i++) {
+            for (int j = i + 1; j < shared.size() && pairs < SHARED_PAIR_CAP; j++) {
+                Term a = shared.get(i), b = shared.get(j);
+                if (!Sort.equal(a.sort, b.sort)) continue;
+                if (a.sort != Sort.INT && a.sort != Sort.REAL) continue;
+                Term eq = tf.mkEq(a, b);
+                if (eq instanceof Term.BoolConst) continue; // trivially true/false; skip
+                cnf.registerAtom(eq);
+                pairs++;
+            }
+        }
+    }
+
+    /** Collect Int/Real terms that appear as arguments to a non-arithmetic predicate, plus any
+     *  Int/Real literal anywhere. */
+    private void collectSharedTerms(Term t, java.util.LinkedHashMap<Integer, Term> out,
+                                     java.util.HashSet<Long> seen, boolean inUFContext) {
+        long key = ((long) t.id << 1) | (inUFContext ? 1 : 0);
+        if (!seen.add(key)) return;
+        boolean treatChildrenAsUF = inUFContext;
+        if (t instanceof Term.IntConst || t instanceof Term.RatConst) {
+            out.put(t.id, t);
+            return;
+        }
+        if (t instanceof Term.Var v) {
+            if (inUFContext && (v.sort == Sort.INT || v.sort == Sort.REAL)) {
+                out.put(t.id, t);
+            }
+            return;
+        }
+        if (t instanceof Term.App app) {
+            switch (app.symbol) {
+                case "and": case "or": case "not": case "=>": case "ite":
+                case "+": case "-": case "*": case "/": case "div": case "mod": case "abs":
+                case "<": case "<=": case ">": case ">=":
+                    treatChildrenAsUF = false;
+                    break;
+                case "=":
+                    // Equality: if args are arithmetic, it's a LIA atom; their sub-terms are not "shared"
+                    // unless they're predicate args downstream. Walk through but don't mark as UF.
+                    treatChildrenAsUF = false;
+                    break;
+                default:
+                    // True uninterpreted functions/predicates: args become shared. Built-in theory
+                    // operators (array, FP, string, seq, datatype) handle their own reasoning and
+                    // don't need N-O equality registration on their args.
+                    if (isBuiltinTheoryOp(app.symbol)) {
+                        treatChildrenAsUF = false;
+                    } else {
+                        treatChildrenAsUF = true;
+                        if (inUFContext && (t.sort == Sort.INT || t.sort == Sort.REAL)) out.put(t.id, t);
+                    }
+            }
+            for (Term c : app.args) collectSharedTerms(c, out, seen, treatChildrenAsUF);
+            return;
+        }
+        for (Term c : t.children()) collectSharedTerms(c, out, seen, inUFContext);
+    }
+
+    private static boolean isBuiltinTheoryOp(String sym) {
+        return switch (sym) {
+            case "select", "store" -> true;
+            default -> sym.startsWith("fp.") || sym.startsWith("str.") || sym.startsWith("seq.")
+                    || sym.startsWith("re.") || sym.startsWith("bv") || sym.startsWith("(_ ")
+                    || sym.equals("is-") || sym.startsWith("is-");
+        };
+    }
+
     private boolean logicNeedsEuf() {
         if (logic.isEmpty()) return true;
         return logic.contains("UF") || logic.equals("ALL") || logic.equals("QF_UF") || logic.equals("QF_AUFLIA");
@@ -611,7 +778,8 @@ public final class Solver {
     private boolean logicNeedsLia() {
         if (logic.isEmpty()) return true;
         return logic.contains("LIA") || logic.contains("LRA") || logic.contains("IDL") || logic.contains("RDL")
-                || logic.contains("LIRA") || logic.equals("ALL") || logic.contains("AUF")
+                || logic.contains("LIRA") || logic.contains("NIA") || logic.contains("NRA")
+                || logic.contains("NIRA") || logic.equals("ALL") || logic.contains("AUF")
                 || logic.contains("S");  // String theory needs LIA for length reasoning.
     }
 }
