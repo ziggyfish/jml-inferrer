@@ -50,7 +50,48 @@ Assignable        & 308 & 308 (100.0\%) &  0 (0.0\%) &  0 (0.0\%) \\
 \end{tabular}
 \end{table}
 
-The discharge rate exceeds the manual-validation precision in every category, indicating that the OpenJML pipeline accepts clauses the human raters had judged incomplete (the discharge oracle is consistency with the implementation, not match against documented intent). The 37 flagged clauses---chiefly subtle overflow boundary postconditions on signed-integer methods and one loop invariant where the heuristic produced a non-decreasing rather than monotonically decreasing variant---would have constituted false positives had they been retained silently; they are routed to the maintainer review queue and excluded from the LLM-prompt input in P3. The 33 unsupported clauses (chiefly nested-quantifier postconditions involving \texttt{\textbackslash sum} composed under conditional path conditions, plus a small number of \texttt{Class} reflection patterns) are recorded as \emph{not verifiable} and retained as a separate clause class; they were included in the P3 prompts because their content is syntactically valid JML and useful as oracle information for the LLM, but they are not part of the verified-sound surface area.
+The discharge rate exceeds the manual-validation precision in every category, indicating that the OpenJML pipeline accepts clauses the human raters had judged incomplete (the discharge oracle is consistency with the implementation, not match against documented intent). The 37 flagged clauses---chiefly subtle overflow boundary postconditions on signed-integer methods and one loop invariant where the heuristic produced a non-decreasing rather than monotonically decreasing variant---would have constituted false positives had they been retained silently; they are routed to the maintainer review queue and excluded from the LLM-prompt input in P3. The 33 unsupported clauses (chiefly nested-quantifier postconditions involving \texttt{\textbackslash sum} composed under conditional path conditions, plus a small number of \texttt{Class} reflection patterns) are recorded as \emph{not verifiable} and retained as a separate clause class; they were included in the P3 prompts because their content is syntactically valid JML and useful as oracle information for the LLM, but they are not part of the verified-sound surface area. Figure~\ref{fig:discharge} visualises the per-clause-type outcome breakdown. Section~\ref{sec:discussion} characterises the residual non-discharge as three categorically identifiable SMT/OpenJML tractability limits (recursive multiplicative growth, quantified invariants over mutable arrays, OpenJML for-each translation).
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    xbar stacked,
+    bar width=18pt,
+    width=0.75\textwidth,
+    height=5.5cm,
+    xlabel={Percentage of Clauses (within type)},
+    symbolic y coords={Assignable, Loop inv., Postcond., Precond.},
+    ytick=data,
+    y tick label style={font=\scriptsize},
+    legend style={at={(0.5,-0.32)}, anchor=north, legend columns=3, font=\scriptsize},
+    xmin=0, xmax=100,
+    enlarge y limits=0.18,
+]
+\addplot+[xbar, fill=green!60] coordinates {
+    (100.0,Assignable)
+    (81.1,Loop inv.)
+    (85.9,Postcond.)
+    (94.9,Precond.)
+};
+\addplot+[xbar, fill=yellow!60] coordinates {
+    (0.0,Assignable)
+    (7.5,Loop inv.)
+    (7.1,Postcond.)
+    (3.5,Precond.)
+};
+\addplot+[xbar, fill=red!40] coordinates {
+    (0.0,Assignable)
+    (11.3,Loop inv.)
+    (7.1,Postcond.)
+    (1.6,Precond.)
+};
+\legend{Discharged, Flagged, Unsupported}
+\end{axis}
+\end{tikzpicture}
+\caption{OpenJML discharge outcome by inferred-clause type, visualising Table~\ref{tab:discharge}. The 7.1\% postcondition unsupported rate is concentrated in nested-quantifier \texttt{\textbackslash sum} clauses; the 11.3\% loop-invariant unsupported rate covers inductive accumulator forms that exceed Z3's tractability budget (Section~\ref{sec:discussion}).}
+\label{fig:discharge}
+\end{figure}
 
 \subsubsection{Per-Category Precision and Recall}
 \label{subsec:per-category}
