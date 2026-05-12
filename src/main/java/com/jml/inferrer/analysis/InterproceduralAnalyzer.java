@@ -39,8 +39,44 @@ class InterproceduralAnalyzer {
                     logger.debug("Found cached spec for {}: {} preconditions", signature,
                             calledSpec.getPreconditions().size());
 
+                    // Look up the callee's parameter names so we can substitute them with the
+                    // actual call arguments. The older propagatePrecondition() path infers the
+                    // parameter name from the precondition string itself, which fails for
+                    // forms like `((\bigint) x * (\bigint) x) <= Integer.MAX_VALUE` where the
+                    // identifier x is not the first token. Mirroring the postcondition path
+                    // (line ~254) gives us the parameter names directly from the AST.
+                    MethodDeclaration calleeDecl = findCalleeDecl(methodDecl, signature);
+                    List<String> calleeParamNames = new ArrayList<>();
+                    if (calleeDecl != null) {
+                        calleeDecl.getParameters().forEach(p ->
+                                calleeParamNames.add(p.getNameAsString()));
+                    }
+
+                    Set<String> callerParamNames = new HashSet<>();
+                    methodDecl.getParameters().forEach(p ->
+                            callerParamNames.add(p.getNameAsString()));
+
                     for (String calledPrecond : calledSpec.getPreconditions()) {
-                        String propagated = propagatePrecondition(call, calledPrecond, methodDecl);
+                        String propagated = null;
+                        if (!calleeParamNames.isEmpty()
+                                && call.getArguments().size() == calleeParamNames.size()) {
+                            String rewritten = substituteNamedParams(calledPrecond, calleeParamNames,
+                                    call.getArguments());
+                            // Only keep the propagated precondition if it remains pre-state
+                            // expressible from the caller's perspective (caller parameters or
+                            // class fields). This mirrors the scope-safety guard in
+                            // propagateStdLibPrecondition.
+                            SymbolicExecutor scopeCheck = new SymbolicExecutor();
+                            if (scopeCheck.isMethodScopeSafe(rewritten, methodDecl, callerParamNames)) {
+                                propagated = rewritten;
+                            }
+                        }
+                        if (propagated == null) {
+                            // Fall back to the legacy heuristic when the callee's parameter
+                            // names are not available (e.g. for callees discovered via the
+                            // signature-only path).
+                            propagated = propagatePrecondition(call, calledPrecond, methodDecl);
+                        }
                         if (propagated != null && !propagated.isEmpty()) {
                             preconditions.add(propagated);
                         }

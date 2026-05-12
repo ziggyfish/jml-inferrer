@@ -162,7 +162,7 @@ class PreconditionInferenceTest extends InferrerTestBase {
     // ---- Numeric constraints ----
 
     @Test
-    @DisplayName("Guard clause (if-return, no else) should NOT generate precondition")
+    @DisplayName("Guard clause (if-return, no else) should NOT generate unconditional precondition")
     void numericComparison() {
         MethodSpecification spec = infer("""
             class T {
@@ -174,10 +174,15 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "compute");
-        // The method handles both n > 0 and n <= 0 — no precondition should be generated.
-        // Guard clauses (if-return without else) are branching logic, not validation.
-        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("n > 0")),
-                "Should NOT generate n > 0 precondition from guard clause, got: " + spec.getPreconditions());
+        // The method handles both n > 0 and n <= 0 — no UNCONDITIONAL precondition
+        // should be generated. The branch-guarded overflow form `(n > 0) ==> bound`
+        // is permitted (and correct: the body's `n * 2` is only reached under the
+        // guard). The pattern we reject is `n > 0` (or `n > 0;`) as a standalone
+        // method-entry requirement.
+        assertTrue(spec.getPreconditions().stream()
+                        .noneMatch(p -> p.trim().equals("n > 0") || p.trim().equals("n > 0;")),
+                "Should NOT generate unconditional n > 0 precondition; got: "
+                        + spec.getPreconditions());
     }
 
     @Test
@@ -391,7 +396,7 @@ class PreconditionInferenceTest extends InferrerTestBase {
     // ---- Parameter relationships ----
 
     @Test
-    @DisplayName("Parameter relationship in guard clause should NOT generate precondition")
+    @DisplayName("Parameter relationship in guard clause should NOT generate unconditional precondition")
     void parameterRelationship() {
         MethodSpecification spec = infer("""
             class T {
@@ -403,9 +408,14 @@ class PreconditionInferenceTest extends InferrerTestBase {
                 }
             }
             """, "range");
-        // Method handles both low < high and low >= high — no precondition
-        assertFalse(spec.getPreconditions().stream().anyMatch(p -> p.contains("low < high")),
-                "Should NOT generate low < high precondition from guard clause, got: " + spec.getPreconditions());
+        // Method handles both low < high and low >= high — no UNCONDITIONAL
+        // precondition. Guarded overflow bounds of the form `(low < high) ==> ...`
+        // remain permitted; they correctly scope the body's `high - low`
+        // overflow obligation to the branch where the arithmetic runs.
+        assertTrue(spec.getPreconditions().stream()
+                        .noneMatch(p -> p.trim().equals("low < high") || p.trim().equals("low < high;")),
+                "Should NOT generate unconditional low < high precondition; got: "
+                        + spec.getPreconditions());
     }
 
     @Test
@@ -605,5 +615,47 @@ class PreconditionInferenceTest extends InferrerTestBase {
                         .anyMatch(li -> li.equals("this.size == \\old(this.size) + i")),
                 "Expected this.size == \\old(this.size) + i invariant; got: "
                         + spec.getLoopInvariants());
+    }
+
+    @Test
+    @DisplayName("Callee multiplication preconditions propagate to caller (sibling pure method)")
+    void calleeOverflowPropagatesToCaller() {
+        // Use a shared cache so square's spec is visible when sumOfSquares is
+        // inferred — the production visitor populates the cache in dependency
+        // order; here we mirror that explicitly.
+        SpecificationCache sharedCache = new SpecificationCache();
+        MethodSpecificationInferrer ix = new MethodSpecificationInferrer(sharedCache, null);
+
+        String src = """
+            class T {
+                private int square(int x) { return x * x; }
+                public int sumOfSquares(int a, int b) {
+                    return square(a) + square(b);
+                }
+            }
+            """;
+        // Infer + cache the callee first.
+        MethodSpecification squareSpec = ix.inferSpecification(parseMethod(src, "square"));
+        sharedCache.put("T.square", squareSpec);
+
+        MethodSpecification spec = ix.inferSpecification(parseMethod(src, "sumOfSquares"));
+        // The callee's overflow preconditions must propagate, with `x` substituted
+        // for the caller's actual argument names (`a` and `b`).
+        assertTrue(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.contains("(\\bigint) a * (\\bigint) a")
+                                && p.contains("Integer.MAX_VALUE")),
+                "Expected a*a overflow precondition propagated; got: " + spec.getPreconditions());
+        assertTrue(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.contains("(\\bigint) b * (\\bigint) b")
+                                && p.contains("Integer.MAX_VALUE")),
+                "Expected b*b overflow precondition propagated; got: " + spec.getPreconditions());
+        // The outer addition needs its own overflow guard using the bigint-cast
+        // method-call form so the surrounding `+` does not overflow int.
+        assertTrue(spec.getPreconditions().stream()
+                        .anyMatch(p -> p.contains("(\\bigint) square(a)")
+                                && p.contains("(\\bigint) square(b)")
+                                && p.contains("Integer.MAX_VALUE")),
+                "Expected outer-addition overflow guard over the method-call results; got: "
+                        + spec.getPreconditions());
     }
 }

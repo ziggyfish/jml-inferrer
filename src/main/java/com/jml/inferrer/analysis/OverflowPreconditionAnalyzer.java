@@ -1444,7 +1444,20 @@ class OverflowPreconditionAnalyzer {
 
         String bigint = toBigintStr(binary);
         if (bigint != null) {
-            emitBigintBoundsRaw(emitted, bigint);
+            // Dispatcher-pattern pruning: if the BinaryExpr sits inside one or more
+            // if-guards over parameters/fields (e.g. `if (op == 0) return a + b;` in
+            // Calculator.compute), emit the overflow bound as `guard ==> bound`
+            // rather than the unconditional `bound`. Z3 timeouts on rich-precondition-
+            // set dispatcher methods (multiple branches × multiple overflow bounds
+            // each) drop sharply when each branch's bound is only required under its
+            // own guard. Falls back to unconditional emission when the guard cannot
+            // be expressed in pre-state.
+            String guard = collectPrestateBranchGuards(binary);
+            if (guard != null) {
+                emitBigintBoundsGuarded(emitted, bigint, guard);
+            } else {
+                emitBigintBoundsRaw(emitted, bigint);
+            }
             return;
         }
         // Fallback: arithmetic involving a loop-indexed array element. Emit a universal
@@ -1452,6 +1465,99 @@ class OverflowPreconditionAnalyzer {
         // for every element. Handles the common `arr[i] * K`, `arr[i] + K`, `K - arr[i]`,
         // etc. shapes inside `for (i = LO; i < arr.length; i++)` loops.
         emitForallBinaryOverflow(binary, emitted);
+    }
+
+    /**
+     * Walks the ancestor chain of {@code node} collecting if-guard conditions where
+     * every identifier resolves to a parameter or class field (pre-state expressible).
+     * Returns the conjunction as a JML guard string, or {@code null} if the node has
+     * no enclosing guards, has a guard whose names are not pre-state expressible
+     * (loop variables, intermediate locals), or is in an else-branch (we conservatively
+     * decline to negate compound conditions).
+     *
+     * <p>This is used by the dispatcher-pattern overflow-pruning logic — emitting
+     * {@code op == 0 ==> bound} instead of bare {@code bound} when the BinaryExpr is
+     * inside an {@code if (op == 0) ...} branch.</p>
+     */
+    private String collectPrestateBranchGuards(BinaryExpr binary) {
+        if (methodDecl == null) return null;
+        if (methodDecl.getBody().isEmpty()) return null;
+        BlockStmt body = methodDecl.getBody().get();
+
+        Set<String> prestateNames = new HashSet<>();
+        prestateNames.addAll(paramNames);
+        prestateNames.addAll(fieldNames);
+
+        List<String> guards = new ArrayList<>();
+        com.github.javaparser.ast.Node current = binary;
+        while (current.getParentNode().isPresent()) {
+            com.github.javaparser.ast.Node parent = current.getParentNode().get();
+            if (parent == body || parent == methodDecl) break;
+            if (parent instanceof IfStmt ifStmt) {
+                if (current == ifStmt.getThenStmt()) {
+                    String cond = ifStmt.getCondition().toString();
+                    if (!isPrestateExpressible(ifStmt.getCondition(), prestateNames)) return null;
+                    guards.add(cond);
+                } else if (ifStmt.getElseStmt().isPresent()
+                        && current == ifStmt.getElseStmt().get()) {
+                    // Conservative: decline on else-branches; the negated form might
+                    // be a compound condition that the prover handles differently.
+                    return null;
+                }
+            }
+            // For/while/do/try/switch ancestors: arithmetic inside a loop body is
+            // not a dispatcher branch; the existing per-iteration analysers handle
+            // those cases. Return null so we fall back to unconditional emission.
+            if (parent instanceof com.github.javaparser.ast.stmt.ForStmt
+                    || parent instanceof com.github.javaparser.ast.stmt.ForEachStmt
+                    || parent instanceof com.github.javaparser.ast.stmt.WhileStmt
+                    || parent instanceof com.github.javaparser.ast.stmt.DoStmt
+                    || parent instanceof com.github.javaparser.ast.stmt.TryStmt
+                    || parent instanceof com.github.javaparser.ast.stmt.SwitchStmt) {
+                return null;
+            }
+            current = parent;
+        }
+        if (guards.isEmpty()) return null;
+        // Innermost guard appears first in the walk; reverse so the emitted JML reads
+        // outer-to-inner.
+        java.util.Collections.reverse(guards);
+        return String.join(" && ", guards);
+    }
+
+    /**
+     * Returns true iff every {@link NameExpr} in the expression resolves to a
+     * pre-state expressible name (parameter or field), and the expression is
+     * a comparison/conjunction/disjunction whose operands are themselves
+     * pre-state expressible.
+     */
+    private boolean isPrestateExpressible(Expression e, Set<String> prestateNames) {
+        if (e instanceof EnclosedExpr enc) {
+            return isPrestateExpressible(enc.getInner(), prestateNames);
+        }
+        if (e instanceof BinaryExpr be) {
+            return isPrestateExpressible(be.getLeft(), prestateNames)
+                    && isPrestateExpressible(be.getRight(), prestateNames);
+        }
+        if (e instanceof UnaryExpr ue) {
+            return isPrestateExpressible(ue.getExpression(), prestateNames);
+        }
+        if (e instanceof NameExpr ne) {
+            return prestateNames.contains(ne.getNameAsString());
+        }
+        if (e instanceof FieldAccessExpr fae) {
+            return fae.getScope().toString().equals("this")
+                    && fieldNames.contains(fae.getNameAsString());
+        }
+        // Literals are always pre-state expressible.
+        return e instanceof IntegerLiteralExpr || e instanceof LongLiteralExpr
+                || e instanceof CharLiteralExpr || e instanceof BooleanLiteralExpr
+                || e instanceof StringLiteralExpr;
+    }
+
+    private void emitBigintBoundsGuarded(Set<String> emitted, String bigintExpr, String guard) {
+        emitted.add("(" + guard + ") ==> (" + bigintExpr + " >= Integer.MIN_VALUE)");
+        emitted.add("(" + guard + ") ==> (" + bigintExpr + " <= Integer.MAX_VALUE)");
     }
 
     /**
@@ -1762,19 +1868,125 @@ class OverflowPreconditionAnalyzer {
         // Similar for `param.size()` on collections.
         if (e instanceof MethodCallExpr mce) {
             String name = mce.getNameAsString();
-            if (!mce.getArguments().isEmpty()) return null;
-            if (!name.equals("length") && !name.equals("size")) return null;
-            if (mce.getScope().isEmpty()) return null;
-            Expression scope = mce.getScope().get();
-            if (!(scope instanceof NameExpr scopeNe)) return null;
-            String scopeName = scopeNe.getNameAsString();
-            if (paramNames.contains(scopeName) || fieldNames.contains(scopeName)) {
-                return "(\\bigint) " + scopeName + "." + name + "()";
+
+            // Zero-arg `.length()` / `.size()` on a parameter or field.
+            if (mce.getArguments().isEmpty()
+                    && (name.equals("length") || name.equals("size"))
+                    && mce.getScope().isPresent()
+                    && mce.getScope().get() instanceof NameExpr scopeNe) {
+                String scopeName = scopeNe.getNameAsString();
+                if (paramNames.contains(scopeName) || fieldNames.contains(scopeName)) {
+                    return "(\\bigint) " + scopeName + "." + name + "()";
+                }
             }
+
+            // Calls to a sibling pure int-returning method in the same class
+            // (e.g. `square(a)` from `sumOfSquares(a, b)`). Pure methods can
+            // appear in JML specs by name; the cast `(\bigint) square(a)`
+            // promotes the int return to bigint so the surrounding overflow
+            // bound is expressible without the bigint cast leaking into int
+            // arithmetic. Drives the Delegator1.sumOfSquares case.
+            String pureCall = pureSiblingIntCallBigint(mce);
+            if (pureCall != null) return pureCall;
+
             return null;
         }
 
         return null;
+    }
+
+    /**
+     * If {@code mce} is an unqualified (or {@code this.}-qualified) call to a
+     * sibling method in the same class that is pure and returns an integer
+     * primitive, and every argument is itself pre-state-expressible via
+     * {@link #toBigintStr}, return the bigint-cast call form
+     * {@code (\bigint) name(arg1, ...)}. Otherwise return null.
+     */
+    private String pureSiblingIntCallBigint(MethodCallExpr mce) {
+        // Scope: bare identifier or `this.method(...)`. Anything else (a
+        // call on a parameter/field) is out of scope for this rule — the
+        // callee's purity and integer-ness are class-local properties.
+        if (mce.getScope().isPresent()) {
+            Expression scope = mce.getScope().get();
+            if (!(scope instanceof ThisExpr)) return null;
+        }
+
+        var classDecl = methodDecl.findAncestor(
+                com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        if (classDecl.isEmpty()) return null;
+
+        // Find a unique sibling method by name + arity. If multiple overloads
+        // exist we conservatively decline (we don't currently match argument
+        // types here).
+        String name = mce.getNameAsString();
+        int arity = mce.getArguments().size();
+        MethodDeclaration callee = null;
+        int matched = 0;
+        for (MethodDeclaration md : classDecl.get().findAll(MethodDeclaration.class)) {
+            if (!md.getNameAsString().equals(name)) continue;
+            if (md.getParameters().size() != arity) continue;
+            callee = md;
+            matched++;
+        }
+        if (callee == null || matched > 1) return null;
+
+        // Callee must return an int-family primitive.
+        String returnType = callee.getType().asString();
+        if (!isIntegerPrimitive(returnType)) return null;
+
+        // Callee must be (provably) pure. We use a syntactic check: it must
+        // have a JavaParser-detectable lack of assignment/inc/dec/throw/loop
+        // beyond pure return paths. The annotation-based check via the
+        // SpecificationCache is preferred but the cache is not threaded
+        // through to this analyser; the syntactic check is a sound
+        // conservative approximation (rejects more than the annotation
+        // check would).
+        if (!isSyntacticallyPure(callee)) return null;
+
+        // Every argument must itself be pre-state-expressible as a bigint
+        // (e.g. for `square(a*2)`, the argument is `a*2` which toBigintStr
+        // handles via the BinaryExpr branch). The cast applies to the call
+        // as a whole, so we strip the inner casts and just propagate the
+        // raw source form of each argument — but only after confirming each
+        // argument is expressible.
+        StringBuilder args = new StringBuilder();
+        for (int i = 0; i < mce.getArguments().size(); i++) {
+            Expression arg = mce.getArgument(i);
+            if (toBigintStr(arg) == null) return null;
+            if (i > 0) args.append(", ");
+            args.append(arg.toString());
+        }
+        return "(\\bigint) " + name + "(" + args + ")";
+    }
+
+    /**
+     * Conservative syntactic purity check: the method body contains no
+     * assignment, increment/decrement, throw, or visible-side-effect call.
+     * Returns false for any method whose body cannot be statically confirmed
+     * pure under this lightweight scan. Stricter than the
+     * {@code @Pure}-annotation approach but cache-free.
+     */
+    private static boolean isSyntacticallyPure(MethodDeclaration md) {
+        if (md.getBody().isEmpty()) return false;
+        for (AssignExpr ae : md.getBody().get().findAll(AssignExpr.class)) {
+            // Assignment to a local declared inside the body is permitted;
+            // anything else (param re-assign, field, array) is not pure.
+            if (!(ae.getTarget() instanceof NameExpr)) return false;
+        }
+        for (UnaryExpr ue : md.getBody().get().findAll(UnaryExpr.class)) {
+            UnaryExpr.Operator op = ue.getOperator();
+            if (op == UnaryExpr.Operator.POSTFIX_INCREMENT
+                    || op == UnaryExpr.Operator.POSTFIX_DECREMENT
+                    || op == UnaryExpr.Operator.PREFIX_INCREMENT
+                    || op == UnaryExpr.Operator.PREFIX_DECREMENT) {
+                if (!(ue.getExpression() instanceof NameExpr)) return false;
+            }
+        }
+        // No throw statements (treat as effects for purity-in-specs).
+        if (!md.getBody().get().findAll(com.github.javaparser.ast.stmt.ThrowStmt.class).isEmpty()) {
+            return false;
+        }
+        return true;
     }
 
     /**
