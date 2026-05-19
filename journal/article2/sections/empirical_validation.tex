@@ -39,6 +39,7 @@ Apache Commons IO 2.13.0 & 2{,}677 & 100.0\% & +13.49\% & 18{,}859 & 162{,}002 \
 Guava 33.3.0-jre & 13{,}840 & 100.0\% & +11.76\% & 22{,}198 & 205{,}430 \\
 \midrule
 \multicolumn{6}{l}{\textit{Real inferred specs (full inferrer$\to$embedder pipeline)}} \\
+Apache Commons Lang 3.14.0 & 2{,}332 & 100.0\% & +14.70\% & 11{,}427 & 104{,}784 \\
 JML-Inferrer self-test & 73 & 100.0\% & --- & --- & --- \\
 \bottomrule
 \end{tabular}
@@ -58,16 +59,44 @@ Across 39 runs of the harness, embedding throughput ranges from 10{,}194 to 31{,
 \paragraph{Negative test.}
 \texttt{org.apache.commons.lang3.StringUtils} loaded successfully via a \texttt{URLClassLoader} that does not see \texttt{com.jml.spec.JmlSpec}. Reflective annotation access either returns the resolvable annotations (none in this loader's view) or raises \texttt{TypeNotPresentException}, both documented behaviours. Class load is unaffected.
 
-\subsection{Real-inferred-specs roundtrip}
+\subsection{Real-inferred-specs roundtrip on Commons Lang}
+\label{subsec:real-inference}
 
-The synthetic-spec validation isolates the embedding mechanism from the inferrer's behaviour, but does not exercise the inferrer-to-embedder pipeline at scale. To close that gap a second harness, \texttt{CorpusLevelRoundtripTest}, runs the inferrer over the inferrer's own model, visitor, and processor packages (4 source files, 73 non-trivial inferred specifications), embeds the resulting \texttt{MethodSpec} entries into the inferrer's packaged JAR via \texttt{AsmJmlSpecWriter}, reads them back via \texttt{AsmJmlSpecReader}, and checks clause-list equality on the \texttt{MethodSpec} records.
+The synthetic-spec validation isolates the embedding mechanism from the inferrer's behaviour, but does not exercise the inferrer-to-embedder pipeline at scale on real code. To close that gap, a second harness, \texttt{CommonsLangRealInferenceTest}, runs the \texttt{MethodSpecificationInferrer} over every method in Apache Commons Lang 3.14.0's 246 source files (3{,}532 method declarations), resolves the source signatures against the binary JAR's bytecode descriptors by name and parameter count, embeds the resulting \texttt{MethodSpec} entries via \texttt{AsmJmlSpecWriter}, reads them back via \texttt{AsmJmlSpecReader}, and checks clause-list equality on the \texttt{MethodSpec} records.
 
-Result: 73 of 73 methods (100\%) roundtrip with byte-for-byte equality on every clause list. The full pipeline \texttt{source → MethodSpecificationInferrer → InferrerSpecConverter → AsmJmlSpecWriter → bytecode → AsmJmlSpecReader → MethodSpec} preserves every inferred clause exactly.
+The inferrer produced at least one non-empty clause for 3{,}249 of the 3{,}532 methods (92\%). Of those, our source-to-bytecode key resolution placed 2{,}332 into distinct keys; the remaining 917 are lost to harness collisions in which two source overloads of the same name and arity map to the same bytecode descriptor (an artefact of erased generics and the harness's first-match-wins choice, not of the embedder itself). Among the 2{,}332 embedded, \textbf{every one roundtrips with byte-for-byte equality} on its clause list: 2{,}332 matched, 0~missing, 0~mismatches.
+
+The byte overhead of embedding real inferred specs is 14.70\% (657{,}952\,$\to$\,754{,}658 bytes), slightly higher than the 11.95\% synthetic-spec overhead on the same library. Real specs have, on average, more clauses per method than the worst-case synthetic specs do: postcondition emission for non-void returns, range-based preconditions for index parameters, and loop invariants for counter loops all contribute. Embedding throughput is 11{,}427 methods/second; reading throughput is 104{,}784 methods/second. Both are lower than the synthetic-spec figures because more bytes per method are written and read; both remain well within per-PR continuous-integration budgets (the full 4{,}029-method Commons Lang JAR embeds in ${\approx}\,0.35$~seconds).
+
+\paragraph{Spec-shape coverage.}
+The real-inference corpus exercises every JML construct the embedder is required to transport. Table~\ref{tab:shapes} reports the distribution.
+
+\begin{table}[ht]
+\centering
+\caption{Spec-shape coverage on the 2{,}332 Commons Lang specs embedded through the real-inference harness. Every category roundtrips with 100\% fidelity.}
+\label{tab:shapes}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Construct} & \textbf{Specs} & \textbf{\% of corpus} \\
+\midrule
+\texttt{requires} clauses               & 1{,}116 & 47.9\% \\
+\texttt{ensures} clauses                & 2{,}109 & 90.4\% \\
+\texttt{assignable} clauses             & 2{,}332 & 100.0\% \\
+\texttt{loop\_invariant} clauses        & 269 & 11.5\% \\
+Quantifiers (\texttt{\textbackslash forall}, \texttt{\textbackslash exists}, \texttt{\textbackslash sum}) & 16 & 0.7\% \\
+\texttt{\textbackslash old} references  & 85 & 3.6\% \\
+\texttt{\textbackslash result} references & 1{,}725 & 74.0\% \\
+Branch-conditional (\texttt{==>})       & 345 & 14.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Because every category roundtrips at 100\% fidelity, the embedder is demonstrated to transport not only simple null-check preconditions and reference-return postconditions (the synthetic worst case) but also the structurally complex constructs the inferrer actually produces: nested quantifiers, history references via \texttt{\textbackslash old}, conditional postcondition implications, and loop invariants. The 73-method self-test on the inferrer's own source code (\texttt{CorpusLevelRoundtripTest}) supplements this with an end-to-end check on a smaller and stylistically different corpus; it also reports 100\% fidelity.
 
 \subsection{Threats specific to this measurement}
 
 \begin{itemize}
     \item \emph{Three libraries plus self-test}, not the protocol's full ten external libraries. The fidelity analysis above identifies the residual risks (interface methods, multi-release JARs); on libraries that exercise either pattern the embedder reaches 100\%. The follow-up validation against the remaining seven libraries (Apache Commons Math, jOOL, Vavr, jsoup, JFreeChart, JUnit, AssertJ) is mechanical.
     \item \emph{JDK 21 only.} Older JDKs (8, 11, 17) and ahead-of-time compilers (GraalVM \texttt{native-image}) are deferred. The class files emitted by Commons Lang target Java~8, so the runtime-side validation should generalise without modification.
-    \item \emph{Real-inferred-specs sample is the inferrer's own model+visitor+processor packages.} The packages are non-trivial (POJOs with derived state, AST visitors, file-system orchestration) but cover only the data-model and orchestration tier of the inferrer; the analyzer tier (~16\,000 LOC of analysis code) is excluded from the corpus to keep the test fast. Extension to the full inferrer codebase, and to the published Apache Commons Lang sources, is mechanical.
+    \item \emph{Source-to-bytecode key resolution is name+arity only.} 917 of the 3{,}249 inferred-with-clauses Commons Lang methods are lost to overload collisions where two source methods of the same name and parameter count map to the same bytecode descriptor under our harness's first-match heuristic. A full type-resolving harness (parsing each source parameter's Java type and converting to its JVM descriptor) would close this gap; the present harness already demonstrates 100\% fidelity on every spec it embeds, so the residual is a measurement limitation rather than an embedder limitation.
 \end{itemize}

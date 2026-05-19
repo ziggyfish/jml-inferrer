@@ -1,0 +1,2 @@
+commons-lang3-3.14.0 (real inference) | sourceFiles=246 totalMethods=3532 specsInferred=3532 specsWithClauses=2332 matched=2332 missing=0 mismatches=0 fidelity=100.00% originalBytes=657952 embeddedBytes=754658 overhead=14.70% embedThroughput=11427 m/s readThroughput=104784 m/s
+  shape coverage: requires=1116 ensures=2109 assignable=2332 loopInvariant=269 withQuantifier=16 withOld=85 withResult=1725 branchConditional=345
