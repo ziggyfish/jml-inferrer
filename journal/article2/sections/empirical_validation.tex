@@ -34,12 +34,12 @@ Table~\ref{tab:validation} reports the headline measurements. Method counts, fid
 \textbf{Library} & \textbf{Methods} & \textbf{Fidelity} & \textbf{Byte ovhd.} & \textbf{Embed (m/s)} & \textbf{Read (m/s)} \\
 \midrule
 \multicolumn{6}{l}{\textit{Synthetic specs (isolating the embedding mechanism)}} \\
-Apache Commons Lang 3.14.0 & 4{,}029 & 100.0\% & +11.95\% & 29{,}358 & 275{,}834 \\
-Apache Commons IO 2.13.0 & 2{,}677 & 100.0\% & +13.49\% & 18{,}859 & 162{,}002 \\
-Guava 33.3.0-jre & 13{,}840 & 100.0\% & +11.76\% & 22{,}198 & 205{,}430 \\
+Apache Commons Lang 3.14.0 & 4{,}029 & 100.0\% & +5.85\% & 16{,}225 & 221{,}617 \\
+Apache Commons IO 2.13.0 & 2{,}677 & 100.0\% & +6.97\% & 21{,}976 & 327{,}618 \\
+Guava 33.3.0-jre & 13{,}840 & 100.0\% & +5.27\% & 12{,}618 & 127{,}924 \\
 \midrule
 \multicolumn{6}{l}{\textit{Real inferred specs (full inferrer$\to$embedder pipeline)}} \\
-Apache Commons Lang 3.14.0 & 2{,}332 & 100.0\% & +14.70\% & 11{,}427 & 104{,}784 \\
+Apache Commons Lang 3.14.0 & 2{,}332 & 100.0\% & +10.07\% & 11{,}906 & 119{,}063 \\
 JML-Inferrer self-test & 73 & 100.0\% & --- & --- & --- \\
 \bottomrule
 \end{tabular}
@@ -51,9 +51,9 @@ JML-Inferrer self-test & 73 & 100.0\% & --- & --- & --- \\
 All three libraries achieve 100.0\% roundtrip fidelity. An earlier prototype of the embedder reported 96.9\% / 97.6\% fidelity on Commons Lang and Guava owing to a missed callback in the writer's \texttt{MethodVisitor} lifecycle: lazy emission was triggered by \texttt{visitCode}, \texttt{visitParameter}, \texttt{visitAnnotationDefault}, or \texttt{visitAnnotation}, but none of these hooks fires for abstract / interface methods, which only invoke \texttt{visitEnd}. Adding \texttt{visitEnd} to the trigger set closes the gap. Every method on every interface in all three libraries now receives the embedded annotation. Commons IO has a noticeably higher proportion of interfaces (its byte-overhead figure of 13.5\% is correspondingly higher than Lang and Guava, which sit at 11.8--12.0\%), confirming that the previous prototype would have shown the largest gap on Commons IO.
 
 \paragraph{Byte overhead.}
-The synthetic-spec overhead sits in the 11.76--13.49\% range. The differences across libraries are explained by structural shape rather than total size: Commons IO has a higher proportion of interfaces (each of which receives a clause set per method), pushing its overhead percentage above the other two. The absolute overhead is 77~KB for Commons Lang, 64~KB for Commons IO, and 354~KB for Guava --- comfortable compared to typical Maven distribution sizes. For libraries where the cost is unacceptable, the Maven classifier sidecar (Section~\ref{sec:format}) is the recommended fallback.
+The synthetic-spec overhead sits in the 5.27--6.97\% range. The differences across libraries are explained by structural shape rather than total size: Commons IO has a higher proportion of interfaces (each of which receives a clause set per method), pushing its overhead percentage above the other two. The absolute overhead is 38~KB for Commons Lang, 34~KB for Commons IO, and 162~KB for Guava --- well below typical Maven distribution sizes. For libraries where even this cost is unacceptable, the Maven classifier sidecar (Section~\ref{sec:format}) is the recommended fallback.
 
-The synthetic figures are not, however, an upper bound on real overhead. The real-inference run on the same Commons Lang JAR (Section~\ref{subsec:real-inference}) measures 14.70\% --- 2.75 percentage points above the synthetic 11.95\%. Real inferred specs are richer than the synthetic worst case: 90.4\% have at least one \texttt{ensures} clause (vs.\ the one per reference-return synthetic policy), 11.5\% carry one or more loop invariants (the synthetic harness emits none), 14.8\% include branch-conditional implications, and the average clause string is longer because the inferrer emits parameter bounds, \texttt{\textbackslash result} relations, and \texttt{\textbackslash old(\dots)} references that the synthetic policy never produces. The takeaway: a deployer planning storage budget should provision for the real-inference figure (14--15\% on a typical utility library), not the synthetic-uniform figure.
+The synthetic figures are not, however, an upper bound on real overhead. The real-inference run on the same Commons Lang JAR (Section~\ref{subsec:real-inference}) measures 10.07\% --- 4.22 percentage points above the synthetic 5.85\%. Real inferred specs are richer than the synthetic worst case: 90.4\% have at least one \texttt{ensures} clause (vs.\ the one per reference-return synthetic policy), 11.5\% carry one or more loop invariants (the synthetic harness emits none), 14.8\% include branch-conditional implications, and the average clause string is longer because the inferrer emits parameter bounds, \texttt{\textbackslash result} relations, and \texttt{\textbackslash old(\dots)} references that the synthetic policy never produces. A deployer planning storage budget should provision for the real-inference figure (around 10\% on a typical utility library), not the synthetic-uniform figure.
 
 \paragraph{Throughput.}
 Across 39 runs of the harness, embedding throughput ranges from 10{,}194 to 31{,}095 methods/second (medians: 18{,}859 for Commons IO, 22{,}198 for Guava, 29{,}358 for Commons Lang); reading throughput ranges from 133{,}683 to 315{,}693 methods/second (medians: 162{,}002, 205{,}430, 275{,}834 respectively). At the medians, embedding a 14{,}000-method JAR completes in roughly 0.6~seconds end-to-end; reading completes an order of magnitude faster (the reader skips full class rewriting). These figures comfortably support per-PR-comment workflows in continuous-integration pipelines: even a pessimistic re-run on every push of a Guava-sized JAR is sub-second, well below the typical Maven build time the inference pipeline rides on.
@@ -68,7 +68,7 @@ The synthetic-spec validation isolates the embedding mechanism from the inferrer
 
 The inferrer produced at least one non-empty clause for 3{,}249 of the 3{,}532 methods (92\%). Of those, our source-to-bytecode key resolution placed 2{,}332 into distinct keys; the remaining 917 are lost to harness collisions in which two source overloads of the same name and arity map to the same bytecode descriptor (an artefact of erased generics and the harness's first-match-wins choice, not of the embedder itself). Among the 2{,}332 embedded, \textbf{every one roundtrips with byte-for-byte equality} on its clause list: 2{,}332 matched, 0~missing, 0~mismatches.
 
-The byte overhead of embedding real inferred specs is 14.70\% (657{,}952\,$\to$\,754{,}658 bytes), slightly higher than the 11.95\% synthetic-spec overhead on the same library. Real specs have, on average, more clauses per method than the worst-case synthetic specs do: postcondition emission for non-void returns, range-based preconditions for index parameters, and loop invariants for counter loops all contribute. Embedding throughput is 11{,}427 methods/second; reading throughput is 104{,}784 methods/second. Both are lower than the synthetic-spec figures because more bytes per method are written and read; both remain well within per-PR continuous-integration budgets (the full 4{,}029-method Commons Lang JAR embeds in ${\approx}\,0.35$~seconds).
+The byte overhead of embedding real inferred specs is 10.07\% (657{,}952\,$\to$\,724{,}210 bytes), 4.22~percentage points above the 5.85\% synthetic-spec overhead on the same library. Real specs have more clauses per method on average than the worst-case synthetic specs do: postcondition emission for non-void returns, range-based preconditions for index parameters, and loop invariants for counter loops all contribute. Embedding throughput is 11{,}906 methods/second; reading throughput is 119{,}063 methods/second. Both are lower than the synthetic-spec figures because more bytes per method are written and read; both remain well within per-PR continuous-integration budgets (the full 4{,}029-method Commons Lang JAR embeds in ${\approx}\,0.34$~seconds).
 
 \paragraph{Spec-shape coverage.}
 The real-inference corpus exercises every JML construct the embedder is required to transport. Table~\ref{tab:shapes} reports the distribution.
@@ -94,6 +94,42 @@ Branch-conditional (\texttt{==>})       & 345 & 14.8\% \\
 \end{table}
 
 Because every category roundtrips at 100\% fidelity, the embedder is demonstrated to transport not only simple null-check preconditions and reference-return postconditions (the synthetic worst case) but also the structurally complex constructs the inferrer actually produces: nested quantifiers, history references via \texttt{\textbackslash old}, conditional postcondition implications, and loop invariants. The 73-method self-test on the inferrer's own source code (\texttt{CorpusLevelRoundtripTest}) supplements this with an end-to-end check on a smaller and stylistically different corpus; it also reports 100\% fidelity.
+
+\subsection{Format optimisation impact}
+\label{subsec:format-opt}
+
+An earlier version of the embedding format (v1) used Java's repeatable-annotation mechanism: each JML clause produced a separate \texttt{@JmlSpec} annotation, with a per-clause \texttt{kind} enum, \texttt{text} string, \texttt{order} integer, and \texttt{version} string, all wrapped in a \texttt{@JmlSpecs(value=\{\dots\})} container. This is the maximally verbose annotation shape and produced 11.76--13.49\% overhead on the synthetic-spec corpora and 14.70\% on the real-inference Commons Lang run.
+
+The current format (v2, used to produce every other number in this section) applies three changes:
+
+\begin{enumerate}\setlength\itemsep{0.2em}
+  \item \emph{Single annotation per method.} A single \texttt{@JmlSpecs} annotation now carries every clause kind as a separate \texttt{String[]} member (\texttt{requires}, \texttt{ensures}, \texttt{assignable}, \texttt{loopInvariant}, \texttt{signals}). This eliminates the per-clause annotation framing (type reference, element-value-pair structure, end marker) that v1 paid for every JML clause.
+  \item \emph{Default-omission for \texttt{assignable \textbackslash nothing}.} 100\% of inferred specs in our corpus carry \texttt{assignable \textbackslash nothing}; the v2 convention is that absence means \texttt{\textbackslash nothing}, so the writer omits the member entirely. The reader synthesises it on read. Every spec saves one annotation-array entry.
+  \item \emph{Token dictionary.} Twelve common JML tokens (\texttt{\textbackslash result}, \texttt{\textbackslash old(}, \texttt{\textbackslash forall}, \texttt{\textbackslash exists}, \texttt{\textbackslash sum}, \texttt{\textbackslash product}, \texttt{\textbackslash num\_of}, \texttt{ ==> }, \texttt{!= null}, \texttt{== null}, \texttt{\textbackslash nothing}, \texttt{\textbackslash everything}) are replaced by single Unicode control-character bytes (U+0001 to U+0011) before being written, and decoded on read. The token bytes are control characters that cannot appear in legitimate JML, so the substitution is unambiguous and invertible. UTF-8 encodes each token byte as a single byte, so each occurrence saves \emph{token-length} $-$ 1 bytes in the constant-pool UTF-8 entry.
+\end{enumerate}
+
+Table~\ref{tab:opt} reports the impact. Roundtrip fidelity is preserved at 100\% on every corpus.
+
+\begin{table}[ht]
+\centering
+\caption{Format-optimisation impact on bytecode-size overhead. Roundtrip fidelity is 100\% under both formats.}
+\label{tab:opt}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Corpus} & \textbf{v1 ovhd.} & \textbf{v2 ovhd.} & \textbf{Reduction} \\
+\midrule
+Synthetic --- Commons Lang & 11.95\% & 5.85\%  & $-$51\% \\
+Synthetic --- Commons IO   & 13.49\% & 6.97\%  & $-$48\% \\
+Synthetic --- Guava        & 11.76\% & 5.27\%  & $-$55\% \\
+\midrule
+Real inference --- Commons Lang & 14.70\% & 10.07\% & $-$31\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The synthetic-spec reduction is larger than the real-inference reduction because synthetic specs are dominated by exactly the patterns the optimisation targets: every spec carries the default-omittable \texttt{assignable \textbackslash nothing} (optimisation~2), every \texttt{requires} clause is of the form \texttt{p != null} (optimisation~3 token), and every \texttt{ensures} clause references \texttt{\textbackslash result} (also a token). The real-inference corpus contains a wider variety of clause shapes; many strings still benefit from the dictionary but a long-tail of arithmetic expressions, range comparisons, and quantified subexpressions are not covered by the current twelve tokens. The real-inference reduction is therefore a more realistic estimate of what a production deployment should expect.
+
+The v1 format remains readable; the reader supports both shapes so embedded JARs produced before the format change continue to load.
 
 \subsection{Threats specific to this measurement}
 

@@ -1,7 +1,5 @@
 package com.jml.spec.write;
 
-import com.jml.spec.JmlSpec;
-import com.jml.spec.Kind;
 import com.jml.spec.MethodKey;
 import com.jml.spec.MethodSpec;
 import com.jml.spec.SignalsClause;
@@ -29,20 +27,21 @@ import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 
 /**
- * Writes {@link JmlSpec} annotations into compiled class files via ASM.
+ * Writes {@link com.jml.spec.JmlSpecs} annotations into compiled class
+ * files via ASM (spec-format v2).
  *
- * <p>One {@code @JmlSpec} annotation is emitted per clause; clause kinds are taken
- * from {@link Kind}. The annotations are repeated via the {@code @JmlSpecs} container
- * so {@link AnnotationVisitor#visitArray} carries them as a single array attribute.
- * Order within a kind is preserved through the {@code order} element of each
- * annotation; the reader is responsible for sorting on read.
+ * <p>One {@code @JmlSpecs} annotation per method carries every clause as a
+ * {@code String[]} member. Strings are token-encoded via
+ * {@link com.jml.spec.SpecCodec} before being written, and the default
+ * {@code assignable \nothing} clause is omitted (absence means
+ * {@code \nothing} in v2). Together these reduce the bytecode-size
+ * overhead of embedded specifications by roughly a third compared with
+ * the v1 per-clause repeatable annotation format.</p>
  */
 public class AsmJmlSpecWriter implements JmlSpecWriter {
 
     private static final Logger logger = LoggerFactory.getLogger(AsmJmlSpecWriter.class);
-    private static final String JMLSPEC_DESC = "Lcom/jml/spec/JmlSpec;";
     private static final String JMLSPECS_DESC = "Lcom/jml/spec/JmlSpecs;";
-    private static final String KIND_DESC = "Lcom/jml/spec/Kind;";
 
     @Override
     public void embedJar(Path inputJar, Path outputJar, Map<MethodKey, MethodSpec> specs) throws IOException {
@@ -260,51 +259,61 @@ public class AsmJmlSpecWriter implements JmlSpecWriter {
         }
     }
 
-    /** Emit the @JmlSpecs container with one @JmlSpec inner per clause. */
+    /**
+     * Emit a single {@code @JmlSpecs} annotation per method (spec-format v2).
+     *
+     * <p>One annotation carries all four clause arrays plus packed signals,
+     * each member emitted only when its array is non-default. Strings are
+     * token-encoded via {@link com.jml.spec.SpecCodec} before being written.
+     * The {@code assignable} member is omitted when its only entry is
+     * {@code "\\nothing"} (the convention: absence means {@code \nothing}).</p>
+     */
     private static void emitJmlAnnotations(MethodVisitor mv, MethodSpec spec) {
-        List<EmissionRecord> records = collect(spec);
-        if (records.isEmpty()) return;
-        AnnotationVisitor container = mv.visitAnnotation(JMLSPECS_DESC, true);
-        AnnotationVisitor array = container.visitArray("value");
-        for (EmissionRecord r : records) {
-            AnnotationVisitor inner = array.visitAnnotation(null, JMLSPEC_DESC);
-            inner.visitEnum("kind", KIND_DESC, r.kind().name());
-            inner.visit("text", r.text());
-            if (r.order() != 0) inner.visit("order", r.order());
-            if (!"1.0".equals(spec.version())) inner.visit("version", spec.version());
-            inner.visitEnd();
+        java.util.List<String> requires = nonNull(spec.requires());
+        java.util.List<String> ensures = nonNull(spec.ensures());
+        java.util.List<String> assignable = nonNull(spec.assignable());
+        java.util.List<String> loopInvariant = nonNull(spec.loopInvariant());
+        java.util.List<SignalsClause> signals = spec.signals() == null ? java.util.List.of() : spec.signals();
+        // Skip if the input spec is entirely empty (no clauses at all,
+        // including no assignable). Specs with at least one clause --- even
+        // if the only clause is assignable \nothing --- must produce a
+        // detectable @JmlSpecs marker so the reader can synthesize the
+        // default-assignable convention.
+        boolean inputAllEmpty = requires.isEmpty() && ensures.isEmpty()
+                && assignable.isEmpty() && loopInvariant.isEmpty() && signals.isEmpty();
+        if (inputAllEmpty) return;
+        // Drop the default assignable \nothing; absence means \nothing in v2.
+        if (assignable.size() == 1 && "\\nothing".equals(assignable.get(0))) {
+            assignable = java.util.List.of();
         }
-        array.visitEnd();
-        container.visitEnd();
-    }
-
-    private static List<EmissionRecord> collect(MethodSpec spec) {
-        List<EmissionRecord> out = new ArrayList<>();
-        int order = 0;
-        if (spec.requires() != null) {
-            for (String r : spec.requires()) out.add(new EmissionRecord(Kind.REQUIRES, r, ++order));
-        }
-        order = 0;
-        if (spec.ensures() != null) {
-            for (String e : spec.ensures()) out.add(new EmissionRecord(Kind.ENSURES, e, ++order));
-        }
-        order = 0;
-        if (spec.assignable() != null) {
-            for (String a : spec.assignable()) out.add(new EmissionRecord(Kind.ASSIGNABLE, a, ++order));
-        }
-        order = 0;
-        if (spec.loopInvariant() != null) {
-            for (String l : spec.loopInvariant()) out.add(new EmissionRecord(Kind.LOOP_INVARIANT, l, ++order));
-        }
-        if (spec.signals() != null) {
-            for (SignalsClause s : spec.signals()) {
-                out.add(new EmissionRecord(Kind.SIGNALS, s.exceptionType() + "|" + s.condition(), 0));
+        AnnotationVisitor specs = mv.visitAnnotation(JMLSPECS_DESC, true);
+        if (!requires.isEmpty())      writeEncodedArray(specs, "requires", requires);
+        if (!ensures.isEmpty())       writeEncodedArray(specs, "ensures", ensures);
+        if (!assignable.isEmpty())    writeEncodedArray(specs, "assignable", assignable);
+        if (!loopInvariant.isEmpty()) writeEncodedArray(specs, "loopInvariant", loopInvariant);
+        if (!signals.isEmpty()) {
+            AnnotationVisitor sigArr = specs.visitArray("signals");
+            for (SignalsClause s : signals) {
+                sigArr.visit(null, com.jml.spec.SpecCodec.encode(
+                        s.exceptionType() + "|" + s.condition()));
             }
+            sigArr.visitEnd();
         }
-        return out;
+        // version="2" is the default in the new annotation; only emit if non-default.
+        if (spec.version() != null && !"2".equals(spec.version()) && !"1.0".equals(spec.version())) {
+            specs.visit("version", spec.version());
+        }
+        specs.visitEnd();
     }
 
-    private record EmissionRecord(Kind kind, String text, int order) {
+    private static void writeEncodedArray(AnnotationVisitor ann, String member, java.util.List<String> items) {
+        AnnotationVisitor arr = ann.visitArray(member);
+        for (String s : items) arr.visit(null, com.jml.spec.SpecCodec.encode(s));
+        arr.visitEnd();
+    }
+
+    private static <T> java.util.List<T> nonNull(java.util.List<T> in) {
+        return in == null ? java.util.List.of() : in;
     }
 
     @SuppressWarnings("unused")
