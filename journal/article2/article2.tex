@@ -79,9 +79,10 @@ with synthetic specifications that isolate the embedding mechanism, and
 on a real-inferred-specs corpus of 73 methods that exercises the full
 inference\,$\to$\,embedding pipeline. We measure 100.0\% roundtrip
 fidelity across all four corpora, 11.76--13.49\% bytecode-size overhead
-on the synthetic-spec runs, embedding throughput of 10{,}000--28{,}000
-methods/second, and reading throughput of 146{,}000--235{,}000
-methods/second. A negative test confirms that classes embedded with
+on the synthetic-spec runs, embedding throughput in the 10{,}000--31{,}000
+methods/second range, and reading throughput in the
+134{,}000--316{,}000 methods/second range (medians 18{,}859--29{,}358
+and 162{,}002--275{,}834 methods/second respectively, across 39 runs). A negative test confirms that classes embedded with
 \texttt{@JmlSpec} load correctly in Java Virtual Machines (JVMs) that
 have no awareness of the annotation type. The contribution is a path
 from inferred specifications to consumer-readable contracts that

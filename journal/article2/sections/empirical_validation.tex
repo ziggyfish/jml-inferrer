@@ -23,22 +23,22 @@ A separate negative test loads an embedded class via a \texttt{URLClassLoader} r
 
 \subsection{Results}
 
-Table~\ref{tab:validation} reports the headline measurements.
+Table~\ref{tab:validation} reports the headline measurements. Method counts, fidelity, and bytecode-size overhead are deterministic; we report each exactly once. Embedding and reading throughput vary across runs (JIT warm-up, garbage collection, OS scheduling); we report the median across 39 independent runs of the harness per library, with the observed ranges discussed in the Throughput paragraph below.
 
 \begin{table}[ht]
 \centering
-\caption{Embedder validation on real-world libraries. Fidelity is the fraction of methods whose embedded specs are successfully read back; on matched methods, equality is exact (zero clause-level mismatches anywhere). Byte overhead is the size increase of the JAR file. Throughput is wall-time-based. The third row reports the full inferrer→embedder pipeline on real inferrer-generated specifications (the synthetic specs in the first two rows are decoupled from the inferrer's behaviour to isolate the embedding mechanism).}
+\caption{Embedder validation on real-world libraries (medians across 39 runs for throughput; fidelity and overhead are deterministic). The fourth row reports the full inferrer$\to$embedder pipeline on real inferrer-generated specifications; the synthetic specs in the first three rows are decoupled from the inferrer's behaviour to isolate the embedding mechanism. On matched methods, fidelity equality is exact (zero clause-level mismatches).}
 \label{tab:validation}
 \begin{tabular}{lrrrrr}
 \toprule
 \textbf{Library} & \textbf{Methods} & \textbf{Fidelity} & \textbf{Byte ovhd.} & \textbf{Embed (m/s)} & \textbf{Read (m/s)} \\
 \midrule
 \multicolumn{6}{l}{\textit{Synthetic specs (isolating the embedding mechanism)}} \\
-Apache Commons Lang 3.14.0 & 4{,}029 & 100.0\% & +11.95\% & 28{,}022 & 216{,}068 \\
-Apache Commons IO 2.13.0 & 2{,}677 & 100.0\% & +13.49\% & 10{,}480 & 146{,}147 \\
-Guava 33.3.0-jre & 13{,}840 & 100.0\% & +11.76\% & 22{,}353 & 235{,}144 \\
+Apache Commons Lang 3.14.0 & 4{,}029 & 100.0\% & +11.95\% & 29{,}358 & 275{,}834 \\
+Apache Commons IO 2.13.0 & 2{,}677 & 100.0\% & +13.49\% & 18{,}859 & 162{,}002 \\
+Guava 33.3.0-jre & 13{,}840 & 100.0\% & +11.76\% & 22{,}198 & 205{,}430 \\
 \midrule
-\multicolumn{6}{l}{\textit{Real inferred specs (full inferrer→embedder pipeline)}} \\
+\multicolumn{6}{l}{\textit{Real inferred specs (full inferrer$\to$embedder pipeline)}} \\
 JML-Inferrer self-test & 73 & 100.0\% & --- & --- & --- \\
 \bottomrule
 \end{tabular}
@@ -50,10 +50,10 @@ JML-Inferrer self-test & 73 & 100.0\% & --- & --- & --- \\
 All three libraries achieve 100.0\% roundtrip fidelity. An earlier prototype of the embedder reported 96.9\% / 97.6\% fidelity on Commons Lang and Guava owing to a missed callback in the writer's \texttt{MethodVisitor} lifecycle: lazy emission was triggered by \texttt{visitCode}, \texttt{visitParameter}, \texttt{visitAnnotationDefault}, or \texttt{visitAnnotation}, but none of these hooks fires for abstract / interface methods, which only invoke \texttt{visitEnd}. Adding \texttt{visitEnd} to the trigger set closes the gap. Every method on every interface in all three libraries now receives the embedded annotation. Commons IO has a noticeably higher proportion of interfaces (its byte-overhead figure of 13.5\% is correspondingly higher than Lang and Guava, which sit at 11.8--12.0\%), confirming that the previous prototype would have shown the largest gap on Commons IO.
 
 \paragraph{Byte overhead.}
-The 11.1\%--11.65\% overhead reflects a worst-case workload --- the synthetic specs emit one annotation per parameter for every method, regardless of whether a real inferrer would have produced one. Real inferred specifications are typically smaller per method (preconditions are often empty for simple getters; \texttt{assignable~\textbackslash nothing} is a frequent, short, single-clause annotation). For the libraries reported, the absolute overhead is 73~KB for Commons Lang and 359~KB for Guava --- comfortable compared to typical Maven distribution sizes. For libraries where the cost is unacceptable, the Maven classifier sidecar (Section~\ref{sec:format}) is the recommended fallback.
+The 11.76--13.49\% overhead reflects a worst-case workload: the synthetic specs emit one annotation per parameter for every method, regardless of whether a real inferrer would have produced one. Real inferred specifications are typically smaller per method (preconditions are often empty for simple getters; \texttt{assignable~\textbackslash nothing} is a frequent, short, single-clause annotation). The absolute overhead is 77~KB for Commons Lang, 64~KB for Commons IO, and 354~KB for Guava --- comfortable compared to typical Maven distribution sizes. The differences across libraries are explained by structural shape rather than total size: Commons IO has a higher proportion of interfaces (each of which receives a clause set per method), pushing its overhead percentage above the other two. For libraries where the cost is unacceptable, the Maven classifier sidecar (Section~\ref{sec:format}) is the recommended fallback.
 
 \paragraph{Throughput.}
-Embedding throughput in the 21{,}000--26{,}000 methods/second range corresponds to 0.16~seconds for Commons Lang and 0.66~seconds for Guava end-to-end. Reading throughput an order of magnitude higher reflects that the reader skips full class rewriting: 65~ms for Guava. These figures comfortably support per-PR-comment workflows in CI/CD: even pessimistic re-running on every push of a 14{,}000-method JAR is sub-second, well below the typical Maven build time the inference pipeline rides on.
+Across 39 runs of the harness, embedding throughput ranges from 10{,}194 to 31{,}095 methods/second (medians: 18{,}859 for Commons IO, 22{,}198 for Guava, 29{,}358 for Commons Lang); reading throughput ranges from 133{,}683 to 315{,}693 methods/second (medians: 162{,}002, 205{,}430, 275{,}834 respectively). At the medians, embedding a 14{,}000-method JAR completes in roughly 0.6~seconds end-to-end; reading completes an order of magnitude faster (the reader skips full class rewriting). These figures comfortably support per-PR-comment workflows in continuous-integration pipelines: even a pessimistic re-run on every push of a Guava-sized JAR is sub-second, well below the typical Maven build time the inference pipeline rides on.
 
 \paragraph{Negative test.}
 \texttt{org.apache.commons.lang3.StringUtils} loaded successfully via a \texttt{URLClassLoader} that does not see \texttt{com.jml.spec.JmlSpec}. Reflective annotation access either returns the resolvable annotations (none in this loader's view) or raises \texttt{TypeNotPresentException}, both documented behaviours. Class load is unaffected.
@@ -67,7 +67,7 @@ Result: 73 of 73 methods (100\%) roundtrip with byte-for-byte equality on every 
 \subsection{Threats specific to this measurement}
 
 \begin{itemize}
-    \item \emph{Two libraries plus self-test}, not the protocol's full ten external libraries. The fidelity analysis above identifies the residual risks (interface methods, multi-release JARs); on libraries that exercise either pattern the embedder now reaches 100\%. The follow-up validation against the remaining eight libraries (Apache Commons IO, Apache Commons Math, jOOL, Vavr, jsoup, JFreeChart, JUnit, AssertJ) is mechanical.
+    \item \emph{Three libraries plus self-test}, not the protocol's full ten external libraries. The fidelity analysis above identifies the residual risks (interface methods, multi-release JARs); on libraries that exercise either pattern the embedder reaches 100\%. The follow-up validation against the remaining seven libraries (Apache Commons Math, jOOL, Vavr, jsoup, JFreeChart, JUnit, AssertJ) is mechanical.
     \item \emph{JDK 21 only.} Older JDKs (8, 11, 17) and ahead-of-time compilers (GraalVM \texttt{native-image}) are deferred. The class files emitted by Commons Lang target Java~8, so the runtime-side validation should generalise without modification.
     \item \emph{Real-inferred-specs sample is the inferrer's own model+visitor+processor packages.} The packages are non-trivial (POJOs with derived state, AST visitors, file-system orchestration) but cover only the data-model and orchestration tier of the inferrer; the analyzer tier (~16\,000 LOC of analysis code) is excluded from the corpus to keep the test fast. Extension to the full inferrer codebase, and to the published Apache Commons Lang sources, is mechanical.
 \end{itemize}

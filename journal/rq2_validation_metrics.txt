@@ -112,3 +112,6 @@ guava-33.3.0-jre | methods=13840 matched=13840 mismatches=0 originalBytes=307824
 commons-io-2.13.0 | methods=2677 matched=2677 mismatches=0 originalBytes=483954 embeddedBytes=549218 overhead=13.49% embedThroughput=19135 m/s readThroughput=182059 m/s
 commons-lang3-3.14.0 | methods=4029 matched=4029 mismatches=0 originalBytes=657952 embeddedBytes=736548 overhead=11.95% embedThroughput=30343 m/s readThroughput=289433 m/s
 guava-33.3.0-jre | methods=13840 matched=13840 mismatches=0 originalBytes=3078245 embeddedBytes=3440222 overhead=11.76% embedThroughput=22538 m/s readThroughput=196138 m/s
+commons-io-2.13.0 | methods=2677 matched=2677 mismatches=0 originalBytes=483954 embeddedBytes=549218 overhead=13.49% embedThroughput=10194 m/s readThroughput=133683 m/s
+commons-lang3-3.14.0 | methods=4029 matched=4029 mismatches=0 originalBytes=657952 embeddedBytes=736548 overhead=11.95% embedThroughput=27831 m/s readThroughput=200977 m/s
+guava-33.3.0-jre | methods=13840 matched=13840 mismatches=0 originalBytes=3078245 embeddedBytes=3440222 overhead=11.76% embedThroughput=22944 m/s readThroughput=225011 m/s

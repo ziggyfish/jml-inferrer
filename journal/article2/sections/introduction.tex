@@ -14,7 +14,7 @@ We address the following research questions:
   \item \textbf{RQ4.} Does an OpenAPI extension family integrate with existing OpenAPI tooling (parsers, generators) without modification?
 \end{itemize}
 
-We evaluate the bytecode side empirically on Apache Commons Lang, Apache Commons IO, and Guava (20{,}546 methods total) and the OpenAPI side by construction against the OpenAPI~3.x specification and the standard parsers (swagger-parser, openapi-generator). We summarise the principal findings in Table~\ref{tab:validation} and the supporting analysis in Section~\ref{sec:empirical}. In short: roundtrip fidelity is 100.0\% on all three libraries; bytecode overhead sits at 11.76--13.49\%; embedding throughput ranges from 10{,}000 to 28{,}000 methods/second; reading throughput is roughly an order of magnitude higher; and the OpenAPI extension is preserved by both standard parsers without modification.
+We evaluate the bytecode side empirically on Apache Commons Lang, Apache Commons IO, and Guava (20{,}546 methods total) and the OpenAPI side by construction against the OpenAPI~3.x specification and the standard parsers (swagger-parser, openapi-generator). We summarise the principal findings in Table~\ref{tab:validation} and the supporting analysis in Section~\ref{sec:empirical}. In short: roundtrip fidelity is 100.0\% on all three libraries; bytecode overhead sits at 11.76--13.49\%; embedding throughput ranges from 10{,}194 to 31{,}095 methods/second (median 22{,}198 for the largest library, Guava); reading throughput is roughly an order of magnitude higher; and the OpenAPI extension is preserved by both standard parsers without modification.
 
 \textbf{Contributions.} In summary, this paper makes the following contributions:
 
