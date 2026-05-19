@@ -1,7 +1,7 @@
 \section{Empirical Validation}
 \label{sec:empirical}
 
-The embedder is evaluated on real-world Java libraries. The harness applies the embedder to each library's JAR file, generates a synthetic specification per method (one \texttt{requires} clause per non-primitive parameter, one \texttt{ensures} clause for reference returns, and \texttt{assignable~\textbackslash nothing}), and measures four quantities: roundtrip fidelity, bytecode-size overhead, embedding throughput, and reading throughput.
+The embedder is evaluated on real-world Java libraries. The harness applies the embedder to each library's JAR file, generates a synthetic specification per method (one \texttt{requires} clause per non-primitive parameter, one \texttt{ensures} clause for reference returns, and \texttt{assignable~\textbackslash nothing}), and measures four quantities: lossless-roundtrip rate, bytecode-size overhead, embedding throughput, and reading throughput.
 
 \subsection{Subjects}
 
@@ -16,22 +16,22 @@ For each library:
     \item Generate a synthetic \texttt{MethodSpec} per method as above.
     \item Embed the spec map into a copy of the JAR using \texttt{AsmJmlSpecWriter}, recording wall time.
     \item Read the embedded JAR back using \texttt{AsmJmlSpecReader}, recording wall time and matching specs against the originals on \texttt{(internalName, methodName, descriptor)} keys.
-    \item Compute fidelity (matched / total), byte overhead (embedded / original $-$ 1), and throughput (methods / wall time).
+    \item Compute the lossless-roundtrip rate (matched / total), byte overhead (embedded / original $-$ 1), and throughput (methods / wall time).
 \end{enumerate}
 
 A separate negative test loads an embedded class via a \texttt{URLClassLoader} rooted only at the embedded JAR (with the platform class loader as parent) and confirms that \texttt{Class.forName} succeeds. The annotation type \texttt{com.jml.spec.JmlSpec} is not on this loader's classpath; reflective annotation access is allowed to raise \texttt{TypeNotPresentException} but class load itself must not fail.
 
 \subsection{Results}
 
-Table~\ref{tab:validation} reports the headline measurements. Method counts, fidelity, and bytecode-size overhead are deterministic; we report each exactly once. Embedding and reading throughput vary across runs (JIT warm-up, garbage collection, OS scheduling); we report the median across 39 independent runs of the harness per library, with the observed ranges discussed in the Throughput paragraph below.
+Table~\ref{tab:validation} reports the headline measurements. Method counts, lossless-roundtrip rate, and bytecode-size overhead are deterministic; we report each exactly once. Embedding and reading throughput vary across runs (JIT warm-up, garbage collection, OS scheduling); we report the median across 39 independent runs of the harness per library, with the observed ranges discussed in the Throughput paragraph below.
 
 \begin{table}[ht]
 \centering
-\caption{Embedder validation on real-world libraries (medians across 39 runs for throughput; fidelity and overhead are deterministic). The fourth row reports the full inferrer$\to$embedder pipeline on real inferrer-generated specifications; the synthetic specs in the first three rows are decoupled from the inferrer's behaviour to isolate the embedding mechanism. On matched methods, fidelity equality is exact (zero clause-level mismatches).}
+\caption{Embedder validation on real-world libraries (medians across 39 runs for throughput; lossless-roundtrip rate and overhead are deterministic). The fourth row reports the full inferrer$\to$embedder pipeline on real inferrer-generated specifications; the synthetic specs in the first three rows are decoupled from the inferrer's behaviour to isolate the embedding mechanism. On matched methods, equality is exact (zero clause-level mismatches).}
 \label{tab:validation}
 \begin{tabular}{lrrrrr}
 \toprule
-\textbf{Library} & \textbf{Methods} & \textbf{Fidelity} & \textbf{Byte ovhd.} & \textbf{Embed (m/s)} & \textbf{Read (m/s)} \\
+\textbf{Library} & \textbf{Methods} & \textbf{Lossless} & \textbf{Byte ovhd.} & \textbf{Embed (m/s)} & \textbf{Read (m/s)} \\
 \midrule
 \multicolumn{6}{l}{\textit{Synthetic specs (isolating the embedding mechanism)}} \\
 Apache Commons Lang 3.14.0 & 4{,}029 & 100.0\% & +5.85\% & 16{,}225 & 221{,}617 \\
@@ -49,8 +49,8 @@ JML-Inferrer self-test     & 73    & 100.0\% & --- & --- & --- \\
 
 \subsection{Analysis}
 
-\paragraph{Fidelity.}
-All three libraries achieve 100.0\% roundtrip fidelity. An earlier prototype of the embedder reported 96.9\% / 97.6\% fidelity on Commons Lang and Guava owing to a missed callback in the writer's \texttt{MethodVisitor} lifecycle: lazy emission was triggered by \texttt{visitCode}, \texttt{visitParameter}, \texttt{visitAnnotationDefault}, or \texttt{visitAnnotation}, but none of these hooks fires for abstract / interface methods, which only invoke \texttt{visitEnd}. Adding \texttt{visitEnd} to the trigger set closes the gap. Every method on every interface in all three libraries now receives the embedded annotation. Commons IO has a noticeably higher proportion of interfaces, which is the reason its byte-overhead percentage runs higher than Commons Lang and Guava under both v1 and v2 (Table~\ref{tab:opt}); the prototype gap would also have been worst on Commons IO.
+\paragraph{Lossless roundtrip.}
+All three libraries achieve a 100.0\% lossless-roundtrip rate. An earlier prototype of the embedder reported 96.9\% / 97.6\% on Commons Lang and Guava owing to a missed callback in the writer's \texttt{MethodVisitor} lifecycle: lazy emission was triggered by \texttt{visitCode}, \texttt{visitParameter}, \texttt{visitAnnotationDefault}, or \texttt{visitAnnotation}, but none of these hooks fires for abstract / interface methods, which only invoke \texttt{visitEnd}. Adding \texttt{visitEnd} to the trigger set closes the gap. Every method on every interface in all three libraries now receives the embedded annotation. Commons IO has a noticeably higher proportion of interfaces, which is the reason its byte-overhead percentage runs higher than Commons Lang and Guava under both v1 and v2 (Table~\ref{tab:opt}); the prototype gap would also have been worst on Commons IO.
 
 \paragraph{Byte overhead.}
 The synthetic-spec overhead sits in the 5.27--6.97\% range. The differences across libraries are explained by structural shape rather than total size: Commons IO has a higher proportion of interfaces (each of which receives a clause set per method), pushing its overhead percentage above the other two. The absolute overhead is 38~KB for Commons Lang, 34~KB for Commons IO, and 162~KB for Guava --- well below typical Maven distribution sizes. For libraries where even this cost is unacceptable, the Maven classifier sidecar (Section~\ref{sec:format}) is the recommended fallback.
@@ -72,14 +72,14 @@ Across the three libraries the harness processes 1{,}118 source files containing
 
 The real-inference byte-overhead figures sit at 10.07\% for Commons Lang, 10.20\% for Commons~IO, and 4.63\% for Guava. The first two are 4--5 percentage points above their synthetic counterparts because real specs are richer than the synthetic worst case (more clauses per method, more diverse content, more long-tail expressions that the dictionary does not cover). Guava is the outlier: its real-inference overhead is \emph{lower} than its synthetic figure because Guava has large generic-heavy classes with dense bodies, so the same per-spec byte cost amortises against a larger denominator. Embedding throughput is 6{,}000--10{,}000 methods/second under real specs (vs.\ 12{,}000--22{,}000 under synthetic) and reading throughput 74{,}000--108{,}000 methods/second; both remain comfortably inside per-PR continuous-integration budgets.
 
-A residual of source-method-to-bytecode-descriptor lookups fails on overload collisions where two source overloads of the same name and arity map to the same bytecode descriptor (an artefact of erased generics and the harness's first-match-wins choice). Roughly one quarter of inferred-with-clauses methods are lost this way on Commons~Lang, less on the other two libraries. The 100\% fidelity is on every spec the harness successfully embeds; a full type-resolving harness would recover the residual without changing the embedder's behaviour.
+A residual of source-method-to-bytecode-descriptor lookups fails on overload collisions where two source overloads of the same name and arity map to the same bytecode descriptor (an artefact of erased generics and the harness's first-match-wins choice). Roughly one quarter of inferred-with-clauses methods are lost this way on Commons~Lang, less on the other two libraries. The 100\% lossless rate is on every spec the harness successfully embeds; a full type-resolving harness would recover the residual without changing the embedder's behaviour.
 
 \paragraph{Spec-shape coverage.}
 The real-inference corpus exercises every JML construct the embedder is required to transport. Table~\ref{tab:shapes} reports the distribution.
 
 \begin{table}[ht]
 \centering
-\caption{Spec-shape coverage on the 2{,}332 Commons Lang specs embedded through the real-inference harness (representative; Commons~IO and Guava give similar distributions). Every category roundtrips with 100\% fidelity on every library.}
+\caption{Spec-shape coverage on the 2{,}332 Commons Lang specs embedded through the real-inference harness (representative; Commons~IO and Guava give similar distributions). Every category roundtrips losslessly on every library.}
 \label{tab:shapes}
 \begin{tabular}{lrr}
 \toprule
@@ -97,7 +97,7 @@ Branch-conditional (\texttt{==>})       & 345 & 14.8\% \\
 \end{tabular}
 \end{table}
 
-Because every category roundtrips at 100\% fidelity, the embedder is demonstrated to transport not only simple null-check preconditions and reference-return postconditions (the synthetic worst case) but also the structurally complex constructs the inferrer actually produces: nested quantifiers, history references via \texttt{\textbackslash old}, conditional postcondition implications, and loop invariants. The 73-method self-test on the inferrer's own source code (\texttt{CorpusLevelRoundtripTest}) supplements this with an end-to-end check on a smaller and stylistically different corpus; it also reports 100\% fidelity.
+Because every category roundtrips losslessly, the embedder is demonstrated to transport not only simple null-check preconditions and reference-return postconditions (the synthetic worst case) but also the structurally complex constructs the inferrer actually produces: nested quantifiers, history references via \texttt{\textbackslash old}, conditional postcondition implications, and loop invariants. The 73-method self-test on the inferrer's own source code (\texttt{CorpusLevelRoundtripTest}) supplements this with an end-to-end check on a smaller and stylistically different corpus; it also achieves a 100\% lossless-roundtrip rate.
 
 \subsection{Format optimisation impact}
 \label{subsec:format-opt}
@@ -112,11 +112,11 @@ The current format (v2, used to produce every other number in this section) appl
   \item \emph{Token dictionary.} Twelve common JML tokens (\texttt{\textbackslash result}, \texttt{\textbackslash old(}, \texttt{\textbackslash forall}, \texttt{\textbackslash exists}, \texttt{\textbackslash sum}, \texttt{\textbackslash product}, \texttt{\textbackslash num\_of}, \texttt{ ==> }, \texttt{!= null}, \texttt{== null}, \texttt{\textbackslash nothing}, \texttt{\textbackslash everything}) are replaced by single Unicode control-character bytes (U+0001 to U+0011) before being written, and decoded on read. The token bytes are control characters that cannot appear in legitimate JML, so the substitution is unambiguous and invertible. UTF-8 encodes each token byte as a single byte, so each occurrence saves \emph{token-length} $-$ 1 bytes in the constant-pool UTF-8 entry.
 \end{enumerate}
 
-Table~\ref{tab:opt} reports the impact. Roundtrip fidelity is preserved at 100\% on every corpus.
+Table~\ref{tab:opt} reports the impact. The lossless-roundtrip property is preserved at 100\% on every corpus.
 
 \begin{table}[ht]
 \centering
-\caption{Format-optimisation impact on bytecode-size overhead. Roundtrip fidelity is 100\% under both formats.}
+\caption{Format-optimisation impact on bytecode-size overhead. The lossless-roundtrip rate is 100\% under both formats.}
 \label{tab:opt}
 \begin{tabular}{lrrr}
 \toprule
@@ -140,11 +140,11 @@ The synthetic-spec reduction is larger than the real-inference reduction because
 The choice of which JML tokens to encode and which clause to declare a default is not arbitrary: each rests on the shape distribution measured on the real-inference corpus (Table~\ref{tab:shapes}). The default-omission convention exploits the empirical observation that 100\% of inferred specs in our corpus carry \texttt{assignable \textbackslash nothing}; the token dictionary tracks the top-frequency JML constructs that the inferrer actually produces. A format designed without the measurement would have to either (i)~include every JML keyword in the dictionary (paying constant-pool cost for tokens that never fire) or (ii)~omit tokens that occur frequently in real specs. The synthetic-vs-real divergence (48--55\% reduction vs.\ 31\%) is itself empirical evidence that the saving depends on which clause shapes the consumer's inferrer produces.
 
 \paragraph{Configuration impact and DEFLATE measurement.}
-The default-omission and token-dictionary conventions are exposed to callers through a \texttt{WriterConfig} object. Three preset configurations and an alternative spec-format mode are measured in Table~\ref{tab:configs}. Each measurement is taken on the same 2{,}332-spec Commons Lang real-inference corpus, with the same reader replaying every spec to assert 100\% roundtrip fidelity in every mode.
+The default-omission and token-dictionary conventions are exposed to callers through a \texttt{WriterConfig} object. Three preset configurations and an alternative spec-format mode are measured in Table~\ref{tab:configs}. Each measurement is taken on the same 2{,}332-spec Commons Lang real-inference corpus, with the same reader replaying every spec to assert a 100\% lossless-roundtrip rate in every mode.
 
 \begin{table}[ht]
 \centering
-\caption{Configuration sweep on the Commons Lang real-inference corpus (2{,}332 specs). Each mode roundtrips at 100\% fidelity.}
+\caption{Configuration sweep on the Commons Lang real-inference corpus (2{,}332 specs). Each mode roundtrips losslessly.}
 \label{tab:configs}
 \begin{tabular}{lrr}
 \toprule
@@ -169,7 +169,7 @@ The v1 format remains readable; the reader supports both shapes so embedded JARs
 \subsection{Threats specific to this measurement}
 
 \begin{itemize}
-    \item \emph{Three libraries plus self-test}, not the protocol's full ten external libraries. The fidelity analysis above identifies the residual risks (interface methods, multi-release JARs); on libraries that exercise either pattern the embedder reaches 100\%. The follow-up validation against the remaining seven libraries (Apache Commons Math, jOOL, Vavr, jsoup, JFreeChart, JUnit, AssertJ) is mechanical.
+    \item \emph{Three libraries plus self-test}, not the protocol's full ten external libraries. The lossless-roundtrip analysis above identifies the residual risks (interface methods, multi-release JARs); on libraries that exercise either pattern the embedder reaches 100\%. The follow-up validation against the remaining seven libraries (Apache Commons Math, jOOL, Vavr, jsoup, JFreeChart, JUnit, AssertJ) is mechanical.
     \item \emph{JDK 21 only.} Older JDKs (8, 11, 17) and ahead-of-time compilers (GraalVM \texttt{native-image}) are deferred. The class files emitted by Commons Lang target Java~8, so the runtime-side validation should generalise without modification.
-    \item \emph{Source-to-bytecode key resolution is name+arity only.} 917 of the 3{,}249 inferred-with-clauses Commons Lang methods are lost to overload collisions where two source methods of the same name and parameter count map to the same bytecode descriptor under our harness's first-match heuristic. A full type-resolving harness (parsing each source parameter's Java type and converting to its JVM descriptor) would close this gap; the present harness already demonstrates 100\% fidelity on every spec it embeds, so the residual is a measurement limitation rather than an embedder limitation.
+    \item \emph{Source-to-bytecode key resolution is name+arity only.} 917 of the 3{,}249 inferred-with-clauses Commons Lang methods are lost to overload collisions where two source methods of the same name and parameter count map to the same bytecode descriptor under our harness's first-match heuristic. A full type-resolving harness (parsing each source parameter's Java type and converting to its JVM descriptor) would close this gap; the present harness already demonstrates 100\% lossless roundtrip on every spec it embeds, so the residual is a measurement limitation rather than an embedder limitation.
 \end{itemize}
