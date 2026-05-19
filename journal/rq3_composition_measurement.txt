@@ -28,3 +28,48 @@ commons-lang3-3.14.0 (compositional refinement)
     disjunctive=248  (||)
     other=88
 
+commons-math3-3.6.1 (compositional refinement)
+  sourceFiles=990 methodsInferred=6645 methodsInCache=6645
+  refineWallTimeMs=20317.79
+  sccsVisited=13342 refinementsApplied=2492 iterationsTotal=13342
+  methodsRefined=2492 (37.50% of cache)
+  methodsWithNewPrecondition=1929 totalNewPreconditionClauses=25796
+    avgNewPrePerRefinedMethod=13.37 maxNewPreOnOneMethod=665
+  methodsWithNewPostcondition=1969 totalNewPostconditionClauses=11745
+  shapeCategories of newly-added preconditions:
+    nullCheck=6208  (!= null / == null)
+    rangeOrBound=1795  (<, <=, >, >=)
+    branchConditional=16521  (==>)
+    disjunctive=964  (||)
+    other=308
+
+jool-0.9.14 (compositional refinement)
+  sourceFiles=130 methodsInferred=3691 methodsInCache=3691
+  refineWallTimeMs=4308.00
+  sccsVisited=5403 refinementsApplied=898 iterationsTotal=5403
+  methodsRefined=898 (24.33% of cache)
+  methodsWithNewPrecondition=802 totalNewPreconditionClauses=5388
+    avgNewPrePerRefinedMethod=6.72 maxNewPreOnOneMethod=240
+  methodsWithNewPostcondition=467 totalNewPostconditionClauses=3223
+  shapeCategories of newly-added preconditions:
+    nullCheck=3243  (!= null / == null)
+    rangeOrBound=25  (<, <=, >, >=)
+    branchConditional=1836  (==>)
+    disjunctive=274  (||)
+    other=10
+
+vavr-0.10.4 (compositional refinement)
+  sourceFiles=101 methodsInferred=5111 methodsInCache=5111
+  refineWallTimeMs=15701.70
+  sccsVisited=7610 refinementsApplied=1799 iterationsTotal=7610
+  methodsRefined=1799 (35.20% of cache)
+  methodsWithNewPrecondition=1225 totalNewPreconditionClauses=3422
+    avgNewPrePerRefinedMethod=2.79 maxNewPreOnOneMethod=177
+  methodsWithNewPostcondition=1387 totalNewPostconditionClauses=3014
+  shapeCategories of newly-added preconditions:
+    nullCheck=1059  (!= null / == null)
+    rangeOrBound=155  (<, <=, >, >=)
+    branchConditional=1855  (==>)
+    disjunctive=333  (||)
+    other=20
+

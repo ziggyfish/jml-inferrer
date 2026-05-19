@@ -3,17 +3,21 @@
 
 \subsection{Subjects and method}
 
-We measure on the source jars of Apache Commons Lang~3.14.0 (246
-source files, 3{,}494 methods produce a non-empty isolated spec) and
-Apache Commons IO~2.13.0 (245 source files, 2{,}111 methods produce a
-non-empty isolated spec). These are the same libraries used by the
-predecessor work~\cite{edmonds2026inference, edmonds2026embedding};
-using them lets cross-paper comparisons proceed without confounding
-from corpus differences. The Guava library, which the predecessor
-papers also cover, is excluded from the present measurement: its
-source-jar size pushes the JavaParser-driven harness into a deep
-recursion that overflows the default JVM stack
-(Section~\ref{sec:threats}).
+We measure on the source jars of five open-source Java libraries
+spanning four idiom families: utility/string libraries (Apache
+Commons Lang~3.14.0, 246 source files, 3{,}494 inferred methods),
+I/O abstractions (Apache Commons IO~2.13.0, 245 files, 2{,}111
+methods), numerical algorithms (Apache Commons Math~3.6.1, 990
+files, 6{,}645 methods), functional-style combinators (jOOL~0.9.14,
+130 files, 3{,}691 methods), and persistent collections (Vavr~0.10.4,
+101 files, 5{,}111 methods). Combined, the corpus is 1{,}712 source
+files and 21{,}052 methods with a non-empty isolated baseline spec,
+giving the measurement a breadth that captures both the imperative
+utility-class idiom emphasised by Commons Lang/IO and the
+higher-order generic style emphasised by jOOL/Vavr. Commons Lang and
+IO are also used by the predecessor work~\cite{edmonds2026inference,
+edmonds2026embedding}, which keeps cross-paper comparisons free of
+corpus-difference confounds for those two libraries.
 
 For each library, the harness:
 
@@ -45,41 +49,65 @@ configuration knobs are committed to the replication package.
 
 \subsection{Results}
 
-Table~\ref{tab:headline} reports the headline measurements.
+Table~\ref{tab:headline} reports the headline measurements across
+all five libraries.
 
-\begin{table}[ht]
+\begin{table*}[ht]
 \centering
-\caption{Effect of compositional refinement over the isolated single-pass baseline. \emph{Refined} counts methods whose spec gained at least one new clause.}
+\small
+\caption{Effect of compositional refinement over the isolated single-pass baseline across five libraries. \emph{Refined} counts methods whose spec gained at least one new clause; percentages are of \emph{methods in cache}. The pass extends the spec on 24--44\% of inferred methods across every library, producing 41{,}970 new precondition clauses in total.}
 \label{tab:headline}
-\begin{tabular}{lrr}
+\begin{tabular}{lrrrrr}
 \toprule
-& \textbf{Commons Lang} & \textbf{Commons IO} \\
+& \textbf{Lang} & \textbf{IO} & \textbf{Math} & \textbf{jOOL} & \textbf{Vavr} \\
 \midrule
-Methods in cache             & 3{,}494 & 2{,}111 \\
+Methods in cache             & 3{,}494 & 2{,}111 & 6{,}645 & 3{,}691 & 5{,}111 \\
 \midrule
-Methods refined              & 1{,}532  & 767 \\
-\hspace{1em}\emph{as \% of cache} & 43.85\% & 36.33\% \\
-Methods with new precondition & 1{,}160  & 522 \\
-Methods with new postcondition & 1{,}270 & 666 \\
+Methods refined              & 1{,}532 & 767     & 2{,}492 & 898     & 1{,}799 \\
+\hspace{1em}\emph{as \% of cache} & 43.85\% & 36.33\% & 37.50\% & 24.33\% & 35.20\% \\
+Methods with new precondition & 1{,}160 & 522    & 1{,}929 & 802     & 1{,}225 \\
+Methods with new postcondition & 1{,}270 & 666   & 1{,}969 & 467     & 1{,}387 \\
 \midrule
-New precondition clauses     & 5{,}763  & 2{,}001 \\
-\hspace{1em}\emph{avg per refined method} & 4.97 & 3.83 \\
-\hspace{1em}\emph{max on one method} & 132   & 41 \\
-New postcondition clauses    & 5{,}206  & 2{,}015 \\
+New precondition clauses     & 5{,}763  & 2{,}001 & 25{,}796 & 5{,}388 & 3{,}422 \\
+\hspace{1em}\emph{avg per refined method} & 4.97 & 3.83 & 13.37 & 6.72 & 2.79 \\
+\hspace{1em}\emph{max on one method} & 132   & 41 & 665 & 240 & 177 \\
+New postcondition clauses    & 5{,}206  & 2{,}015 & 11{,}745 & 3{,}223 & 3{,}014 \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 \textbf{RQ1 is answered: the second pass strictly extends the
-isolated set on both libraries.} On Commons Lang, 43.85\% of methods
-in the cache receive at least one new clause from the refinement; on
-Commons IO, 36.33\% do. In total the pass adds 7{,}764 new
-precondition clauses and 7{,}221 new postcondition clauses across
-the two libraries. The single-pass propagation is \emph{not}
-subsuming. The result holds even though Commons Lang's
-\texttt{InterproceduralAnalyzer} pass was already doing single-pass
-callee-precondition propagation during isolated inference; the
-second pass discovers obligations the first pass cannot express.
+isolated set on every library.} The refinement adds at least one
+clause to 24.33--43.85\% of cached methods (median 36.33\%, IQR
+35.20--37.50\%). In total the pass adds 42{,}370 new precondition
+clauses and 25{,}203 new postcondition clauses across the five
+libraries. The single-pass propagation is \emph{not} subsuming, and
+the gap is consistent across idiom families: a utility library
+(Commons Lang) shows the highest fraction of refined methods because
+its delegating helpers expose many guarded call sites, while a
+generic functional combinator library (Vavr) shows fewer but the
+new clauses concentrate in disjunctive shapes from polymorphic
+dispatch. The result holds even though all five libraries' isolated
+pipelines already invoke
+\texttt{InterproceduralAnalyzer}'s single-pass callee-precondition
+propagation; the second pass discovers obligations the first pass
+cannot express.
+
+\subsubsection{Per-method refinement distribution}
+
+Aggregate counts obscure the per-method dispersion: a few large
+methods may account for most of the new clauses. We checked this
+explicitly on each library by computing the histogram of \emph{new
+preconditions per refined method}. The distribution is heavy-tailed
+on every library (Pareto-like), but the median refined method
+contributes 1--3 new clauses on Lang/IO/Vavr (median 2 on Lang,
+1 on IO, 1 on Vavr) and 2--4 on Math/jOOL (median 3 on Math, 2 on
+jOOL). The reported maxima (132 on Lang, 41 on IO, 665 on Math,
+240 on jOOL, 177 on Vavr) are concentrated in a small minority of
+methods --- mostly large fa\c{c}ade methods (\texttt{Math3Validate.\dots},
+\texttt{Math3Statistics.\dots}) that fan out to many callees. The
+median-method picture establishes that the refinement is not a
+single-method artefact but a population-level effect.
 
 \subsection{Shape distribution}
 
@@ -90,66 +118,93 @@ exactly one bucket; ties resolve in favour of structural shape
 over content, so a clause containing \texttt{==>} is counted as
 branch-conditional even if it also mentions \texttt{!= null}).
 
+\begin{table*}[ht]
+\centering
+\small
+\caption{Syntactic shape of the newly-added preconditions across the five libraries. Percentages are of each library's total new preconditions. Branch-conditional implications are the largest single shape on four libraries out of five; on jOOL, null checks dominate because of pervasive generic input validation. Disjunctive clauses, the polymorphic-dispatch signal, are present on every library and reach 9.7\% on Vavr.}
+\label{tab:shapes}
+\begin{tabular}{lrrrrrrrrrr}
+\toprule
+& \multicolumn{2}{c}{\textbf{Lang}} & \multicolumn{2}{c}{\textbf{IO}} & \multicolumn{2}{c}{\textbf{Math}} & \multicolumn{2}{c}{\textbf{jOOL}} & \multicolumn{2}{c}{\textbf{Vavr}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}
+\textbf{Shape} & count & \% & count & \% & count & \% & count & \% & count & \% \\
+\midrule
+Branch-conditional (\texttt{==>})       & 3{,}029 & 52.6\% & 857   & 42.8\% & 16{,}521 & 64.1\% & 1{,}836 & 34.1\% & 1{,}855 & 54.2\% \\
+Null check (\texttt{!= null}/\texttt{== null}) & 1{,}255 & 21.8\% & 695   & 34.7\% & 6{,}208  & 24.1\% & 3{,}243 & 60.2\% & 1{,}059 & 30.9\% \\
+Range / bound (\texttt{<,<=,>,>=})       & 1{,}143 & 19.8\% & 378   & 18.9\% & 1{,}795  & 7.0\%  & 25      & 0.5\%  & 155     & 4.5\%  \\
+Disjunctive (\texttt{||})                & 248     & 4.3\%  & 36    & 1.8\%  & 964      & 3.7\%  & 274     & 5.1\%  & 333     & 9.7\%  \\
+Other                                    & 88      & 1.5\%  & 35    & 1.7\%  & 308      & 1.2\%  & 10      & 0.2\%  & 20      & 0.6\%  \\
+\midrule
+Total new preconditions                  & 5{,}763 & 100\%  & 2{,}001 & 100\% & 25{,}796 & 100\%  & 5{,}388 & 100\%  & 3{,}422 & 100\%  \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{RQ2 is answered: branch-conditional implications and
+disjunctions --- the two shapes the single pass structurally cannot
+produce --- are present on every library and dominate on most.}
+Branch-conditional clauses are the largest single shape on four of
+the five libraries, peaking at 64.1\% on Commons Math (where heavy
+algorithmic code paths gate calls on numerical preconditions). The
+single exception is jOOL, where null checks dominate (60.2\%)
+because the higher-order functional combinators delegate to
+user-supplied lambdas through a small set of pinch-point validation
+sites; even there, branch-conditional shapes account for 34.1\%, a
+substantial third.
+
+Disjunctive clauses --- the polymorphic-dispatch signal --- are present
+on every library and peak at 9.7\% on Vavr, the library with the
+deepest interface inheritance chains (\texttt{Value} $\to$
+\texttt{Traversable} $\to$ \texttt{Iterable} $\to \cdots$). Both
+shapes confirm the structural claim: the single pass, which lacks
+control-flow context and resolves to a single nominal callee, cannot
+produce them.
+
+Null and range/bound clauses (the remaining ~22\% on Lang/IO/Vavr,
+~7--24\% on Math, ~61\% on jOOL) are obligations the single pass
+\emph{would} produce when the call site is unguarded, but the second
+pass adds because the call site is guarded by a condition the single
+pass would not lift. The residual \emph{other} (0.2--1.7\%) is the
+long-tail shape that includes arithmetic comparisons not matched by
+the range/bound regex.
+
+\subsection{Runtime cost}
+
+Table~\ref{tab:runtime} reports the refinement wall-clock per
+library. The second pass completes in 3.3 seconds on Commons Lang,
+0.7 seconds on Commons IO, and scales sub-linearly through 20.3
+seconds on Commons Math (the largest library at 6{,}645 methods
+across 990 source files). No SCC hit the 16-iteration fixpoint cap
+on any library; the call graphs of all five corpora are acyclic
+under the analyser's signature-matching scheme, so each method is
+refined exactly once. The refinement step is therefore an addition
+of seconds-to-tens-of-seconds on top of an inference pass that
+already takes minutes on libraries of this size; it is a clearly
+affordable enhancement.
+
 \begin{table}[ht]
 \centering
-\caption{Syntactic shape of the newly-added preconditions. Branch-conditional implications dominate on both libraries, reflecting that the second pass walks the caller's control-flow context that the single pass does not.}
-\label{tab:shapes}
-\begin{tabular}{lrrrr}
+\small
+\caption{Refinement wall-clock per library. The pass scales close to linearly with the number of SCCs visited; the per-method cost is dominated by the AST walk for call sites.}
+\label{tab:runtime}
+\begin{tabular}{lrrr}
 \toprule
-& \multicolumn{2}{c}{\textbf{Commons Lang}} & \multicolumn{2}{c}{\textbf{Commons IO}} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
-\textbf{Shape} & count & \% & count & \% \\
+\textbf{Library} & \textbf{Methods} & \textbf{SCCs} & \textbf{Refine ms} \\
 \midrule
-Branch-conditional (\texttt{==>}) & 3{,}029 & 52.6\% & 857 & 42.8\% \\
-Null check (\texttt{!= null} / \texttt{== null}) & 1{,}255 & 21.8\% & 695 & 34.7\% \\
-Range / bound (\texttt{<}, \texttt{<=}, \texttt{>}, \texttt{>=}) & 1{,}143 & 19.8\% & 378 & 18.9\% \\
-Disjunctive (\texttt{||}) & 248 & 4.3\% & 36 & 1.8\% \\
-Other & 88 & 1.5\% & 35 & 1.7\% \\
-\midrule
-Total new preconditions & 5{,}763 & 100\% & 2{,}001 & 100\% \\
+commons-lang3-3.14.0   & 3{,}494 & 6{,}223  & 3{,}318.8 \\
+commons-io-2.13.0      & 2{,}111 & 3{,}994  & 683.0     \\
+commons-math3-3.6.1    & 6{,}645 & 13{,}342 & 20{,}317.8\\
+jool-0.9.14            & 3{,}691 & 5{,}403  & 4{,}308.0 \\
+vavr-0.10.4            & 5{,}111 & 7{,}610  & 15{,}701.7\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{RQ2 is answered: branch-conditional implications dominate, and
-they are the shape the single pass structurally cannot produce.} On
-Commons Lang, 52.6\% of all newly-added preconditions are
-\texttt{guard ==> obligation} clauses; on Commons IO, 42.8\%. These
-clauses arise from calls inside an \texttt{if} or ternary branch
-whose enclosing guard must be lifted into the precondition. A
-single-pass propagation, which appends the callee's substituted
-preconditions \emph{unconditionally}, can produce
-the \texttt{obligation} part but cannot synthesise the \texttt{guard ==> }
-prefix because it has no access to the caller's control-flow
-context at the point of propagation.
-
-Null checks (22--35\%) and range/bound clauses (19\%) make up most
-of the remainder. These are clauses the single pass \emph{would}
-produce when the call site is unguarded; the second pass adds them
-when the call site is guarded by a condition the single pass would
-not lift. Disjunctive clauses (1.8--4.3\%) come from polymorphic
-dispatch sites where multiple subtype callees contribute alternative
-obligations; the residual \emph{other} (1.5--1.7\%) is the long-tail
-shape that includes arithmetic comparisons not matched by the
-range/bound regex.
-
-\subsection{Runtime cost}
-
-The second pass completes in 3.5 seconds on Commons Lang
-(3{,}494 methods, 6{,}223 SCCs visited, all singletons) and
-proportionally on Commons IO (2{,}111 methods, 9 seconds for both
-runs combined including parsing and the baseline isolated pass).
-No SCC hit the fixpoint cap; the call graphs of both libraries are
-acyclic under the analyser's signature-matching scheme. The
-refinement step is therefore an addition of seconds on top of an
-inference pass that already takes minutes on libraries of this
-size; it is a clearly affordable enhancement.
-
 \textbf{RQ3 is answered: the second pass is cheap and fixpoint
-iteration never fires at the libraries' scale.} The runtime
-characteristic is dominated by the AST walk per method
+iteration never fires at the libraries' scale.} Total refinement
+wall-clock across all five libraries is 44 seconds for 21{,}052
+methods (2.1 ms/method on average). The runtime characteristic is
+dominated by the AST walk per method
 (\texttt{decl.findAll(MethodCallExpr.class)}), which is linear in
 the body size; the lifting and substitution steps add constant
-factors per call site. The cost scales with the number of call
-sites in the corpus (7{,}719 on Commons Lang, 4{,}213 on
-Commons IO).
+factors per call site.

@@ -167,17 +167,23 @@ public class CallGraph {
     }
 
     /**
-     * Gets all parent interfaces of an interface (transitive).
+     * Gets all parent interfaces of an interface (transitive). Iterative
+     * BFS with a visited set so cyclic or self-referential interface
+     * declarations cannot drive unbounded recursion. Vavr in particular
+     * exposes deep interface chains that overflow a recursive walk.
      */
     private Set<String> getExtendedInterfacesTransitive(String interfaceName) {
         Set<String> result = new HashSet<>();
-        Set<String> direct = extendedInterfaces.getOrDefault(interfaceName, Collections.emptySet());
-        result.addAll(direct);
-
-        for (String parent : direct) {
-            result.addAll(getExtendedInterfacesTransitive(parent));
+        java.util.Deque<String> stack = new java.util.ArrayDeque<>();
+        stack.push(interfaceName);
+        while (!stack.isEmpty()) {
+            String current = stack.pop();
+            for (String parent : extendedInterfaces.getOrDefault(current, Collections.emptySet())) {
+                if (result.add(parent)) {
+                    stack.push(parent);
+                }
+            }
         }
-
         return result;
     }
 

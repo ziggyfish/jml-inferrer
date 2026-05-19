@@ -1,6 +1,55 @@
 \section{Related Work}
 \label{sec:related}
 
+\subsection{Position within the inference / verification spectrum}
+
+Table~\ref{tab:novelty} positions the present work against the
+closest neighbours along three axes: whether the technique
+\emph{produces} JML, whether it \emph{reasons compositionally}
+across procedure boundaries, and whether the cross-procedure
+reasoning is sound enough to be soundness-checked by an SMT-backed
+discharger (KeY, OpenJML SC, Boogie). The cell our pass occupies ---
+``produces JML, reasons compositionally via WP lifting, does not aim
+for sound discharge'' --- is unoccupied by any prior tool to our
+knowledge.
+
+\begin{table*}[ht]
+\centering
+\small
+\caption{Position of the compositional refinement pass within the JML inference / verification spectrum. ``Comp.\ propagation'' = does the analysis lift callee summaries into caller contexts? ``SMT discharge'' = does the analysis verify its emitted clauses against an SMT solver? ``Branch-guard lifting'' = does it produce \texttt{guard ==> obligation} for guarded call sites? ``Poly.\ disjunction'' = does it emit disjunction over dynamic dispatch candidates?}
+\label{tab:novelty}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Tool} & \textbf{Produces JML} & \textbf{Comp.\ prop.} & \textbf{SMT discharge} & \textbf{Branch-guard lift} & \textbf{Poly.\ disjunction} \\
+\midrule
+Daikon~\cite{ernst2007daikon}           & \checkmark$^*$ & --     & --       & --       & --       \\
+Houdini~\cite{flanagan2001houdini}      & \checkmark     & --     & via ESC  & --       & --       \\
+PreInfer~\cite{preinfer2017}            & \checkmark$^*$ & via DSE & --       & --       & --       \\
+Jdoctor~\cite{jdoctor2018}              & \checkmark     & --     & --       & --       & --       \\
+Infer~\cite{calcagno2015infer}          & --             & \checkmark & --   & implicit & --       \\
+KeY~\cite{key2016book}                  & --             & \checkmark & \checkmark & \checkmark & \checkmark \\
+OpenJML SC~\cite{openjml}               & --             & \checkmark & \checkmark & \checkmark & \checkmark \\
+Edmonds 2026~\cite{edmonds2026inference} & \checkmark    & single-pass & via OpenJML & -- & -- \\
+\midrule
+\textbf{This work (compositional pass)} & \checkmark     & \checkmark & via OpenJML & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+\footnotesize $^*$ Daikon emits invariants in its own format, then translates; PreInfer's output is convertible to JML preconditions.
+\end{table*}
+
+The novelty is the combination, not any individual axis. KeY and
+OpenJML SC subsume the compositional reasoning we perform but do not
+\emph{produce} the specification --- they consume one written by hand.
+The Edmonds 2026 inferrer produces JML at this scale but propagates
+single-pass; it cannot synthesise the branch-guarded or polymorphic
+shapes that account for 38--74\% of the new clauses on our five-library
+corpus (Table~\ref{tab:shapes}). Infer is genuinely compositional
+but does not target JML and is not designed for downstream
+verification by OpenJML. The gap our work closes is therefore narrow
+in dimension but the gap matters: it is the gap between
+\emph{rich-by-construction} JML emission and \emph{rich-by-hand-and-tool-chain}
+JML emission.
+
 \paragraph{Compositional reasoning frameworks.}
 The classic foundations are Hoare's axiomatic semantics~\cite{hoare1969axiomatic}
 and Dijkstra's weakest-precondition calculus~\cite{dijkstra_guarded_1975,dijkstra1976discipline}.

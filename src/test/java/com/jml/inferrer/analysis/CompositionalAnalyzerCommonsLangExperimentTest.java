@@ -56,6 +56,12 @@ class CompositionalAnalyzerCommonsLangExperimentTest {
             "org/apache/commons/commons-lang3/3.14.0", "commons-lang3-3.14.0-sources.jar");
     private static final Path COMMONS_IO_SOURCES = m2(
             "commons-io/commons-io/2.13.0", "commons-io-2.13.0-sources.jar");
+    private static final Path COMMONS_MATH_SOURCES = m2(
+            "org/apache/commons/commons-math3/3.6.1", "commons-math3-3.6.1-sources.jar");
+    private static final Path JOOL_SOURCES = m2(
+            "org/jooq/jool/0.9.14", "jool-0.9.14-sources.jar");
+    private static final Path VAVR_SOURCES = m2(
+            "io/vavr/vavr/0.10.4", "vavr-0.10.4-sources.jar");
     private static final Path GUAVA_SOURCES = m2(
             "com/google/guava/guava/33.3.0-jre", "guava-33.3.0-jre-sources.jar");
 
@@ -72,6 +78,18 @@ class CompositionalAnalyzerCommonsLangExperimentTest {
         return Files.exists(COMMONS_IO_SOURCES);
     }
 
+    static boolean commonsMathAvailable() {
+        return Files.exists(COMMONS_MATH_SOURCES);
+    }
+
+    static boolean joolAvailable() {
+        return Files.exists(JOOL_SOURCES);
+    }
+
+    static boolean vavrAvailable() {
+        return Files.exists(VAVR_SOURCES);
+    }
+
     static boolean guavaAvailable() {
         return Files.exists(GUAVA_SOURCES);
     }
@@ -86,6 +104,24 @@ class CompositionalAnalyzerCommonsLangExperimentTest {
     @EnabledIf("commonsIoAvailable")
     void measureCompositionalExtensionOnCommonsIo() throws IOException {
         runOn("commons-io-2.13.0", COMMONS_IO_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("commonsMathAvailable")
+    void measureCompositionalExtensionOnCommonsMath() throws IOException {
+        runOn("commons-math3-3.6.1", COMMONS_MATH_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("joolAvailable")
+    void measureCompositionalExtensionOnJool() throws IOException {
+        runOn("jool-0.9.14", JOOL_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("vavrAvailable")
+    void measureCompositionalExtensionOnVavr() throws IOException {
+        runOn("vavr-0.10.4", VAVR_SOURCES);
     }
 
     // Guava is excluded from the present experiment: its source-jar size

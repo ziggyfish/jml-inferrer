@@ -80,3 +80,4 @@ openjml-dev/build-log*.txt
 openjml-dev/build-pure-determinism.log
 openjml-dev/Dockerfile.build.bak*
 openjml-dev/**/__pycache__/
+GEMINI_KEY.txt

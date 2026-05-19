@@ -66,17 +66,22 @@ top-down weakest-precondition (WP) refinement pass would discover
 additional preconditions that the isolated pass missed. We implement
 the second pass for an existing JML inferrer (a 414-line analyser
 that walks each method's body in reverse-topological order, lifts
-callee specifications through enclosing branch guards, and iterates
-to a fixpoint on cyclic strongly-connected components) and measure
-its effect on Apache Commons Lang and Commons IO. The result is
-unambiguous: \textbf{the second pass refines 36--44\% of all methods
-in the cache and adds 2{,}001 / 5{,}763 new precondition clauses}
-respectively. The dominant shape (53--57\%) is branch-conditional
-implications of the form \texttt{guard ==> caller\_obligation}, which
-the single-pass propagation does not produce because it lacks the
-control-flow context the second pass walks. The single pass does
-\emph{not} subsume the compositional pass on real Java; we report
-which clause shapes drive the gap and where the residual is.
+callee specifications through enclosing branch guards, emits
+disjunctive obligations over polymorphic-dispatch candidates, and
+iterates to a fixpoint on cyclic strongly-connected components) and
+measure its effect on five open-source Java libraries spanning four
+idiom families (Apache Commons Lang, Commons IO, Commons Math, jOOL,
+Vavr): 1{,}712 source files and 21{,}052 inferred methods in total.
+The result is unambiguous: \textbf{the second pass refines 24--44\% of
+methods in each library's cache (median 36.33\%) and adds 42{,}370
+new precondition clauses overall.} Branch-conditional implications
+of the form \texttt{guard ==> obligation} dominate on four libraries
+of five (34--64\% of new clauses), and disjunctive obligations from
+polymorphic dispatch are present on every library (1.8--9.7\%); both
+are shapes the single-pass propagation cannot produce because it
+lacks the control-flow context the WP walk supplies and resolves
+each call to a single nominal callee. The single pass does
+\emph{not} subsume the compositional pass on any library studied.
 \end{abstract}
 
 \begin{IEEEkeywords}

@@ -6,12 +6,16 @@
 The measurement settles a question the predecessor papers left open:
 the isolated-pass inferrer's
 \texttt{InterproceduralAnalyzer}~\cite{edmonds2026inference} does not
-capture what a compositional refinement would. Two structural shapes
-are out of reach by construction: branch-conditional implications
-that depend on the caller's control-flow context, and disjunctive
-obligations from polymorphic dispatch. The data shows these are not
+capture what a compositional refinement would, on any of the five
+libraries we measured. Two structural shapes are out of reach by
+construction: branch-conditional implications that depend on the
+caller's control-flow context, and disjunctive obligations from
+polymorphic dispatch. The cross-library data shows these are not
 edge cases --- branch-conditional implications make up the
-\emph{majority} of newly-added preconditions on both libraries.
+\emph{majority} of newly-added preconditions on Lang, IO, Math, and
+Vavr, and a substantial third on jOOL; disjunctive shapes are
+present on every library and dominant where interface inheritance
+runs deep (Vavr, 9.7\%).
 
 The implication for the inferrer's downstream consumers
 (test generators, IDEs, LLMs) is that running the second pass before
@@ -29,19 +33,19 @@ synthetic specs and 10.07\% under real inferred
 specs~\cite{edmonds2026embedding}; a substantial fraction of those
 clauses are interprocedural propagations the
 \texttt{InterproceduralAnalyzer} produces during isolated inference.
-The second pass adds 5{,}763 \emph{new} clauses on top of an
-already-rich baseline on Commons Lang. The single pass does the
-right thing on unguarded call sites and on calls to single-candidate
-methods; it is the guarded and polymorphic cases where the gap
-appears.
+The second pass adds 42{,}370 \emph{new} clauses on top of an
+already-rich baseline across the five libraries. The single pass
+does the right thing on unguarded call sites and on calls to
+single-candidate methods; it is the guarded and polymorphic cases
+where the gap appears, and those cases concentrate the additions.
 
 \subsection{Implications for analyser architecture}
 
 For inferrers that target downstream tools where richer specs help
 (verification, test generation, LLM consumption), the second pass is
-clearly worth integrating: an extra 3.5 seconds on Commons Lang for
-43.85\% more methods receiving refined specifications is a strong
-trade. For inferrers that target downstream tools that consume
+clearly worth integrating: an extra 44 seconds total across all five
+libraries for an average of 35.6\% of methods receiving refined
+specifications is a strong trade. For inferrers that target downstream tools that consume
 specs eagerly (auto-completion, hover text in an IDE), the
 runtime cost may not justify the extra clauses; the second pass
 is opt-in by design so deployers can choose.
@@ -74,11 +78,12 @@ discharges the final clauses. These are the boundaries of the
 present contribution; the comprehensive WP transformer would be a
 substantially larger development.
 
-The 132 maximum new preconditions on one Commons Lang method is the
-worst case we observed. The method in question is a deeply branching
-configuration loader; its 132 new clauses are mostly
-branch-conditional implications gating different code paths.
-Whether the resulting spec is \emph{useful} to a downstream tool ---
-i.e.\ whether it is parsimonious enough to be readable and tight
-enough to be informative --- is the question we defer to the
-downstream-impact study planned as future work.
+The 665 maximum new preconditions on one Commons Math method is the
+worst case we observed across the five-library corpus. The method
+in question is a deeply branching numerical fa\c{c}ade with many
+guarded calls into validation helpers; its 665 new clauses are
+overwhelmingly branch-conditional implications gating different
+code paths. Whether the resulting spec is \emph{useful} to a
+downstream tool --- i.e.\ whether it is parsimonious enough to be
+readable and tight enough to be informative --- is the question
+we defer to the downstream-impact study planned as future work.

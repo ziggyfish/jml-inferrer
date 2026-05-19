@@ -1,6 +1,7 @@
 package com.jml.inferrer.experiment;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -80,6 +81,14 @@ public class ExperimentRunner {
             "The specification uses JML notation where @requires specifies preconditions and @ensures specifies postconditions.\n\n" +
             "Class: %s\nPackage: %s\n\nMethod signatures with JML specifications:\n%s\n\n" +
             "Generate a complete JUnit 5 test class named %sTestP3 in package %s. " +
+            "Use static imports for assertions. Import the class under test from %s.";
+
+    private static final String P3C_TEMPLATE =
+            "Given the following function signatures and formal specifications, write a comprehensive set of unit tests. " +
+            "Ensure that the tests cover normal behavior, edge cases, and potential failure scenarios. " +
+            "The specification uses JML notation where @requires specifies preconditions and @ensures specifies postconditions.\n\n" +
+            "Class: %s\nPackage: %s\n\nMethod signatures with JML specifications:\n%s\n\n" +
+            "Generate a complete JUnit 5 test class named %sTestP3C in package %s. " +
             "Use static imports for assertions. Import the class under test from %s.";
 
     private static final String P4_TEMPLATE =
@@ -199,17 +208,34 @@ public class ExperimentRunner {
         Files.createDirectories(outputDir.resolve("methods"));
         Files.createDirectories(outputDir.resolve("metrics"));
 
-        // Step 1: Prepare working copy and run inference
+        // Step 1: Prepare working copy and run inference (isolated baseline)
         Path workingDir = outputDir.resolve("annotated-source");
         prepareWorkingCopy(workingDir);
 
         if (!skipInference) {
-            logger.info("Running JML-Inferrer on working copy...");
+            logger.info("Running JML-Inferrer (isolated baseline) on working copy...");
             CodebaseProcessor processor = new CodebaseProcessor(false);
             int processed = processor.processCodebase(workingDir);
             logger.info("JML inference complete. Processed {} files.", processed);
         } else {
             logger.info("Skipping JML inference (--skip-inference).");
+        }
+
+        // Step 1b: If P3C is requested, run a second inference pass with
+        // compositional refinement enabled, into a parallel directory.
+        // Article 3 (RQ3) uses the resulting JML as the alternative spec
+        // source for the LLM prompt.
+        Path workingDirCompositional = null;
+        if (phases.contains("P3C")) {
+            workingDirCompositional = outputDir.resolve("annotated-source-compositional");
+            prepareWorkingCopy(workingDirCompositional);
+            if (!skipInference) {
+                logger.info("Running JML-Inferrer (compositional refinement) on parallel working copy...");
+                CodebaseProcessor processor =
+                        new CodebaseProcessor(false, /*withCompositional=*/ true);
+                int processed = processor.processCodebase(workingDirCompositional);
+                logger.info("Compositional inference complete. Processed {} files.", processed);
+            }
         }
 
         // Step 2: Extract method information from both original and annotated versions
@@ -228,6 +254,19 @@ public class ExperimentRunner {
             }
 
             ClassMethodInfo methodInfo = extractMethodInfo(classInfo, originalFile, annotatedFile);
+
+            // If P3C requested, also extract compositional Javadoc for the
+            // same methods from the parallel working dir; store as a side
+            // channel on each MethodInfo so the prompt builder can pick the
+            // right spec source per phase.
+            if (workingDirCompositional != null) {
+                Path annotatedCompositional = workingDirCompositional.resolve(
+                        "org/apache/commons/lang3/" + classInfo.relativePath);
+                if (Files.exists(annotatedCompositional)) {
+                    attachCompositionalJml(methodInfo, annotatedCompositional);
+                }
+            }
+
             classMethodInfoMap.put(classInfo.className, methodInfo);
 
             // Save method info as JSON
@@ -462,6 +501,66 @@ public class ExperimentRunner {
     }
 
     /**
+     * Populate {@code jmlAnnotationsCompositional} on every method in
+     * {@code info} by re-parsing the compositionally-annotated source file.
+     * Methods not present in that file (e.g.\ inferrer skipped them) leave
+     * the field null and fall back to the isolated annotations for P3C.
+     */
+    private void attachCompositionalJml(ClassMethodInfo info, Path annotatedCompositional) {
+        try {
+            ParseResult<CompilationUnit> parseResult = javaParser.parse(annotatedCompositional);
+            if (parseResult.getResult().isEmpty()) return;
+            CompilationUnit cu = parseResult.getResult().get();
+            ClassOrInterfaceDeclaration cls = cu.findFirst(ClassOrInterfaceDeclaration.class).orElse(null);
+            if (cls == null) return;
+            Map<String, MethodDeclaration> byKey = new HashMap<>();
+            for (MethodDeclaration md : cls.getMethods()) byKey.put(buildMethodKey(md), md);
+            for (MethodInfo mi : info.methods) {
+                MethodDeclaration md = byKey.get(buildMethodKeyForName(mi));
+                if (md != null) mi.jmlAnnotationsCompositional = extractJmlAnnotations(md);
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to attach compositional JML from {}: {}", annotatedCompositional, e.getMessage());
+        }
+    }
+
+    /** Reconstruct the buildMethodKey form from a stored MethodInfo. */
+    private String buildMethodKeyForName(MethodInfo mi) {
+        // The MethodInfo's signature contains the full Java-style declaration
+        // (modifiers, return type, name, params). Extract name + param-type
+        // list to match buildMethodKey's format.
+        String sig = mi.signature;
+        int parenOpen = sig.indexOf('(');
+        if (parenOpen < 0) return mi.name + "()";
+        int nameEnd = parenOpen;
+        // Walk back from parenOpen to find the start of the method name.
+        while (nameEnd > 0 && (Character.isJavaIdentifierPart(sig.charAt(nameEnd - 1)))) {
+            nameEnd--;
+        }
+        String name = sig.substring(nameEnd, parenOpen);
+        int parenClose = sig.indexOf(')', parenOpen);
+        if (parenClose < 0) return name + "()";
+        String paramList = sig.substring(parenOpen + 1, parenClose).trim();
+        if (paramList.isEmpty()) return name + "()";
+        // paramList is like "final int a, String b" — strip modifiers and
+        // names to get a comma-separated type list.
+        StringBuilder types = new StringBuilder();
+        for (String p : paramList.split(",")) {
+            String[] tokens = p.trim().split("\\s+");
+            // The type is the second-to-last token (last is the param name);
+            // earlier tokens are modifiers.
+            if (tokens.length >= 2) {
+                if (types.length() > 0) types.append(',');
+                types.append(tokens[tokens.length - 2]);
+            } else if (tokens.length == 1) {
+                if (types.length() > 0) types.append(',');
+                types.append(tokens[0]);
+            }
+        }
+        return name + "(" + types + ")";
+    }
+
+    /**
      * Builds a method signature with JML annotations prepended.
      */
     private String buildAnnotatedSignature(MethodDeclaration method) {
@@ -493,6 +592,16 @@ public class ExperimentRunner {
                         return "/*@\n" + m.jmlAnnotations + "\n@*/\n" + m.signature + ";";
                     })
                     .collect(Collectors.joining("\n\n"));
+            case "P3C" -> info.methods.stream()
+                    .map(m -> {
+                        String jml = m.jmlAnnotationsCompositional != null
+                                && !m.jmlAnnotationsCompositional.isEmpty()
+                                ? m.jmlAnnotationsCompositional
+                                : m.jmlAnnotations;
+                        if (jml == null || jml.isEmpty()) return m.signature + ";";
+                        return "/*@\n" + jml + "\n@*/\n" + m.signature + ";";
+                    })
+                    .collect(Collectors.joining("\n\n"));
             case "P4" -> info.methods.stream()
                     .map(m -> m.sourceCode)
                     .collect(Collectors.joining("\n\n"));
@@ -503,6 +612,7 @@ public class ExperimentRunner {
             case "P1" -> P1_TEMPLATE;
             case "P2" -> P2_TEMPLATE;
             case "P3" -> P3_TEMPLATE;
+            case "P3C" -> P3C_TEMPLATE;
             case "P4" -> P4_TEMPLATE;
             default -> throw new IllegalArgumentException("Unknown phase: " + phase);
         };
@@ -576,23 +686,31 @@ public class ExperimentRunner {
     private String extractJavaCode(String response) {
         if (response == null || response.isBlank()) return null;
 
-        // Try to extract from ```java ... ``` block
-        Pattern javaBlockPattern = Pattern.compile("```java\\s*\\n(.*?)```", Pattern.DOTALL);
+        // Try to extract from ```java ... ``` block. Permissive about
+        // optional whitespace/newline between the fence and the code, so
+        // Gemini-2.5 outputs that include a CR or no newline at all are
+        // still matched.
+        Pattern javaBlockPattern = Pattern.compile("```\\s*java\\b\\s*(.*?)```", Pattern.DOTALL);
         Matcher matcher = javaBlockPattern.matcher(response);
         if (matcher.find()) {
             return matcher.group(1).trim();
         }
 
-        // Try generic code block
-        Pattern codeBlockPattern = Pattern.compile("```\\s*\\n(.*?)```", Pattern.DOTALL);
+        // Try generic code block (no language tag).
+        Pattern codeBlockPattern = Pattern.compile("```\\s*(.*?)```", Pattern.DOTALL);
         matcher = codeBlockPattern.matcher(response);
         if (matcher.find()) {
-            return matcher.group(1).trim();
+            String inner = matcher.group(1).trim();
+            // Heuristic: only accept if it looks Java-shaped.
+            if (inner.contains("class ") || inner.contains("import ") || inner.contains("@Test")) {
+                return inner;
+            }
         }
 
-        // If response looks like Java code (starts with package or import), use as-is
+        // If response itself looks like Java code, use as-is.
         String trimmed = response.trim();
-        if (trimmed.startsWith("package ") || trimmed.startsWith("import ")) {
+        if (trimmed.startsWith("package ") || trimmed.startsWith("import ")
+                || trimmed.startsWith("@Test") || trimmed.contains("public class ")) {
             return trimmed;
         }
 
@@ -751,6 +869,7 @@ public class ExperimentRunner {
         boolean isAbstract;
         String sourceCode;
         String jmlAnnotations;
+        String jmlAnnotationsCompositional;  // Article 3 / P3C: compositional refinement
         String annotatedSignature;
 
         JsonObject toJson() {
@@ -762,6 +881,9 @@ public class ExperimentRunner {
             obj.addProperty("isAbstract", isAbstract);
             obj.addProperty("sourceCode", sourceCode);
             obj.addProperty("jmlAnnotations", jmlAnnotations);
+            if (jmlAnnotationsCompositional != null) {
+                obj.addProperty("jmlAnnotationsCompositional", jmlAnnotationsCompositional);
+            }
             obj.addProperty("annotatedSignature", annotatedSignature);
             return obj;
         }
