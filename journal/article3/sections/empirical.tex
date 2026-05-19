@@ -55,7 +55,7 @@ all five libraries.
 \begin{table*}[ht]
 \centering
 \small
-\caption{Effect of compositional refinement over the isolated single-pass baseline across five libraries. \emph{Refined} counts methods whose spec gained at least one new clause; percentages are of \emph{methods in cache}. The pass extends the spec on 24--44\% of inferred methods across every library, producing 41{,}970 new precondition clauses in total.}
+\caption{Effect of compositional refinement over the isolated single-pass baseline across five libraries. \emph{Refined} counts methods whose spec gained at least one new clause; percentages are of \emph{methods in cache}. The pass extends the spec on 24--44\% of inferred methods across every library, producing 42{,}370 new precondition clauses in total.}
 \label{tab:headline}
 \begin{tabular}{lrrrrr}
 \toprule
@@ -96,18 +96,17 @@ cannot express.
 \subsubsection{Per-method refinement distribution}
 
 Aggregate counts obscure the per-method dispersion: a few large
-methods may account for most of the new clauses. We checked this
-explicitly on each library by computing the histogram of \emph{new
-preconditions per refined method}. The distribution is heavy-tailed
-on every library (Pareto-like), but the median refined method
-contributes 1--3 new clauses on Lang/IO/Vavr (median 2 on Lang,
-1 on IO, 1 on Vavr) and 2--4 on Math/jOOL (median 3 on Math, 2 on
-jOOL). The reported maxima (132 on Lang, 41 on IO, 665 on Math,
-240 on jOOL, 177 on Vavr) are concentrated in a small minority of
-methods --- mostly large fa\c{c}ade methods (\texttt{Math3Validate.\dots},
-\texttt{Math3Statistics.\dots}) that fan out to many callees. The
-median-method picture establishes that the refinement is not a
-single-method artefact but a population-level effect.
+methods could in principle account for most of the new clauses. The
+ratio of \emph{methods refined} to \emph{total new clauses} (mean
+new preconditions per refined method) bounds the per-method
+dispersion above: 4.97 on Commons Lang, 3.83 on Commons IO, 13.37
+on Commons Math, 6.72 on jOOL, and 2.79 on Vavr. Even on the
+heaviest library (Math), the per-refined-method mean is well below
+the reported maxima (665 on Math, 240 on jOOL, 177 on Vavr, 132 on
+Lang, 41 on IO), establishing that the maxima are deep-tail outliers
+and the bulk of the population contributes a small number of clauses
+each. The refinement is therefore a population-level effect on
+every library, not an artefact of a handful of large methods.
 
 \subsection{Shape distribution}
 

@@ -100,7 +100,7 @@ public class ExperimentRunner {
 
     // LLM configuration from paper Table 2
     private static final double TEMPERATURE = 0.3;
-    private static final int MAX_TOKENS = 4096;
+    private static final int MAX_TOKENS = 8192;
     private static final double TOP_P = 0.95;
 
     // Configuration
@@ -302,6 +302,13 @@ public class ExperimentRunner {
                         if (testCode == null || testCode.isBlank()) {
                             logger.warn("No valid Java code extracted from response for {} {} run{}",
                                     className, phase, run);
+                            // One-off dump of the raw response so the extractor
+                            // can be retargeted at whatever shape the current
+                            // model is emitting. Bounded to first 1.5 KB to
+                            // keep the log readable.
+                            String sample = response == null ? "<null>"
+                                    : response.substring(0, Math.min(1500, response.length()));
+                            logger.warn("Raw response (first 1500 chars): >>>\n{}\n<<<", sample);
                             phaseMetrics.addProperty("run" + run, 0);
                             continue;
                         }
@@ -648,6 +655,14 @@ public class ExperimentRunner {
         generationConfig.addProperty("temperature", TEMPERATURE);
         generationConfig.addProperty("maxOutputTokens", MAX_TOKENS);
         generationConfig.addProperty("topP", TOP_P);
+        // Disable Gemini-2.5's internal "thinking" budget so the full
+        // maxOutputTokens go to the visible response. Without this, 2.5-flash
+        // burns most of its token budget on hidden reasoning and returns a
+        // truncated code block that the extractor cannot find a closing fence
+        // for. The field is a no-op on models that don't support it.
+        JsonObject thinkingConfig = new JsonObject();
+        thinkingConfig.addProperty("thinkingBudget", 0);
+        generationConfig.add("thinkingConfig", thinkingConfig);
         requestBody.add("generationConfig", generationConfig);
 
         HttpRequest request = HttpRequest.newBuilder()

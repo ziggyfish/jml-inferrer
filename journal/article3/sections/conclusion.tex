@@ -4,30 +4,31 @@
 We asked whether a single-pass callee-precondition propagation, the
 strategy used by an established heuristic JML inferrer, captures
 everything a top-down compositional refinement would. We implemented
-the refinement as a 410-line analyser and measured its effect on two
-real-world libraries. The single pass does \emph{not} subsume:
-compositional refinement adds at least one new clause to 43.85\% of
-Commons Lang methods and 36.33\% of Commons IO methods, for a total
-of 7{,}764 new precondition clauses and 7{,}221 new postcondition
-clauses across the two corpora.
+the refinement as a 414-line analyser and measured its effect on
+five real-world libraries spanning four idiom families
+(21{,}052 inferred methods in total). The single pass does
+\emph{not} subsume on any library studied: compositional refinement
+adds at least one new clause to 24--44\% of methods in each
+library's cache (median 36.33\%), for a total of 42{,}370 new
+precondition clauses and 25{,}203 new postcondition clauses across
+the five corpora.
 
 The shape distribution explains the gap. Branch-conditional
-implications (\texttt{guard ==> obligation}) make up 53\% of the
-additions on Commons Lang and 43\% on Commons IO. These clauses
-arise from calls inside branch bodies whose enclosing guard must be
-lifted into the caller's precondition. A single-pass analyser that
-appends the callee's substituted precondition unconditionally
-cannot produce the \texttt{guard ==>} prefix; the WP-style walk
-through the body that the second pass performs is what supplies
-the missing context. Null checks and range bounds account for most
-of the remainder; polymorphic-dispatch disjunctions account for a
-small but visible 2--4\%.
+implications (\texttt{guard ==> obligation}) make up the largest
+single shape on four libraries of five (34--64\% of additions);
+disjunctive obligations from polymorphic dispatch are present on
+every library and peak at 9.7\% on Vavr. Both shapes arise from
+contexts the single pass cannot see: enclosing branch guards and
+sibling dispatch candidates. The WP-style walk through the body
+that the second pass performs is what supplies the missing
+context. Null checks and range bounds account for most of the
+remainder.
 
-The runtime cost of the second pass is small: 3.5 seconds on a
-3{,}494-method library, with no fixpoint iteration triggered at the
-libraries' scale. The refactoring is therefore a clear value: an
-inferrer-pipeline addition of seconds yields a measurably richer
-spec set for downstream consumers.
+The runtime cost of the second pass is small: 44 seconds total across
+all five libraries (21{,}052 methods), with no fixpoint iteration
+triggered at any library's scale. The refactoring is therefore a
+clear value: an inferrer-pipeline addition of seconds yields a
+measurably richer spec set for downstream consumers.
 
 What this paper does not measure is whether the additional clauses
 materially improve downstream tooling --- whether tests generated
