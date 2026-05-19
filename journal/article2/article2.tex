@@ -70,22 +70,23 @@ specifications alongside compiled artefacts --- JML stub files, sidecar
 files, runtime assertions --- are either ignored by the standard
 toolchain or restricted to a narrow set of properties. We propose a
 uniform mechanism for distributing inferred JML contracts in both
-settings: a runtime-retained Java annotation, \texttt{@JmlSpec}, written
+settings: a runtime-retained Java annotation, \texttt{@JmlSpecs}, written
 into class-file attributes by an ASM-based embedder, and a parallel
 OpenAPI~3.x extension family (\texttt{x-jml-*}) for service boundaries.
 We evaluate the embedder on three real-world Java libraries (Apache
 Commons Lang, Apache Commons IO, and Guava) totalling 20{,}546 methods
 with synthetic specifications that isolate the embedding mechanism, and
-on a real-inferred-specs corpus of 2{,}332 distinct specs produced by
-running our inferrer over Apache Commons Lang's full source tree
+on a real-inferred-specs corpus of 10{,}332 distinct specs produced by
+running our inferrer over the source trees of all three libraries
 (supplemented by a 73-method self-test on the inferrer's own code) that
 exercises the full inference\,$\to$\,embedding pipeline including
 quantifiers, \texttt{\textbackslash old} references, and branch-conditional
 implications. We measure 100.0\% roundtrip
 fidelity across all four corpora; bytecode-size overhead of
-5.27--6.97\% on the synthetic-spec runs and 10.07\% on the
-real-inference run (real specs are richer than the synthetic worst
-case, so deployers should provision for the latter figure);
+5.27--6.97\% on the synthetic-spec runs and 4.63--10.20\% on the
+real-inference runs (real specs are richer than the synthetic worst
+case on the smaller libraries; Guava's larger denominator means its
+real-inference overhead is in fact lower than its synthetic figure);
 embedding throughput in the 12{,}000--22{,}000 methods/second range;
 and reading throughput in the 119{,}000--328{,}000 methods/second
 range. A format optimisation step (single packed annotation per
@@ -93,7 +94,7 @@ method, default-omission for \texttt{assignable \textbackslash nothing},
 and a twelve-token dictionary for common JML constructs) reduced byte
 overhead by 31\% on real inference and 48--55\% on the synthetic
 corpora compared with the initial per-clause-annotation format. A negative test confirms that classes embedded with
-\texttt{@JmlSpec} load correctly in Java Virtual Machines (JVMs) that
+\texttt{@JmlSpecs} load correctly in Java Virtual Machines (JVMs) that
 have no awareness of the annotation type. The contribution is a path
 from inferred specifications to consumer-readable contracts that
 requires no changes to the build toolchain: any existing JAR can be

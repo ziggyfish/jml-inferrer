@@ -32,66 +32,91 @@ import java.util.jar.JarFile;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Article 2 RQ2 follow-up: a real-world end-to-end evaluation of embedding
- * <em>actually inferred</em> JML specifications into Apache Commons
- * Lang's compiled bytecode.
+ * Article 2 RQ2 follow-up: real-world end-to-end evaluation of embedding
+ * actually inferred JML specifications into compiled bytecode, on each
+ * of the three article-2 corpora (Commons Lang, Commons IO, Guava).
  *
- * <p>The synthetic-spec validation in {@link OssJarValidationTest} isolates
- * the embedding mechanism (does the carrier preserve what was written?).
- * This test closes the synthetic-vs-real gap on the headline corpus: it
- * runs the {@link MethodSpecificationInferrer} over every Commons Lang
- * 3.14.0 source file, embeds the produced {@link MethodSpec} map into
- * the corresponding binary JAR, reads back, and measures fidelity plus
- * spec-shape coverage.</p>
- *
- * <p>Disabled when either the sources JAR or the binary JAR is missing
- * from the local Maven cache. Both are pulled by
- * {@code mvn dependency:get -Dartifact=org.apache.commons:commons-lang3:3.14.0:jar:sources}.</p>
- *
- * <p>Results are appended to
+ * <p>Runs the {@link MethodSpecificationInferrer} over each library's
+ * source jar, resolves source signatures to bytecode descriptors by name
+ * and parameter count, embeds the resulting {@link MethodSpec} map into
+ * the corresponding binary jar via {@link AsmJmlSpecWriter}, reads back
+ * via {@link AsmJmlSpecReader}, and checks clause-list equality plus
+ * spec-shape coverage. Results appended to
  * {@code journal/rq2_commons_lang_real_inference.txt}.</p>
+ *
+ * <p>Each per-library test is disabled when its sources jar is absent.
+ * Pull all three with:
+ * {@code mvn dependency:get -Dartifact=org.apache.commons:commons-lang3:3.14.0:jar:sources},
+ * and analogous invocations for {@code commons-io:commons-io:2.13.0} and
+ * {@code com.google.guava:guava:33.3.0-jre}.</p>
  */
 class CommonsLangRealInferenceTest {
 
-    private static final Path COMMONS_LANG_JAR = Paths.get(
-            System.getProperty("user.home"),
-            ".m2", "repository", "org", "apache", "commons", "commons-lang3",
-            "3.14.0", "commons-lang3-3.14.0.jar");
+    private static final Path COMMONS_LANG_JAR = m2Path(
+            "org/apache/commons/commons-lang3/3.14.0", "commons-lang3-3.14.0.jar");
+    private static final Path COMMONS_LANG_SOURCES = m2Path(
+            "org/apache/commons/commons-lang3/3.14.0", "commons-lang3-3.14.0-sources.jar");
 
-    private static final Path COMMONS_LANG_SOURCES = Paths.get(
-            System.getProperty("user.home"),
-            ".m2", "repository", "org", "apache", "commons", "commons-lang3",
-            "3.14.0", "commons-lang3-3.14.0-sources.jar");
+    private static final Path COMMONS_IO_JAR = m2Path(
+            "commons-io/commons-io/2.13.0", "commons-io-2.13.0.jar");
+    private static final Path COMMONS_IO_SOURCES = m2Path(
+            "commons-io/commons-io/2.13.0", "commons-io-2.13.0-sources.jar");
 
-    static boolean inputsAvailable() {
+    private static final Path GUAVA_JAR = m2Path(
+            "com/google/guava/guava/33.3.0-jre", "guava-33.3.0-jre.jar");
+    private static final Path GUAVA_SOURCES = m2Path(
+            "com/google/guava/guava/33.3.0-jre", "guava-33.3.0-jre-sources.jar");
+
+    private static Path m2Path(String repoSub, String file) {
+        return Paths.get(System.getProperty("user.home"), ".m2", "repository")
+                .resolve(repoSub).resolve(file);
+    }
+
+    static boolean commonsLangAvailable() {
         return Files.exists(COMMONS_LANG_JAR) && Files.exists(COMMONS_LANG_SOURCES);
     }
 
-    @Test
-    @EnabledIf("inputsAvailable")
-    void commonsLangRealInferenceRoundtrip() throws IOException {
-        // Pass 1: read every .java in the sources JAR, parse it, run the
-        // inferrer on every method declaration.
-        InferenceResult inference = runInferenceOverSourcesJar();
-        assertTrue(inference.specsWithClauses.size() > 0,
-                "should infer at least one non-empty spec from Commons Lang");
+    static boolean commonsIoAvailable() {
+        return Files.exists(COMMONS_IO_JAR) && Files.exists(COMMONS_IO_SOURCES);
+    }
 
-        // Pass 2: embed into a copy of the binary JAR.
-        Path embeddedJar = Files.createTempFile("commons-lang-real-", ".jar");
+    static boolean guavaAvailable() {
+        return Files.exists(GUAVA_JAR) && Files.exists(GUAVA_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("commonsLangAvailable")
+    void commonsLangRealInferenceRoundtrip() throws IOException {
+        runOn("commons-lang3-3.14.0", COMMONS_LANG_JAR, COMMONS_LANG_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("commonsIoAvailable")
+    void commonsIoRealInferenceRoundtrip() throws IOException {
+        runOn("commons-io-2.13.0", COMMONS_IO_JAR, COMMONS_IO_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("guavaAvailable")
+    void guavaRealInferenceRoundtrip() throws IOException {
+        runOn("guava-33.3.0-jre", GUAVA_JAR, GUAVA_SOURCES);
+    }
+
+    private void runOn(String label, Path binaryJar, Path sourcesJar) throws IOException {
+        InferenceResult inference = runInferenceOverSourcesJar(binaryJar, sourcesJar);
+        assertTrue(inference.specsWithClauses.size() > 0,
+                "should infer at least one non-empty spec from " + label);
+
+        Path embeddedJar = Files.createTempFile(label + "-real-", ".jar");
         long embedStart = System.nanoTime();
-        new AsmJmlSpecWriter().embedJar(COMMONS_LANG_JAR, embeddedJar, inference.specsWithClauses);
+        new AsmJmlSpecWriter().embedJar(binaryJar, embeddedJar, inference.specsWithClauses);
         long embedNanos = System.nanoTime() - embedStart;
 
         try {
-            // Pass 3: read back the embedded JAR.
             long readStart = System.nanoTime();
             Map<MethodKey, MethodSpec> readBack = new AsmJmlSpecReader().readJar(embeddedJar);
             long readNanos = System.nanoTime() - readStart;
 
-            // Match every inferred spec against its readback. Methods may
-            // be missing from the JAR (synthetic accessors, javac
-            // transformations) or descriptors may differ; we measure
-            // fidelity rather than assert absolute equality.
             int matched = 0, mismatches = 0, missing = 0;
             for (Map.Entry<MethodKey, MethodSpec> e : inference.specsWithClauses.entrySet()) {
                 MethodSpec out = readBack.get(e.getKey());
@@ -100,8 +125,7 @@ class CommonsLangRealInferenceTest {
             }
             double fidelity = (double) matched / inference.specsWithClauses.size();
 
-            // Compute byte overhead between original JAR and embedded JAR.
-            long originalBytes = Files.size(COMMONS_LANG_JAR);
+            long originalBytes = Files.size(binaryJar);
             long embeddedBytes = Files.size(embeddedJar);
             double overheadPct = (double)(embeddedBytes - originalBytes) / originalBytes * 100.0;
 
@@ -109,15 +133,15 @@ class CommonsLangRealInferenceTest {
             int embedThroughput = (int) (totalMethods / (embedNanos / 1_000_000_000.0));
             int readThroughput = (int) (totalMethods / (readNanos / 1_000_000_000.0));
 
-            // Persist the headline metrics line plus the shape histogram.
             Path metrics = Paths.get("journal", "rq2_commons_lang_real_inference.txt");
             Files.createDirectories(metrics.getParent());
             StringBuilder report = new StringBuilder();
             report.append(String.format(
-                    "commons-lang3-3.14.0 (real inference) | sourceFiles=%d totalMethods=%d specsInferred=%d "
+                    "%s (real inference) | sourceFiles=%d totalMethods=%d specsInferred=%d "
                     + "specsWithClauses=%d matched=%d missing=%d mismatches=%d fidelity=%.2f%% "
                     + "originalBytes=%d embeddedBytes=%d overhead=%.2f%% "
                     + "embedThroughput=%d m/s readThroughput=%d m/s%n",
+                    label,
                     inference.sourceFilesProcessed,
                     inference.methodsSeen,
                     inference.specsInferred,
@@ -136,37 +160,26 @@ class CommonsLangRealInferenceTest {
             Files.writeString(metrics, report.toString(),
                     java.nio.file.StandardOpenOption.CREATE,
                     java.nio.file.StandardOpenOption.APPEND);
-
-            // Console echo for the test log.
             System.out.println(report);
 
-            // Headline assertion: among methods that received a spec AND
-            // a matching descriptor in the JAR, equality must be exact.
             assertEquals(0, mismatches,
                     "every successfully-read spec must equal the spec written");
             assertTrue(fidelity >= 0.50,
-                    String.format("real-inference fidelity %.1f%% unexpectedly low "
+                    String.format("%s: real-inference fidelity %.1f%% unexpectedly low "
                             + "(matched=%d missing=%d total=%d)",
-                            100*fidelity, matched, missing, totalMethods));
+                            label, 100*fidelity, matched, missing, totalMethods));
         } finally {
             Files.deleteIfExists(embeddedJar);
         }
     }
 
-    /**
-     * Walk every .java entry in the sources JAR. For each compilation unit,
-     * resolve the class to its internal-name (com/example/Foo), then walk
-     * every method declaration and run the inferrer. Cross-reference
-     * inferred (sourceName) against the binary JAR's method-name set per
-     * class to recover the bytecode descriptor.
-     */
-    private InferenceResult runInferenceOverSourcesJar() throws IOException {
-        Map<String, Set<String>> bytecodeMethods = readBytecodeMethodNames(COMMONS_LANG_JAR);
+    private InferenceResult runInferenceOverSourcesJar(Path binaryJar, Path sourcesJar) throws IOException {
+        Map<String, Set<String>> bytecodeMethods = readBytecodeMethodNames(binaryJar);
         InferenceResult result = new InferenceResult();
         MethodSpecificationInferrer inferrer = new MethodSpecificationInferrer();
         JavaParser parser = new JavaParser();
 
-        try (JarFile jar = new JarFile(COMMONS_LANG_SOURCES.toFile())) {
+        try (JarFile jar = new JarFile(sourcesJar.toFile())) {
             Enumeration<JarEntry> entries = jar.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
@@ -177,7 +190,12 @@ class CommonsLangRealInferenceTest {
                 try (InputStream in = jar.getInputStream(entry)) {
                     source = new String(in.readAllBytes());
                 }
-                CompilationUnit cu = parser.parse(source).getResult().orElse(null);
+                CompilationUnit cu;
+                try {
+                    cu = parser.parse(source).getResult().orElse(null);
+                } catch (RuntimeException ex) {
+                    continue; // parse failure on this file -> skip
+                }
                 if (cu == null) continue;
 
                 String pkg = cu.getPackageDeclaration()
@@ -216,8 +234,6 @@ class CommonsLangRealInferenceTest {
                 }
             }
         }
-        // Compute shape coverage on the FINAL map so overload-collisions do
-        // not inflate counters. One pass over the de-duplicated specs.
         for (MethodSpec s : result.specsWithClauses.values()) {
             countShape(result, s);
         }
@@ -240,40 +256,6 @@ class CommonsLangRealInferenceTest {
                     || clause.contains("\\num_of")) q = true;
             if (clause.contains("\\old")) o = true;
             if (clause.contains("\\result")) res = true;
-            if (clause.contains("==>")) br = true;
-        }
-        if (q) r.shapeQuantifier++;
-        if (o) r.shapeOld++;
-        if (res) r.shapeResult++;
-        if (br) r.shapeBranchConditional++;
-    }
-
-    private static void updateShapeCounters(InferenceResult r, MethodSpecification s) {
-        if (!s.getPreconditions().isEmpty()) r.shapeRequires++;
-        if (!s.getPostconditions().isEmpty()) r.shapeEnsures++;
-        if (!s.getAssignableClauses().isEmpty()) r.shapeAssignable++;
-        if (!s.getLoopInvariants().isEmpty()) r.shapeLoopInvariant++;
-        boolean q = false, o = false, res = false, br = false;
-        for (String clause : s.getPreconditions()) {
-            if (clause.contains("\\forall") || clause.contains("\\exists")
-                    || clause.contains("\\sum") || clause.contains("\\product")
-                    || clause.contains("\\num_of")) q = true;
-            if (clause.contains("\\old")) o = true;
-            if (clause.contains("==>")) br = true;
-        }
-        for (String clause : s.getPostconditions()) {
-            if (clause.contains("\\forall") || clause.contains("\\exists")
-                    || clause.contains("\\sum") || clause.contains("\\product")
-                    || clause.contains("\\num_of")) q = true;
-            if (clause.contains("\\old")) o = true;
-            if (clause.contains("\\result")) res = true;
-            if (clause.contains("==>")) br = true;
-        }
-        for (String clause : s.getLoopInvariants()) {
-            if (clause.contains("\\forall") || clause.contains("\\exists")
-                    || clause.contains("\\sum") || clause.contains("\\product")
-                    || clause.contains("\\num_of")) q = true;
-            if (clause.contains("\\old")) o = true;
             if (clause.contains("==>")) br = true;
         }
         if (q) r.shapeQuantifier++;
@@ -308,13 +290,6 @@ class CommonsLangRealInferenceTest {
         return result;
     }
 
-    /**
-     * Find a bytecode descriptor matching the source method by name AND
-     * parameter count. Handles overloads: {@code indexOf(String)} and
-     * {@code indexOf(String, int)} get distinct keys in the embedded JAR.
-     * If multiple bytecode entries share both name and arity, the first
-     * is returned (rare; usually means a generic-erasure collision).
-     */
     private static String findMatchingDescriptor(String name, int sourceArity,
                                                  Set<String> bytecodeMethods) {
         for (String entry : bytecodeMethods) {
@@ -328,18 +303,12 @@ class CommonsLangRealInferenceTest {
         return null;
     }
 
-    /**
-     * Count the parameter slots in a JVM method descriptor like
-     * {@code (Ljava/lang/String;I[BJ)V}. Strings reference types ({@code L...;}),
-     * primitives ({@code I, J, F, D, Z, B, S, C}), and array dimensions
-     * ({@code [}) consume one slot each (excluding the array prefix).
-     */
     private static int countDescriptorParameters(String descriptor) {
         int count = 0;
-        int i = 1; // skip '('
+        int i = 1;
         while (i < descriptor.length() && descriptor.charAt(i) != ')') {
             char c = descriptor.charAt(i);
-            if (c == '[') { i++; continue; } // array prefix; consume and stay on element
+            if (c == '[') { i++; continue; }
             if (c == 'L') {
                 int end = descriptor.indexOf(';', i);
                 i = end + 1;
@@ -363,7 +332,6 @@ class CommonsLangRealInferenceTest {
         int methodsSeen = 0;
         int specsInferred = 0;
         int inferenceFailures = 0;
-        // Shape coverage
         int shapeRequires = 0;
         int shapeEnsures = 0;
         int shapeAssignable = 0;

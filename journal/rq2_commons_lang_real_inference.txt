@@ -1,2 +1,6 @@
-commons-lang3-3.14.0 (real inference) | sourceFiles=246 totalMethods=3532 specsInferred=3532 specsWithClauses=2332 matched=2332 missing=0 mismatches=0 fidelity=100.00% originalBytes=657952 embeddedBytes=724210 overhead=10.07% embedThroughput=11906 m/s readThroughput=119063 m/s
+commons-io-2.13.0 (real inference) | sourceFiles=245 totalMethods=2154 specsInferred=2154 specsWithClauses=1680 matched=1680 missing=0 mismatches=0 fidelity=100.00% originalBytes=483954 embeddedBytes=533318 overhead=10.20% embedThroughput=10215 m/s readThroughput=107318 m/s
+  shape coverage: requires=738 ensures=1282 assignable=1680 loopInvariant=86 withQuantifier=2 withOld=68 withResult=982 branchConditional=150
+commons-lang3-3.14.0 (real inference) | sourceFiles=246 totalMethods=3532 specsInferred=3532 specsWithClauses=2332 matched=2332 missing=0 mismatches=0 fidelity=100.00% originalBytes=657952 embeddedBytes=724210 overhead=10.07% embedThroughput=8648 m/s readThroughput=103779 m/s
   shape coverage: requires=1116 ensures=2109 assignable=2332 loopInvariant=269 withQuantifier=16 withOld=85 withResult=1725 branchConditional=345
+guava-33.3.0-jre (real inference) | sourceFiles=627 totalMethods=10821 specsInferred=10821 specsWithClauses=6320 matched=6320 missing=0 mismatches=0 fidelity=100.00% originalBytes=3078245 embeddedBytes=3220906 overhead=4.63% embedThroughput=6052 m/s readThroughput=74144 m/s
+  shape coverage: requires=2529 ensures=5557 assignable=6320 loopInvariant=635 withQuantifier=61 withOld=146 withResult=4165 branchConditional=589
