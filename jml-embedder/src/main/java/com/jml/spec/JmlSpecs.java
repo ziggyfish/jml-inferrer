@@ -36,5 +36,13 @@ public @interface JmlSpecs {
     String[] loopInvariant() default {};
     /** Each entry is {@code "ExceptionType|condition"}. */
     String[] signals() default {};
+    /**
+     * v3 mode: a DEFLATE-compressed binary payload encoding all clause
+     * arrays in a self-describing length-prefixed format. When this
+     * member is non-empty, the per-kind array members are unused and the
+     * reader decompresses {@code packed} instead. v2 readers without v3
+     * support will see empty clause arrays and ignore the spec.
+     */
+    byte[] packed() default {};
     String version() default "2";
 }

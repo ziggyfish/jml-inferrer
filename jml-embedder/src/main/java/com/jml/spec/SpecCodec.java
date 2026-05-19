@@ -1,27 +1,48 @@
 package com.jml.spec;
 
+import java.util.Arrays;
+import java.util.Comparator;
+
 /**
- * Token dictionary for JML clause strings.
+ * Token-dictionary codec for JML clause strings.
  *
- * <p>Common JML tokens are encoded as single bytes in the spec-format v2
- * payload to reduce the size of the constant-pool UTF-8 entries that carry
- * clause text. The encoding is invertible; the reader decodes on read.</p>
+ * <p>An instance holds a dictionary of {@code (token, encoded-character)}
+ * pairs. The encoder substitutes each occurrence of {@code token} with its
+ * single-character encoding; the decoder reverses the substitution. Both
+ * directions are pure {@link String#replace(CharSequence, CharSequence)}
+ * loops over the dictionary entries, sorted longest-first so that a
+ * longer token whose prefix is also a token in the dictionary is tried
+ * before the prefix.</p>
  *
- * <p>The chosen byte values (Unicode code points 0x01--0x11, avoiding the
- * whitespace controls 0x09/0x0A/0x0D) are control characters that never
- * appear in legitimate JML source, so detection is unambiguous. UTF-8
- * encodes them as single bytes, so the saving is one byte minus the
- * original token length per occurrence.</p>
+ * <p>The encoded characters must be single Unicode code points that
+ * cannot appear in legitimate JML source. The default dictionary uses
+ * U+0001 through U+0011 (control characters), which UTF-8 encodes as
+ * single bytes; for a learned dictionary the caller is responsible for
+ * choosing encoding characters from a compatible range.</p>
+ *
+ * <p>{@link #DEFAULT} is the hand-picked twelve-token dictionary
+ * described in the embedder spec-format v2.</p>
  */
 public final class SpecCodec {
 
+    private final String[][] tokens;
+
     /**
-     * (token, single-character-encoding) pairs. None of the current entries
-     * share prefixes, so encode/decode are order-independent; the explicit
-     * order is retained as a defensive contract should a longer/shorter
-     * token pair be added later.
+     * Construct a codec from a copy of the given dictionary. Entries are
+     * stored in length-descending order so the encoder applies longer
+     * tokens before shorter ones.
      */
-    static final String[][] TOKENS = {
+    public SpecCodec(String[][] tokens) {
+        this.tokens = new String[tokens.length][2];
+        for (int i = 0; i < tokens.length; i++) {
+            this.tokens[i][0] = tokens[i][0];
+            this.tokens[i][1] = tokens[i][1];
+        }
+        Arrays.sort(this.tokens, Comparator.<String[]>comparingInt(t -> t[0].length()).reversed());
+    }
+
+    /** The hand-picked default dictionary used by the v2 writer/reader. */
+    public static final SpecCodec DEFAULT = new SpecCodec(new String[][]{
         {"\\result",       ""},
         {"\\old(",         ""},
         {"\\forall ",      ""},
@@ -34,27 +55,34 @@ public final class SpecCodec {
         {"== null",        ""},
         {"\\nothing",      ""},
         {"\\everything",   ""},
-    };
+    });
 
-    private SpecCodec() {}
+    /** An identity codec (no token substitution). Useful for tests and for {@code WriterConfig.NONE}. */
+    public static final SpecCodec IDENTITY = new SpecCodec(new String[0][0]);
 
-    /**
-     * Encode a JML clause string by substituting dictionary tokens with
-     * their single-byte encodings. Null input passes through.
-     */
-    public static String encode(String s) {
+    /** Encode a JML clause string. Null passes through. */
+    public String encode(String s) {
         if (s == null) return null;
-        for (String[] t : TOKENS) s = s.replace(t[0], t[1]);
+        for (String[] t : tokens) s = s.replace(t[0], t[1]);
         return s;
     }
 
-    /**
-     * Decode a JML clause string by reversing the dictionary substitution.
-     * Null input passes through.
-     */
-    public static String decode(String s) {
+    /** Decode a JML clause string. Null passes through. */
+    public String decode(String s) {
         if (s == null) return null;
-        for (String[] t : TOKENS) s = s.replace(t[1], t[0]);
+        // Order is irrelevant for decode (each encoded byte is unique),
+        // but follow the same iteration for consistency.
+        for (String[] t : tokens) s = s.replace(t[1], t[0]);
         return s;
+    }
+
+    /** Exposed for the {@code DictionaryLearner} so it can inspect what's already covered. */
+    public String[][] tokens() {
+        String[][] copy = new String[tokens.length][2];
+        for (int i = 0; i < tokens.length; i++) {
+            copy[i][0] = tokens[i][0];
+            copy[i][1] = tokens[i][1];
+        }
+        return copy;
     }
 }

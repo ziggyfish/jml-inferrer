@@ -139,11 +139,30 @@ The synthetic-spec reduction is larger than the real-inference reduction because
 \paragraph{What is empirical about this optimisation.}
 The choice of which JML tokens to encode and which clause to declare a default is not arbitrary: each rests on the shape distribution measured on the real-inference corpus (Table~\ref{tab:shapes}). The default-omission convention exploits the empirical observation that 100\% of inferred specs in our corpus carry \texttt{assignable \textbackslash nothing}; the token dictionary tracks the top-frequency JML constructs that the inferrer actually produces. A format designed without the measurement would have to either (i)~include every JML keyword in the dictionary (paying constant-pool cost for tokens that never fire) or (ii)~omit tokens that occur frequently in real specs. The synthetic-vs-real divergence (48--55\% reduction vs.\ 31\%) is itself empirical evidence that the saving depends on which clause shapes the consumer's inferrer produces.
 
-\paragraph{When the default-omission convention does not apply.}
-Dropping \texttt{assignable \textbackslash nothing} as the default rests on its dominance in \emph{our} inferrer's output. Inferrers that produce a different default (e.g.\ \texttt{assignable \textbackslash everything} as a conservative starting point, or no default at all) should leave the convention off: the writer interface exposes the convention as opt-in at write time, and the legacy v1 format (one annotation per clause) remains a fallback for inferrers that prefer not to commit to any default.
+\paragraph{Configuration impact and DEFLATE measurement.}
+The default-omission and token-dictionary conventions are exposed to callers through a \texttt{WriterConfig} object. Three preset configurations and an alternative spec-format mode are measured in Table~\ref{tab:configs}. Each measurement is taken on the same 2{,}332-spec Commons Lang real-inference corpus, with the same reader replaying every spec to assert 100\% roundtrip fidelity in every mode.
 
-\paragraph{Tradeoff against general-purpose compression.}
-A general-purpose compressor (DEFLATE / gzip applied to the concatenated spec set, stored as a single \texttt{byte[]} annotation member) would reduce overhead further --- our preliminary measurement on Commons Lang real inference suggests a further ${\approx}\,50\%$ reduction would be reachable. We do not take that step because it breaks two properties the article specifically claims: streamable, reflection-friendly access (a reader can extract a single method's specs without decompressing the rest) and toolchain-transparency (any class-file reader can read the strings; with DEFLATE the reader would need a decoder). DEFLATE is a separable layer that consumers concerned with storage above all else can apply over the v2 format.
+\begin{table}[ht]
+\centering
+\caption{Configuration sweep on the Commons Lang real-inference corpus (2{,}332 specs). Each mode roundtrips at 100\% fidelity.}
+\label{tab:configs}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Mode} & \textbf{Overhead} & \textbf{vs.\ default} \\
+\midrule
+\texttt{WriterConfig.NONE} (always-explicit, no codec) & 11.26\% & $+1.19$~pp \\
+\texttt{WriterConfig.JML\_INFERRER} (default) & 10.07\% & \emph{baseline} \\
+Learned dictionary (28 tokens) & 9.48\% & $-0.59$~pp \\
+Compressed v3 (per-spec DEFLATE) & 30.25\% & $+20.18$~pp \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The \texttt{NONE} mode confirms that the default-omission and token-dictionary conventions together account for the 1.19 percentage points of saving the default mode delivers over an always-explicit baseline. An inferrer with a different dominant clause shape (e.g.\ \texttt{assignable \textbackslash everything} as a conservative default, or no default at all) can opt out of the convention by selecting \texttt{NONE} or by supplying a custom defaults map; the v1 format remains readable for callers that prefer not to commit to any convention.
+
+The learned-dictionary mode (an automated dictionary learner, \texttt{DictionaryLearner.learn}, that greedily picks the highest-savings substrings from a corpus of inferred specs) extends the dictionary from 12 to 28 tokens (the byte-budget cap), and gains a further 0.59 percentage points over the hand-picked default. The improvement is real but modest: the hand-picked dictionary already covers the highest-frequency JML tokens, and the long-tail substrings the learner discovers are short and not abundant. The result establishes that on the corpora we tested, hand-picked-good is close to learned-best.
+
+The compressed v3 mode (per-method DEFLATE of the clause set, stored as a single \texttt{byte[]} annotation member) is a clear \emph{negative result}: at $+30.25\%$ overhead it is worse than every other mode by a wide margin. Two effects combine. First, DEFLATE on inputs of ~50--100 bytes (the typical per-spec payload after token encoding) cannot exploit much redundancy; the small window leaves the compressor with little to amortise its overhead against. Second, although the writer stores \texttt{packed} as a \texttt{byte[]} annotation member, the JVM class-file format inflates this storage relative to a constant-pool UTF-8 string of the same byte length, and the per-spec compressed payloads are unique enough that the constant-pool deduplication v2 enjoys is unavailable. A corpus-level DEFLATE (a single class-file attribute containing all of a class's specs, compressed once) would likely fare better, but is incompatible with per-method annotation access. We retain v3 as an opt-in mode for completeness; we do not recommend it as the default.
 
 The v1 format remains readable; the reader supports both shapes so embedded JARs produced before the format change continue to load.
 

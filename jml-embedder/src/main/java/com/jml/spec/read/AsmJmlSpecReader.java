@@ -43,6 +43,22 @@ public class AsmJmlSpecReader implements JmlSpecReader {
     private static final String JMLSPEC_DESC = "Lcom/jml/spec/JmlSpec;";
     private static final String JMLSPECS_DESC = "Lcom/jml/spec/JmlSpecs;";
 
+    private final SpecCodec codec;
+
+    /** Default reader: decodes with {@link SpecCodec#DEFAULT}. */
+    public AsmJmlSpecReader() {
+        this(SpecCodec.DEFAULT);
+    }
+
+    /**
+     * Reader with an explicit codec. Use this when the writer wrote with
+     * a learned or otherwise non-default dictionary; the reader must be
+     * configured with the same dictionary to decode correctly.
+     */
+    public AsmJmlSpecReader(SpecCodec codec) {
+        this.codec = codec;
+    }
+
     @Override
     public Optional<MethodSpec> readForMethod(Class<?> clazz, String methodName, Class<?>... paramTypes) {
         try {
@@ -51,7 +67,7 @@ public class AsmJmlSpecReader implements JmlSpecReader {
             String internal = clazz.getName().replace('.', '/');
             try (InputStream is = clazz.getClassLoader().getResourceAsStream(internal + ".class")) {
                 if (is == null) return Optional.empty();
-                Map<MethodKey, MethodSpec> all = readClassFile(is.readAllBytes(), internal);
+                Map<MethodKey, MethodSpec> all = readClassFile(is.readAllBytes(), internal, codec);
                 return Optional.ofNullable(all.get(new MethodKey(internal, methodName, descriptor)));
             }
         } catch (NoSuchMethodException | IOException e) {
@@ -64,7 +80,7 @@ public class AsmJmlSpecReader implements JmlSpecReader {
         String internal = clazz.getName().replace('.', '/');
         try (InputStream is = clazz.getClassLoader().getResourceAsStream(internal + ".class")) {
             if (is == null) return Map.of();
-            return readClassFile(is.readAllBytes(), internal);
+            return readClassFile(is.readAllBytes(), internal, codec);
         } catch (IOException e) {
             return Map.of();
         }
@@ -78,7 +94,7 @@ public class AsmJmlSpecReader implements JmlSpecReader {
                 if (!entry.getName().endsWith(".class")) return;
                 String internal = entry.getName().substring(0, entry.getName().length() - ".class".length());
                 try (InputStream is = jf.getInputStream(entry)) {
-                    all.putAll(readClassFile(is.readAllBytes(), internal));
+                    all.putAll(readClassFile(is.readAllBytes(), internal, codec));
                 } catch (IOException e) {
                     throw new RuntimeException("Failed reading entry " + entry.getName(), e);
                 }
@@ -87,7 +103,7 @@ public class AsmJmlSpecReader implements JmlSpecReader {
         return all;
     }
 
-    private static Map<MethodKey, MethodSpec> readClassFile(byte[] bytes, String internalName) {
+    private static Map<MethodKey, MethodSpec> readClassFile(byte[] bytes, String internalName, SpecCodec codec) {
         Map<MethodKey, MethodSpec> result = new HashMap<>();
         ClassReader reader = new ClassReader(bytes);
         reader.accept(new ClassVisitor(Opcodes.ASM9) {
@@ -99,6 +115,7 @@ public class AsmJmlSpecReader implements JmlSpecReader {
                     final List<String> v2Assignable = new ArrayList<>();
                     final List<String> v2LoopInvariant = new ArrayList<>();
                     final List<SignalsClause> v2Signals = new ArrayList<>();
+                    final java.io.ByteArrayOutputStream v3Packed = new java.io.ByteArrayOutputStream();
                     String v2Version = null;
                     boolean v2Seen = false;
 
@@ -111,6 +128,14 @@ public class AsmJmlSpecReader implements JmlSpecReader {
                             v2Seen = true;
                             return new AnnotationVisitor(Opcodes.ASM9) {
                                 @Override
+                                public void visit(String n, Object v) {
+                                    if ("packed".equals(n) && v instanceof byte[] bytes) {
+                                        try { v3Packed.write(bytes); } catch (java.io.IOException ignore) {}
+                                    } else if ("version".equals(n)) {
+                                        v2Version = (String) v;
+                                    }
+                                }
+                                @Override
                                 public AnnotationVisitor visitArray(String n) {
                                     // v1 legacy: @JmlSpecs(value=@JmlSpec[]) -> nested annotation array
                                     if ("value".equals(n)) {
@@ -121,12 +146,13 @@ public class AsmJmlSpecReader implements JmlSpecReader {
                                             }
                                         };
                                     }
-                                    // v2: string arrays per clause kind
+                                    // v2: string arrays per clause kind. (v3 packed[] uses
+                                    // the bulk visit() above, not visitArray.)
                                     return new AnnotationVisitor(Opcodes.ASM9) {
                                         @Override
                                         public void visit(String dummy, Object value) {
                                             if (!(value instanceof String s)) return;
-                                            String decoded = SpecCodec.decode(s);
+                                            String decoded = codec.decode(s);
                                             switch (n) {
                                                 case "requires"      -> v2Requires.add(decoded);
                                                 case "ensures"       -> v2Ensures.add(decoded);
@@ -146,10 +172,6 @@ public class AsmJmlSpecReader implements JmlSpecReader {
                                     };
                                 }
 
-                                @Override
-                                public void visit(String n, Object v) {
-                                    if ("version".equals(n)) v2Version = (String) v;
-                                }
                             };
                         }
                         if (JMLSPEC_DESC.equals(desc)) return v1InnerVisitor();
@@ -177,11 +199,20 @@ public class AsmJmlSpecReader implements JmlSpecReader {
 
                     @Override
                     public void visitEnd() {
-                        // Treat any presence of @JmlSpecs as a v2 spec, even
-                        // if all members were dropped to defaults (the writer
-                        // omits the assignable=[\nothing] member, so an
-                        // otherwise pure method emits an empty @JmlSpecs).
+                        // Treat any presence of @JmlSpecs as a v2 (or v3)
+                        // spec, even if all members were dropped to defaults
+                        // (the writer omits the assignable=[\nothing] member,
+                        // so an otherwise pure method emits an empty
+                        // @JmlSpecs).
                         if (v2Seen) {
+                            if (v3Packed.size() > 0) {
+                                // v3: decompress packed payload.
+                                MethodSpec unpacked = unpackV3(v3Packed.toByteArray(), codec);
+                                if (unpacked != null) {
+                                    result.put(new MethodKey(internalName, name, descriptor), unpacked);
+                                    return;
+                                }
+                            }
                             // v2: apply the default-assignable convention.
                             List<String> assignable = v2Assignable.isEmpty()
                                     ? List.of("\\nothing")
@@ -230,5 +261,73 @@ public class AsmJmlSpecReader implements JmlSpecReader {
         int order;
         String version = "1.0";
         String targetSignature = "";
+    }
+
+    /**
+     * Decompress and parse a v3 packed payload. Returns null on any
+     * format error; the caller falls back to v2 parsing.
+     */
+    private static MethodSpec unpackV3(byte[] compressed, SpecCodec codec) {
+        try {
+            java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
+            try (java.util.zip.InflaterInputStream inf = new java.util.zip.InflaterInputStream(
+                    new java.io.ByteArrayInputStream(compressed))) {
+                byte[] buf = new byte[1024];
+                int n;
+                while ((n = inf.read(buf)) > 0) raw.write(buf, 0, n);
+            }
+            byte[] bytes = raw.toByteArray();
+            VarReader r = new VarReader(bytes);
+            int versionMarker = r.readByte();
+            if (versionMarker != 1) return null;
+            List<String> requires      = readStringList(r, codec);
+            List<String> ensures       = readStringList(r, codec);
+            List<String> assignable    = readStringList(r, codec);
+            List<String> loopInvariant = readStringList(r, codec);
+            List<String> packedSignals = readStringList(r, codec);
+            List<SignalsClause> signals = new ArrayList<>();
+            for (String s : packedSignals) {
+                int sep = s.indexOf('|');
+                if (sep > 0) signals.add(new SignalsClause(s.substring(0, sep), s.substring(sep + 1)));
+            }
+            if (assignable.isEmpty()) assignable = List.of("\\nothing");
+            return new MethodSpec(requires, ensures, assignable, loopInvariant, signals, "3");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static List<String> readStringList(VarReader r, SpecCodec codec) throws java.io.IOException {
+        int n = r.readVarInt();
+        List<String> out = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            int len = r.readVarInt();
+            byte[] bytes = r.readBytes(len);
+            String s = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            out.add(codec.decode(s));
+        }
+        return out;
+    }
+
+    private static final class VarReader {
+        private final byte[] bytes;
+        private int pos = 0;
+        VarReader(byte[] bytes) { this.bytes = bytes; }
+        int readByte() { return bytes[pos++] & 0xFF; }
+        int readVarInt() {
+            int v = 0, shift = 0;
+            while (true) {
+                int b = readByte();
+                v |= (b & 0x7F) << shift;
+                if ((b & 0x80) == 0) return v;
+                shift += 7;
+            }
+        }
+        byte[] readBytes(int n) {
+            byte[] out = new byte[n];
+            System.arraycopy(bytes, pos, out, 0, n);
+            pos += n;
+            return out;
+        }
     }
 }

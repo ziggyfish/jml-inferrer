@@ -3,6 +3,8 @@ package com.jml.spec.write;
 import com.jml.spec.MethodKey;
 import com.jml.spec.MethodSpec;
 import com.jml.spec.SignalsClause;
+import com.jml.spec.SpecCodec;
+import com.jml.spec.WriterConfig;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -43,6 +45,17 @@ public class AsmJmlSpecWriter implements JmlSpecWriter {
     private static final Logger logger = LoggerFactory.getLogger(AsmJmlSpecWriter.class);
     private static final String JMLSPECS_DESC = "Lcom/jml/spec/JmlSpecs;";
 
+    private final WriterConfig config;
+
+    /** Default-config writer: uses {@link WriterConfig#JML_INFERRER}. */
+    public AsmJmlSpecWriter() {
+        this(WriterConfig.JML_INFERRER);
+    }
+
+    public AsmJmlSpecWriter(WriterConfig config) {
+        this.config = config;
+    }
+
     @Override
     public void embedJar(Path inputJar, Path outputJar, Map<MethodKey, MethodSpec> specs) throws IOException {
         Map<String, Map<MethodKey, MethodSpec>> byClass = groupByClass(specs);
@@ -81,7 +94,7 @@ public class AsmJmlSpecWriter implements JmlSpecWriter {
     public byte[] embedClass(byte[] inputClass, Map<String, MethodSpec> specs) {
         ClassReader reader = new ClassReader(inputClass);
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
-        ClassVisitor visitor = new SpecEmittingClassVisitor(writer, specs);
+        ClassVisitor visitor = new SpecEmittingClassVisitor(writer, specs, config);
         reader.accept(visitor, 0);
         return writer.toByteArray();
     }
@@ -186,13 +199,15 @@ public class AsmJmlSpecWriter implements JmlSpecWriter {
         while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
     }
 
-    /** ClassVisitor that intercepts each method visit and emits @JmlSpec annotations. */
+    /** ClassVisitor that intercepts each method visit and emits @JmlSpecs annotations. */
     private static class SpecEmittingClassVisitor extends ClassVisitor {
         private final Map<String, MethodSpec> specsByMethodAndDesc;
+        private final WriterConfig config;
 
-        SpecEmittingClassVisitor(ClassVisitor delegate, Map<String, MethodSpec> specs) {
+        SpecEmittingClassVisitor(ClassVisitor delegate, Map<String, MethodSpec> specs, WriterConfig config) {
             super(Opcodes.ASM9, delegate);
             this.specsByMethodAndDesc = specs;
+            this.config = config;
         }
 
         @Override
@@ -200,7 +215,7 @@ public class AsmJmlSpecWriter implements JmlSpecWriter {
             MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
             MethodSpec spec = specsByMethodAndDesc.get(name + descriptor);
             if (spec == null) return mv;
-            return new SpecEmittingMethodVisitor(mv, spec);
+            return new SpecEmittingMethodVisitor(mv, spec, config);
         }
     }
 
@@ -213,11 +228,13 @@ public class AsmJmlSpecWriter implements JmlSpecWriter {
      * still receive their annotations. */
     private static class SpecEmittingMethodVisitor extends MethodVisitor {
         private final MethodSpec spec;
+        private final WriterConfig config;
         private boolean emitted = false;
 
-        SpecEmittingMethodVisitor(MethodVisitor delegate, MethodSpec spec) {
+        SpecEmittingMethodVisitor(MethodVisitor delegate, MethodSpec spec, WriterConfig config) {
             super(Opcodes.ASM9, delegate);
             this.spec = spec;
+            this.config = config;
         }
 
         @Override
@@ -255,7 +272,7 @@ public class AsmJmlSpecWriter implements JmlSpecWriter {
         private void ensureEmitted() {
             if (emitted) return;
             emitted = true;
-            emitJmlAnnotations(mv, spec);
+            emitJmlAnnotations(mv, spec, config);
         }
     }
 
@@ -268,48 +285,116 @@ public class AsmJmlSpecWriter implements JmlSpecWriter {
      * The {@code assignable} member is omitted when its only entry is
      * {@code "\\nothing"} (the convention: absence means {@code \nothing}).</p>
      */
-    private static void emitJmlAnnotations(MethodVisitor mv, MethodSpec spec) {
+    private static void emitJmlAnnotations(MethodVisitor mv, MethodSpec spec, WriterConfig config) {
         java.util.List<String> requires = nonNull(spec.requires());
         java.util.List<String> ensures = nonNull(spec.ensures());
         java.util.List<String> assignable = nonNull(spec.assignable());
         java.util.List<String> loopInvariant = nonNull(spec.loopInvariant());
         java.util.List<SignalsClause> signals = spec.signals() == null ? java.util.List.of() : spec.signals();
-        // Skip if the input spec is entirely empty (no clauses at all,
-        // including no assignable). Specs with at least one clause --- even
-        // if the only clause is assignable \nothing --- must produce a
-        // detectable @JmlSpecs marker so the reader can synthesize the
-        // default-assignable convention.
         boolean inputAllEmpty = requires.isEmpty() && ensures.isEmpty()
                 && assignable.isEmpty() && loopInvariant.isEmpty() && signals.isEmpty();
         if (inputAllEmpty) return;
-        // Drop the default assignable \nothing; absence means \nothing in v2.
-        if (assignable.size() == 1 && "\\nothing".equals(assignable.get(0))) {
-            assignable = java.util.List.of();
-        }
+        // R#3: drop configured per-kind defaults (e.g.\ assignable=[\nothing] under JML_INFERRER).
+        if (config.shouldDrop("requires", requires))           requires = java.util.List.of();
+        if (config.shouldDrop("ensures", ensures))             ensures = java.util.List.of();
+        if (config.shouldDrop("assignable", assignable))       assignable = java.util.List.of();
+        if (config.shouldDrop("loopInvariant", loopInvariant)) loopInvariant = java.util.List.of();
+
         AnnotationVisitor specs = mv.visitAnnotation(JMLSPECS_DESC, true);
-        if (!requires.isEmpty())      writeEncodedArray(specs, "requires", requires);
-        if (!ensures.isEmpty())       writeEncodedArray(specs, "ensures", ensures);
-        if (!assignable.isEmpty())    writeEncodedArray(specs, "assignable", assignable);
-        if (!loopInvariant.isEmpty()) writeEncodedArray(specs, "loopInvariant", loopInvariant);
-        if (!signals.isEmpty()) {
-            AnnotationVisitor sigArr = specs.visitArray("signals");
-            for (SignalsClause s : signals) {
-                sigArr.visit(null, com.jml.spec.SpecCodec.encode(
-                        s.exceptionType() + "|" + s.condition()));
+        SpecCodec codec = config.codec();
+
+        if (config.compressed()) {
+            // R#4: v3 DEFLATE-compressed payload. Encode all clause lists into
+            // a length-prefixed binary blob, DEFLATE it, and store as the
+            // single packed[] member. ASM's annotation API takes a byte[]
+            // directly via visit(name, value) -- using visitArray + per-byte
+            // visit would create an integer array (4 bytes per byte), which
+            // would defeat the compression entirely.
+            byte[] packed = packAndCompress(codec, requires, ensures, assignable, loopInvariant, signals);
+            specs.visit("packed", packed);
+            specs.visit("version", "3");
+        } else {
+            // v2 string-array shape.
+            if (!requires.isEmpty())      writeEncodedArray(specs, "requires", requires, codec);
+            if (!ensures.isEmpty())       writeEncodedArray(specs, "ensures", ensures, codec);
+            if (!assignable.isEmpty())    writeEncodedArray(specs, "assignable", assignable, codec);
+            if (!loopInvariant.isEmpty()) writeEncodedArray(specs, "loopInvariant", loopInvariant, codec);
+            if (!signals.isEmpty()) {
+                AnnotationVisitor sigArr = specs.visitArray("signals");
+                for (SignalsClause s : signals) {
+                    sigArr.visit(null, codec.encode(s.exceptionType() + "|" + s.condition()));
+                }
+                sigArr.visitEnd();
             }
-            sigArr.visitEnd();
         }
-        // version="2" is the default in the new annotation; only emit if non-default.
-        if (spec.version() != null && !"2".equals(spec.version()) && !"1.0".equals(spec.version())) {
+        if (spec.version() != null && !"2".equals(spec.version()) && !"1.0".equals(spec.version())
+                && !config.compressed()) {
             specs.visit("version", spec.version());
         }
         specs.visitEnd();
     }
 
-    private static void writeEncodedArray(AnnotationVisitor ann, String member, java.util.List<String> items) {
+    private static void writeEncodedArray(AnnotationVisitor ann, String member,
+                                          java.util.List<String> items, SpecCodec codec) {
         AnnotationVisitor arr = ann.visitArray(member);
-        for (String s : items) arr.visit(null, com.jml.spec.SpecCodec.encode(s));
+        for (String s : items) arr.visit(null, codec.encode(s));
         arr.visitEnd();
+    }
+
+    /**
+     * v3 packed payload: a length-prefixed binary blob serialising the five
+     * clause arrays, then DEFLATE-compressed. Format:
+     *   byte version_marker = 1
+     *   for each of (requires, ensures, assignable, loopInvariant, signals):
+     *     varint n
+     *     repeat n times: varint len + UTF-8 bytes
+     * Strings are token-encoded by the configured codec before serialisation.
+     */
+    private static byte[] packAndCompress(SpecCodec codec,
+                                          java.util.List<String> requires,
+                                          java.util.List<String> ensures,
+                                          java.util.List<String> assignable,
+                                          java.util.List<String> loopInvariant,
+                                          java.util.List<SignalsClause> signals) {
+        java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
+        try {
+            raw.write(1);  // version marker
+            writeStringList(raw, requires, codec);
+            writeStringList(raw, ensures, codec);
+            writeStringList(raw, assignable, codec);
+            writeStringList(raw, loopInvariant, codec);
+            java.util.List<String> packedSignals = new java.util.ArrayList<>();
+            for (SignalsClause s : signals) packedSignals.add(s.exceptionType() + "|" + s.condition());
+            writeStringList(raw, packedSignals, codec);
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("packing failed", e);
+        }
+        java.io.ByteArrayOutputStream compressed = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.DeflaterOutputStream def = new java.util.zip.DeflaterOutputStream(
+                compressed, new java.util.zip.Deflater(java.util.zip.Deflater.BEST_COMPRESSION))) {
+            def.write(raw.toByteArray());
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("DEFLATE failed", e);
+        }
+        return compressed.toByteArray();
+    }
+
+    private static void writeStringList(java.io.ByteArrayOutputStream out,
+                                        java.util.List<String> items, SpecCodec codec) throws java.io.IOException {
+        writeVarInt(out, items.size());
+        for (String s : items) {
+            byte[] bytes = codec.encode(s).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            writeVarInt(out, bytes.length);
+            out.write(bytes);
+        }
+    }
+
+    private static void writeVarInt(java.io.ByteArrayOutputStream out, int v) {
+        while ((v & ~0x7F) != 0) {
+            out.write((v & 0x7F) | 0x80);
+            v >>>= 7;
+        }
+        out.write(v);
     }
 
     private static <T> java.util.List<T> nonNull(java.util.List<T> in) {

@@ -1,0 +1,4 @@
+commons-lang3 | mode=none specs=2332 matched=2332 missing=0 mismatches=0 fidelity=100.00% originalBytes=657952 embeddedBytes=732063 overhead=11.26% embedThroughput=7081 m/s readThroughput=74704 m/s
+commons-lang3 | mode=jml-inferrer (v2) specs=2332 matched=2332 missing=0 mismatches=0 fidelity=100.00% originalBytes=657952 embeddedBytes=724210 overhead=10.07% embedThroughput=9190 m/s readThroughput=109904 m/s
+commons-lang3 | mode=learned-dict (v2) specs=2332 matched=2332 missing=0 mismatches=0 fidelity=100.00% originalBytes=657952 embeddedBytes=720339 overhead=9.48% embedThroughput=10036 m/s readThroughput=114524 m/s
+commons-lang3 | mode=compressed-v3 specs=2332 matched=2332 missing=0 mismatches=0 fidelity=100.00% originalBytes=657952 embeddedBytes=856973 overhead=30.25% embedThroughput=6583 m/s readThroughput=77934 m/s
