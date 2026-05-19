@@ -1,0 +1,81 @@
+\section{Implementation}
+\label{sec:impl}
+
+The pass is implemented as a single Java class,
+\texttt{com.jml.inferrer.analysis.CompositionalAnalyzer}, sitting next
+to the existing \texttt{InterproceduralAnalyzer} in the inferrer's
+module. The class is approximately 410 lines and depends only on the
+inferrer's existing model (\texttt{MethodSpecification},
+\texttt{SpecificationCache}, \texttt{CallGraph}) and JavaParser.
+
+\subsection{Entry point}
+
+The pass is invoked after the inferrer's isolated pass populates the
+cache:
+
+\begin{lstlisting}
+SpecificationCache cache = new SpecificationCache();
+CallGraph callGraph = new CallGraphBuilder()
+        .buildFromCompilationUnits(units);
+MethodSpecificationInferrer inferrer =
+        new MethodSpecificationInferrer(cache, callGraph);
+for (MethodDeclaration m : allMethods) {
+    cache.put(signatureOf(m),
+              inferrer.inferSpecification(m));
+}
+
+// Compositional refinement (this paper):
+CompositionalAnalyzer.RefinementResult result =
+    new CompositionalAnalyzer(cache, callGraph, declarations)
+        .refineAll();
+```
+}
+\end{lstlisting}
+
+The \texttt{RefinementResult} carries the number of methods refined,
+total iterations across all SCCs, and the SCC count. Callers can
+choose whether to invoke the pass --- the design is opt-in so a
+deployment that prefers the cheaper single-pass output can omit it.
+
+\subsection{Two real bugs surfaced by the corpus-scale run}
+
+The analyser had been validated by a 15-test unit suite before this
+study. Running it on Apache Commons Lang surfaced two bugs that the
+unit tests did not exercise.
+
+\textbf{Bug 1: \texttt{lastIndexOf('.')} in \texttt{polymorphicCandidates}.}
+The method searches for sibling cache entries by splitting each
+signature into class name and method name. The split used
+\texttt{sig.lastIndexOf('.')} --- which returns the position of the
+\emph{rightmost} dot. For a signature like
+\texttt{ArchUtils.getProcessor(java.lang.String)} the rightmost dot is
+the one inside the parameter type \texttt{java.lang.String}, not the
+separator between class and method. The resulting substring slice
+threw \texttt{StringIndexOutOfBoundsException} with a negative-length
+range. The fix is to use \texttt{lastIndexOf('.', paren - 1)}, which
+restricts the search to before the parameter-list opening paren.
+
+\textbf{Bug 2: same pattern in \texttt{resolveCallee}.} The same
+algorithm and the same bug appeared in the call-resolution code.
+Fixed identically.
+
+Both bugs were silent under the unit-test inputs (which used short
+parameter types) and only manifested on the corpus run with
+fully-qualified parameter types from JavaParser. We report them
+because they illustrate a general risk for analysers that work on
+JavaParser ASTs: the printed representation of a type is
+implementation-dependent, and any string-splitting code over
+signatures must consider the worst case.
+
+\subsection{Repository layout}
+
+The analyser is at
+\texttt{src/main/java/com/jml/inferrer/analysis/} \texttt{CompositionalAnalyzer.java}
+in the project tree.
+Unit tests at
+\texttt{src/test/java/com/jml/inferrer/analysis/} \texttt{CompositionalAnalyzerTest.java}
+(15 tests, all passing after the fixes).
+The measurement harness for this paper is at
+\texttt{src/test/java/com/jml/inferrer/analysis/} \texttt{CompositionalAnalyzerCommonsLangExperimentTest.java}.
+Raw output is committed at
+\texttt{journal/rq3\_composition\_measurement.txt}.

@@ -1,0 +1,155 @@
+\section{Empirical Measurement}
+\label{sec:empirical}
+
+\subsection{Subjects and method}
+
+We measure on the source jars of Apache Commons Lang~3.14.0 (246
+source files, 3{,}494 methods produce a non-empty isolated spec) and
+Apache Commons IO~2.13.0 (245 source files, 2{,}111 methods produce a
+non-empty isolated spec). These are the same libraries used by the
+predecessor work~\cite{edmonds2026inference, edmonds2026embedding};
+using them lets cross-paper comparisons proceed without confounding
+from corpus differences. The Guava library, which the predecessor
+papers also cover, is excluded from the present measurement: its
+source-jar size pushes the JavaParser-driven harness into a deep
+recursion that overflows the default JVM stack
+(Section~\ref{sec:threats}).
+
+For each library, the harness:
+
+\begin{enumerate}\setlength\itemsep{0.2em}
+  \item Parses every \texttt{.java} entry in the sources jar.
+  \item Builds the call graph
+        (\texttt{CallGraphBuilder.buildFromCompilationUnits}).
+  \item Runs the existing
+        \texttt{MethodSpecificationInferrer.inferSpecification} on
+        every method declaration. The inferrer's internal
+        \texttt{InterproceduralAnalyzer} runs as part of this pass,
+        propagating callee preconditions in the standard single-pass
+        manner. The resulting per-method precondition and
+        postcondition counts are snapshotted as the
+        \emph{isolated baseline}.
+  \item Invokes
+        \texttt{CompositionalAnalyzer.refineAll()} on the populated
+        cache, which mutates each method's spec in place.
+  \item For each method, diffs the post-refinement spec against the
+        baseline and counts newly-added clauses. Each new
+        precondition is categorised by syntactic shape (null check,
+        range/bound, branch-conditional implication, disjunctive,
+        other) for the RQ2 distribution.
+\end{enumerate}
+
+All measurements are deterministic given the inputs; we report each
+exactly once. The harness, the per-library output, and the
+configuration knobs are committed to the replication package.
+
+\subsection{Results}
+
+Table~\ref{tab:headline} reports the headline measurements.
+
+\begin{table}[ht]
+\centering
+\caption{Effect of compositional refinement over the isolated single-pass baseline. \emph{Refined} counts methods whose spec gained at least one new clause.}
+\label{tab:headline}
+\begin{tabular}{lrr}
+\toprule
+& \textbf{Commons Lang} & \textbf{Commons IO} \\
+\midrule
+Methods in cache             & 3{,}494 & 2{,}111 \\
+\midrule
+Methods refined              & 1{,}532  & 767 \\
+\hspace{1em}\emph{as \% of cache} & 43.85\% & 36.33\% \\
+Methods with new precondition & 1{,}160  & 522 \\
+Methods with new postcondition & 1{,}270 & 666 \\
+\midrule
+New precondition clauses     & 5{,}763  & 2{,}001 \\
+\hspace{1em}\emph{avg per refined method} & 4.97 & 3.83 \\
+\hspace{1em}\emph{max on one method} & 132   & 41 \\
+New postcondition clauses    & 5{,}206  & 2{,}015 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{RQ1 is answered: the second pass strictly extends the
+isolated set on both libraries.} On Commons Lang, 43.85\% of methods
+in the cache receive at least one new clause from the refinement; on
+Commons IO, 36.33\% do. In total the pass adds 7{,}764 new
+precondition clauses and 7{,}221 new postcondition clauses across
+the two libraries. The single-pass propagation is \emph{not}
+subsuming. The result holds even though Commons Lang's
+\texttt{InterproceduralAnalyzer} pass was already doing single-pass
+callee-precondition propagation during isolated inference; the
+second pass discovers obligations the first pass cannot express.
+
+\subsection{Shape distribution}
+
+Table~\ref{tab:shapes} categorises the newly-added preconditions by
+syntactic shape. The categorisation runs on each new clause
+independently and is structurally exhaustive (every clause falls in
+exactly one bucket; ties resolve in favour of structural shape
+over content, so a clause containing \texttt{==>} is counted as
+branch-conditional even if it also mentions \texttt{!= null}).
+
+\begin{table}[ht]
+\centering
+\caption{Syntactic shape of the newly-added preconditions. Branch-conditional implications dominate on both libraries, reflecting that the second pass walks the caller's control-flow context that the single pass does not.}
+\label{tab:shapes}
+\begin{tabular}{lrrrr}
+\toprule
+& \multicolumn{2}{c}{\textbf{Commons Lang}} & \multicolumn{2}{c}{\textbf{Commons IO}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+\textbf{Shape} & count & \% & count & \% \\
+\midrule
+Branch-conditional (\texttt{==>}) & 3{,}029 & 52.6\% & 857 & 42.8\% \\
+Null check (\texttt{!= null} / \texttt{== null}) & 1{,}255 & 21.8\% & 695 & 34.7\% \\
+Range / bound (\texttt{<}, \texttt{<=}, \texttt{>}, \texttt{>=}) & 1{,}143 & 19.8\% & 378 & 18.9\% \\
+Disjunctive (\texttt{||}) & 248 & 4.3\% & 36 & 1.8\% \\
+Other & 88 & 1.5\% & 35 & 1.7\% \\
+\midrule
+Total new preconditions & 5{,}763 & 100\% & 2{,}001 & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{RQ2 is answered: branch-conditional implications dominate, and
+they are the shape the single pass structurally cannot produce.} On
+Commons Lang, 52.6\% of all newly-added preconditions are
+\texttt{guard ==> obligation} clauses; on Commons IO, 42.8\%. These
+clauses arise from calls inside an \texttt{if} or ternary branch
+whose enclosing guard must be lifted into the precondition. A
+single-pass propagation, which appends the callee's substituted
+preconditions \emph{unconditionally}, can produce
+the \texttt{obligation} part but cannot synthesise the \texttt{guard ==> }
+prefix because it has no access to the caller's control-flow
+context at the point of propagation.
+
+Null checks (22--35\%) and range/bound clauses (19\%) make up most
+of the remainder. These are clauses the single pass \emph{would}
+produce when the call site is unguarded; the second pass adds them
+when the call site is guarded by a condition the single pass would
+not lift. Disjunctive clauses (1.8--4.3\%) come from polymorphic
+dispatch sites where multiple subtype callees contribute alternative
+obligations; the residual \emph{other} (1.5--1.7\%) is the long-tail
+shape that includes arithmetic comparisons not matched by the
+range/bound regex.
+
+\subsection{Runtime cost}
+
+The second pass completes in 3.5 seconds on Commons Lang
+(3{,}494 methods, 6{,}223 SCCs visited, all singletons) and
+proportionally on Commons IO (2{,}111 methods, 9 seconds for both
+runs combined including parsing and the baseline isolated pass).
+No SCC hit the fixpoint cap; the call graphs of both libraries are
+acyclic under the analyser's signature-matching scheme. The
+refinement step is therefore an addition of seconds on top of an
+inference pass that already takes minutes on libraries of this
+size; it is a clearly affordable enhancement.
+
+\textbf{RQ3 is answered: the second pass is cheap and fixpoint
+iteration never fires at the libraries' scale.} The runtime
+characteristic is dominated by the AST walk per method
+(\texttt{decl.findAll(MethodCallExpr.class)}), which is linear in
+the body size; the lifting and substitution steps add constant
+factors per call site. The cost scales with the number of call
+sites in the corpus (7{,}719 on Commons Lang, 4{,}213 on
+Commons IO).

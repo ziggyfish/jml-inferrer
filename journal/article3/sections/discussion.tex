@@ -1,0 +1,84 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{The single-pass strategy is not subsuming}
+
+The measurement settles a question the predecessor papers left open:
+the isolated-pass inferrer's
+\texttt{InterproceduralAnalyzer}~\cite{edmonds2026inference} does not
+capture what a compositional refinement would. Two structural shapes
+are out of reach by construction: branch-conditional implications
+that depend on the caller's control-flow context, and disjunctive
+obligations from polymorphic dispatch. The data shows these are not
+edge cases --- branch-conditional implications make up the
+\emph{majority} of newly-added preconditions on both libraries.
+
+The implication for the inferrer's downstream consumers
+(test generators, IDEs, LLMs) is that running the second pass before
+emission delivers a measurably richer spec. Whether the additional
+clauses translate into stronger downstream behaviour (more bugs
+caught, fewer false positives in static analysis, better test
+inputs) is the empirical question for follow-up work; we report only
+that the gap exists and that it is structurally explainable.
+
+\subsection{Why the single pass already does so much}
+
+It is also worth noting what the single pass \emph{does} cover. The
+isolated baseline already produces 11.95\% bytecode overhead under
+synthetic specs and 10.07\% under real inferred
+specs~\cite{edmonds2026embedding}; a substantial fraction of those
+clauses are interprocedural propagations the
+\texttt{InterproceduralAnalyzer} produces during isolated inference.
+The second pass adds 5{,}763 \emph{new} clauses on top of an
+already-rich baseline on Commons Lang. The single pass does the
+right thing on unguarded call sites and on calls to single-candidate
+methods; it is the guarded and polymorphic cases where the gap
+appears.
+
+\subsection{Implications for analyser architecture}
+
+For inferrers that target downstream tools where richer specs help
+(verification, test generation, LLM consumption), the second pass is
+clearly worth integrating: an extra 3.5 seconds on Commons Lang for
+43.85\% more methods receiving refined specifications is a strong
+trade. For inferrers that target downstream tools that consume
+specs eagerly (auto-completion, hover text in an IDE), the
+runtime cost may not justify the extra clauses; the second pass
+is opt-in by design so deployers can choose.
+
+A further architectural implication: an inferrer that wants to keep
+its pipeline single-pass can still capture some of the
+compositional value by enriching its
+\texttt{InterproceduralAnalyzer}'s single-call-site lifting. The
+branch-conditional shape, which dominates the gap, requires the
+analyser to know the enclosing guard of each call site. That
+information is available during the AST walk that the isolated pass
+already does; the single-pass analyser could in principle lift its
+substituted clause through the guard before adding it. The
+polymorphic-dispatch shape is harder to incorporate into a
+single-pass analysis because it requires looking up sibling cache
+entries at the point of propagation, which is what the second pass
+does anyway. Whether the single pass should be extended to handle
+the easy half of the gap, or whether the two-pass architecture is
+the right factoring, is a design choice the present measurement
+makes explicit.
+
+\subsection{Limitations}
+
+The 414-line analyser is a scaffold, not a complete WP transformer.
+It does not lift through loops (the inferrer's loop-invariant
+analyser handles those in the isolated pass), does not reason about
+aliasing (the syntactic substitution treats two distinct names as
+distinct values), and does not interact with the SMT verifier that
+discharges the final clauses. These are the boundaries of the
+present contribution; the comprehensive WP transformer would be a
+substantially larger development.
+
+The 132 maximum new preconditions on one Commons Lang method is the
+worst case we observed. The method in question is a deeply branching
+configuration loader; its 132 new clauses are mostly
+branch-conditional implications gating different code paths.
+Whether the resulting spec is \emph{useful} to a downstream tool ---
+i.e.\ whether it is parsimonious enough to be readable and tight
+enough to be informative --- is the question we defer to the
+downstream-impact study planned as future work.

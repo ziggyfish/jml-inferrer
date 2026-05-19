@@ -1,0 +1,106 @@
+\section{Introduction}
+\label{sec:introduction}
+
+A heuristic specification inferrer for Java produces, for each method,
+a set of Java Modeling Language (JML) clauses inferred from local
+syntactic evidence: a null-dereference of a parameter inside the body
+becomes a \texttt{requires \textbackslash p != null} clause; an array
+read at index \texttt{i} becomes \texttt{requires 0 <= i \&\& i < a.length};
+and so on. Recent work has shown that such specifications, even when
+heuristically produced, materially improve downstream test
+generation~\cite{edmonds2026inference} and can be embedded in compiled
+artefacts with full lossless roundtrip~\cite{edmonds2026embedding}.
+Both of those results depend on the spec set being \emph{rich enough}
+to constrain downstream tools.
+
+The dominant strategy for incorporating cross-method information in
+such an inferrer is \emph{single-pass propagation}: while inferring
+method \texttt{m}, the analyser looks up each callee's cached
+specification, substitutes the actual arguments at the call site, and
+appends the substituted callee preconditions to \texttt{m}'s
+precondition set. This is fast and order-independent (provided the
+callee is inferred first), and it is what the inferrer of
+~\cite{edmonds2026inference} already does via its
+\texttt{InterproceduralAnalyzer}. A natural question is whether this
+single pass captures everything a \emph{genuinely compositional}
+analysis would: that is, whether a second, top-down weakest-precondition
+(WP) refinement pass, walking each method's body with the callee
+specifications substituted at each call site, would discover any
+additional clauses that the single pass missed.
+
+The question matters operationally. If the answer is no, the
+second-pass refactoring (and the associated implementation, testing,
+and maintenance cost) is unjustified; the simpler single-pass
+architecture is good enough. If the answer is yes, downstream
+consumers of inferred specifications --- test generators, verifiers,
+LLM-based tooling --- see a measurably richer spec set when the second
+pass runs.
+
+In this paper, we implement the second pass and answer the question
+empirically on real Java code. We address the following research
+questions:
+
+\begin{itemize}\setlength\itemsep{0.2em}
+  \item \textbf{RQ1.} Does a top-down WP-style compositional refinement
+        pass strictly extend the precondition set produced by an
+        established single-pass propagation, or is the single pass
+        already sufficient?
+  \item \textbf{RQ2.} If the second pass adds clauses, which structural
+        shapes (null checks, range bounds, branch-conditional
+        implications, disjunctive obligations) dominate the additions?
+        The answer characterises \emph{why} the single pass falls
+        short.
+  \item \textbf{RQ3.} What is the runtime cost of the second pass at
+        corpus scale, and how does it interact with cyclic
+        strongly-connected components (mutual recursion) in the call
+        graph?
+\end{itemize}
+
+We answer RQ1--RQ3 on Apache Commons Lang~3.14.0 (3{,}494 methods)
+and Apache Commons IO~2.13.0 (2{,}111 methods), the same libraries
+used by the predecessor work~\cite{edmonds2026inference,
+edmonds2026embedding}. The principal findings are summarised in
+Table~\ref{tab:headline} and analysed in Section~\ref{sec:empirical};
+in short, the second pass refines 36--44\% of methods in the
+specification cache and adds thousands of new precondition clauses,
+with branch-conditional implications (\texttt{guard ==> obligation})
+as the dominant shape.
+
+\textbf{Contributions.} In summary, this paper makes the following
+contributions:
+
+\begin{itemize}\setlength\itemsep{0.2em}
+  \item A 414-line \texttt{CompositionalAnalyzer} that implements the
+        top-down WP refinement pass over a populated specification
+        cache, supporting per-call-site argument substitution,
+        enclosing-guard lifting, polymorphic-dispatch disjunction over
+        candidate callees, and bounded fixpoint iteration on cyclic
+        strongly-connected components.
+  \item An empirical measurement on two real-world Java libraries
+        (5{,}605 inferred methods in total) showing that the second
+        pass refines 36--44\% of methods in the cache and adds 7{,}764
+        new precondition clauses overall; the single-pass strategy is
+        \emph{not} subsuming.
+  \item A shape-categorisation of the newly-added preconditions
+        showing that 53--57\% are branch-conditional implications
+        (\texttt{guard ==> obligation}) --- the shape the single pass
+        structurally cannot produce, because it lacks the control-flow
+        context the WP walk supplies.
+  \item Two real bugs found in the analyser by running it at scale: a
+        \texttt{lastIndexOf('.')} in the polymorphic-candidate lookup
+        that failed on parameter types containing dots
+        (e.g.\ \texttt{java.lang.String}), and a related off-by-one
+        in the call-site resolver. Both are fixed in the artefact
+        accompanying this paper.
+\end{itemize}
+
+\textbf{Paper organisation.} Section~\ref{sec:background} reviews
+single-pass propagation and the gap it leaves. Section~\ref{sec:algorithm}
+describes the second-pass algorithm precisely.
+Section~\ref{sec:impl} describes the implementation.
+Section~\ref{sec:empirical} reports the measurement.
+Section~\ref{sec:discussion} discusses what the result means for
+single-pass inferrer architectures and for the downstream tools that
+consume inferred specifications. Section~\ref{sec:threats} addresses
+the threats to validity, Section~\ref{sec:related} positions the work
+against related literature, and Section~\ref{sec:conclusion} concludes.

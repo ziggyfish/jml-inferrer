@@ -246,8 +246,11 @@ public class CompositionalAnalyzer {
     private String resolveCallee(MethodCallExpr call) {
         String name = call.getNameAsString();
         for (String sig : cache.getAll().keySet()) {
-            int dot = sig.lastIndexOf('.');
             int paren = sig.indexOf('(');
+            // Find the '.' before the parentheses to skip dots inside
+            // parameter types like {@code java.lang.String}.
+            int dot = sig.lastIndexOf('.', paren > 0 ? paren - 1 : sig.length() - 1);
+            if (dot < 0) continue;
             String simple = sig.substring(dot + 1, paren > dot ? paren : sig.length());
             if (simple.equals(name)) return sig;
         }
@@ -358,17 +361,22 @@ public class CompositionalAnalyzer {
     private List<String> polymorphicCandidates(String calleeSig) {
         List<String> out = new ArrayList<>();
         out.add(calleeSig);
-        int dotInCallee = calleeSig.lastIndexOf('.');
         int parenInCallee = calleeSig.indexOf('(');
-        if (dotInCallee < 0 || parenInCallee < 0) return out;
+        if (parenInCallee < 0) return out;
+        // Find the '.' that separates class from method *before* the
+        // parentheses; signatures may have additional dots inside parameter
+        // types (e.g.\ {@code Class.method(java.lang.String)}).
+        int dotInCallee = calleeSig.lastIndexOf('.', parenInCallee - 1);
+        if (dotInCallee < 0) return out;
         String simpleName = calleeSig.substring(dotInCallee + 1, parenInCallee);
         String descriptor = calleeSig.substring(parenInCallee);
         String className = calleeSig.substring(0, dotInCallee);
         for (String otherSig : cache.getAll().keySet()) {
             if (otherSig.equals(calleeSig)) continue;
-            int dot = otherSig.lastIndexOf('.');
             int paren = otherSig.indexOf('(');
-            if (dot < 0 || paren < 0) continue;
+            if (paren < 0) continue;
+            int dot = otherSig.lastIndexOf('.', paren - 1);
+            if (dot < 0) continue;
             String otherName = otherSig.substring(dot + 1, paren);
             String otherDesc = otherSig.substring(paren);
             if (!simpleName.equals(otherName)) continue;

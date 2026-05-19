@@ -1,0 +1,60 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Compositional reasoning frameworks.}
+The classic foundations are Hoare's axiomatic semantics~\cite{hoare1969axiomatic}
+and Dijkstra's weakest-precondition calculus~\cite{dijkstra_guarded_1975,dijkstra1976discipline}.
+Cousot \& Cousot's abstract interpretation~\cite{cousot1977abstract} provides
+the general framework within which our second-pass refinement sits: the
+isolated pass is a sound but conservative approximation of the
+fixpoint; our refinement narrows it via callee summaries. Boogie's
+verification-condition generator~\cite{barnett2005weakest} performs the
+full WP transformation that our scaffold approximates; Boogie targets
+verification rather than the cheap-and-rich JML emission this work
+serves.
+
+\paragraph{Procedure summaries and interprocedural analysis.}
+Calcagno et al.'s Infer~\cite{calcagno2015infer} computes compositional
+summaries via bi-abduction in separation logic; the architecture is
+genuinely compositional from the outset and does not need a
+``second pass'' because the first pass is already
+compositional. Houdini~\cite{flanagan2001houdini} conjectures
+candidate annotations and prunes them via ESC/Java calls; the
+loop is closer to test-and-refute than to constructive
+compositional inference but the spirit is similar. Daikon's likely
+invariants~\cite{ernst2007daikon} are observed dynamically per
+program point and do not have an analogue of a second pass; the
+question we address (does single-pass propagation capture
+compositional information) is specific to static syntactic
+inferrers.
+
+\paragraph{Specification inference for JML.}
+The immediate predecessor is~\cite{edmonds2026inference}, which
+introduced the heuristic JML inferrer we extend, and
+~\cite{edmonds2026embedding}, which addressed the distribution
+problem (embedding inferred specs in compiled bytecode and OpenAPI
+descriptions). PreInfer~\cite{preinfer2017} uses dynamic symbolic
+execution to infer preconditions; its propagation strategy is
+trace-driven rather than syntactic and is not directly comparable.
+Jdoctor~\cite{jdoctor2018} extracts exception preconditions from
+Javadoc; its scope is narrower than ours but its precondition
+synthesis is purely textual and does not propagate.
+
+\paragraph{Polymorphic dispatch in static analysis.}
+Tip et al.~\cite{tip2002practical} address polymorphic dispatch via
+class-hierarchy analysis (CHA) and rapid-type analysis (RTA), the
+techniques the inferrer's \texttt{CallGraph} uses to enumerate
+candidate callees. Our disjunction-over-candidates is the static
+equivalent of summarising the runtime-may-dispatch set. The
+trade-off is the standard CHA precision/conservatism trade-off:
+disjunction over a large set of candidates produces preconditions
+that are easy to satisfy and therefore less informative.
+
+\paragraph{Mutation testing as a downstream evaluation.}
+PIT~\cite{coles2016pitest} is the mutation-testing pipeline the
+predecessor work uses to evaluate downstream spec quality. The
+present article does not run a mutation experiment; we report only
+the structural-extension claim. The follow-up evaluation will run
+PIT against test suites generated from the isolated baseline and
+from the compositionally-refined specs to ask whether the additional
+clauses translate into more bugs caught at the suite level.

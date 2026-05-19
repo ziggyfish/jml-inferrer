@@ -1,0 +1,30 @@
+commons-io-2.13.0 (compositional refinement)
+  sourceFiles=245 methodsInferred=2111 methodsInCache=2111
+  refineWallTimeMs=682.95
+  sccsVisited=3994 refinementsApplied=767 iterationsTotal=3994
+  methodsRefined=767 (36.33% of cache)
+  methodsWithNewPrecondition=522 totalNewPreconditionClauses=2001
+    avgNewPrePerRefinedMethod=3.83 maxNewPreOnOneMethod=41
+  methodsWithNewPostcondition=666 totalNewPostconditionClauses=2015
+  shapeCategories of newly-added preconditions:
+    nullCheck=695  (!= null / == null)
+    rangeOrBound=378  (<, <=, >, >=)
+    branchConditional=857  (==>)
+    disjunctive=36  (||)
+    other=35
+
+commons-lang3-3.14.0 (compositional refinement)
+  sourceFiles=246 methodsInferred=3494 methodsInCache=3494
+  refineWallTimeMs=3318.81
+  sccsVisited=6223 refinementsApplied=1532 iterationsTotal=6223
+  methodsRefined=1532 (43.85% of cache)
+  methodsWithNewPrecondition=1160 totalNewPreconditionClauses=5763
+    avgNewPrePerRefinedMethod=4.97 maxNewPreOnOneMethod=132
+  methodsWithNewPostcondition=1270 totalNewPostconditionClauses=5206
+  shapeCategories of newly-added preconditions:
+    nullCheck=1255  (!= null / == null)
+    rangeOrBound=1143  (<, <=, >, >=)
+    branchConditional=3029  (==>)
+    disjunctive=248  (||)
+    other=88
+

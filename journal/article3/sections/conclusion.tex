@@ -1,0 +1,45 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We asked whether a single-pass callee-precondition propagation, the
+strategy used by an established heuristic JML inferrer, captures
+everything a top-down compositional refinement would. We implemented
+the refinement as a 410-line analyser and measured its effect on two
+real-world libraries. The single pass does \emph{not} subsume:
+compositional refinement adds at least one new clause to 43.85\% of
+Commons Lang methods and 36.33\% of Commons IO methods, for a total
+of 7{,}764 new precondition clauses and 7{,}221 new postcondition
+clauses across the two corpora.
+
+The shape distribution explains the gap. Branch-conditional
+implications (\texttt{guard ==> obligation}) make up 53\% of the
+additions on Commons Lang and 43\% on Commons IO. These clauses
+arise from calls inside branch bodies whose enclosing guard must be
+lifted into the caller's precondition. A single-pass analyser that
+appends the callee's substituted precondition unconditionally
+cannot produce the \texttt{guard ==>} prefix; the WP-style walk
+through the body that the second pass performs is what supplies
+the missing context. Null checks and range bounds account for most
+of the remainder; polymorphic-dispatch disjunctions account for a
+small but visible 2--4\%.
+
+The runtime cost of the second pass is small: 3.5 seconds on a
+3{,}494-method library, with no fixpoint iteration triggered at the
+libraries' scale. The refactoring is therefore a clear value: an
+inferrer-pipeline addition of seconds yields a measurably richer
+spec set for downstream consumers.
+
+What this paper does not measure is whether the additional clauses
+materially improve downstream tooling --- whether tests generated
+from the refined specs catch more bugs, whether IDEs displaying the
+refined contracts help reviewers, whether LLMs reading them produce
+better completions. Those questions are the planned next stage of
+this thesis programme; the present article establishes the
+structural prerequisite, that the additional clauses exist, before
+the downstream-impact question can be meaningfully posed.
+
+Two bugs were uncovered in the analyser by the corpus-scale run
+(both string-splitting errors that the unit-test inputs did not
+exercise); we report them as a methodological note. The analyser
+ships with the corpus-scale measurement harness as a runnable
+replication artefact.

@@ -1,0 +1,75 @@
+\section{Threats to Validity}
+\label{sec:threats}
+
+\paragraph{Internal validity.}
+The measurement reports per-method clause-count diffs. These are
+deterministic given the inputs: rerunning the harness produces
+byte-identical metric output (we verified). The 5{,}763 / 2{,}001
+new-precondition counts are therefore exact for the inputs reported.
+The shape categorisation uses a simple regex-based bucketing; we
+documented its order-of-precedence (structural shape over content) so
+the buckets are reproducible. A small number of clauses in the
+\emph{other} bucket (1.5--1.7\%) are arithmetic comparisons our
+regex does not match (e.g.\ \texttt{abs(x) <= K}); their existence
+does not affect the headline result.
+
+\paragraph{External validity.}
+The measurement is on two libraries (Commons Lang and Commons IO),
+not on a broader corpus. Generalisation to less utility-shaped code
+(application logic, framework code, generics-heavy collections) is
+left to follow-up. The exclusion of Guava is forced by a stack-depth
+limit in the JavaParser-driven harness we use to build the
+specification cache (the harness recurses on large compilation units;
+raising \texttt{-Xss} would let Guava run, but our default
+configuration is the realistic one for typical Maven test
+invocations). The fix is mechanical (either raise the stack size or
+rewrite the call-graph builder iteratively); we do not expect Guava
+to qualitatively change the conclusion, because the structural classes
+of additions (branch-conditional, polymorphic-dispatch) are
+properties of the language, not the library.
+
+The single-pass baseline against which we compare is the inferrer's
+\texttt{InterproceduralAnalyzer} from~\cite{edmonds2026inference}.
+A different single-pass implementation might propagate more
+information per call site (e.g.\ guarded propagation in a single
+pass), narrowing the gap. We do not claim the second pass is
+strictly necessary against all conceivable single-pass strategies;
+we claim it materially extends the specific baseline of an
+established prior system.
+
+\paragraph{Construct validity.}
+``Refined'' is operationalised as ``the spec gained at least one
+clause that was not in the baseline'', using exact string equality
+on clause text. Two clauses that are semantically equivalent but
+syntactically different (e.g.\ \texttt{a < b} vs.\ \texttt{b > a})
+would count as additions even if redundant. The analyser does not
+normalise clauses before equality, so the new-clause count is an
+upper bound on the number of genuinely new \emph{logical}
+obligations. The shape categorisation is unaffected: a duplicate
+\texttt{a < b} is still a range/bound clause.
+
+The callee-resolution step uses simple-name matching, which can
+return a wrong callee for overloaded methods. The
+\texttt{substituteArguments} step then rejects the substitution if
+the formal and actual arity disagree; in our run, 4{,}631 of 7{,}719
+Commons Lang call sites pass the arity check (60\%). The remaining
+40\% are either inferrer-internal calls without a cached callee or
+name collisions with the wrong callee. A full type-resolving
+harness would close this measurement gap, but the affected call
+sites would either add additional clauses (strengthening the
+headline result) or be rejected by arity (no effect on the result).
+The reported numbers are therefore a \emph{lower bound} on the
+true compositional gain.
+
+\paragraph{Conclusion validity.}
+The empirical claims here are exact measurements, not statistical
+inferences; no significance test is meaningful. The conclusions
+(``the second pass refines 43.85\% of methods on Commons Lang'',
+``branch-conditional implications dominate the additions'') hold for
+the specific corpora reported and for the specific
+\texttt{CompositionalAnalyzer} implementation in the artefact. We do
+not claim that the same percentages would obtain on other libraries
+or on a different second-pass implementation; the structural
+explanation (single-pass propagation cannot lift through guards or
+dispatch) suggests the qualitative finding will transfer, but
+quantitative transfer is an open question.
