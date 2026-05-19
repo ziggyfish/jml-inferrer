@@ -1,45 +1,33 @@
-\documentclass[11pt]{article}
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
 
-% Wiley-style formatting (consistent with Article 1) — to be swapped for
-% wileyNJD-v2.cls before submission.
-\usepackage[margin=1in]{geometry}
-\usepackage{times}
-
-\usepackage[numbers,sort&compress]{natbib}
-\usepackage{amsmath,amssymb,amsfonts,amsthm}
-\newtheorem{definition}{Definition}
+% --- Packages ----------------------------------------------------------------
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
-\usepackage{url}
-\usepackage[english]{babel}
-\usepackage[autostyle, english = american]{csquotes}
-\MakeOuterQuote{"}
-
-\usepackage{listings}
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{multirow}
-\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{url}
+\usepackage{listings}
+\usepackage[hyphens]{xurl}
+\usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue,
+            breaklinks=true]{hyperref}
 \usepackage{cleveref}
-\usepackage{lineno}
 \usepackage{textcomp}
 
-\usepackage{titlesec}
-\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
-\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
-
-\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+% --- Listings (Java code) ----------------------------------------------------
 \definecolor{codeblue}{rgb}{0.0,0.0,0.6}
 \definecolor{codegreen}{rgb}{0,0.5,0}
-
 \lstdefinestyle{code}{
   language=Java,
-  basicstyle=\fontsize{9}{11}\selectfont\ttfamily,
+  basicstyle=\fontsize{7.5}{9}\selectfont\ttfamily,
   numbers=none,
   showspaces=false,
   showstringspaces=false,
   showtabs=false,
   frame=single,
-  rulecolor=\color{black},
+  rulecolor=\color{black!40},
   tabsize=2,
   captionpos=b,
   breaklines=true,
@@ -47,55 +35,64 @@
   keywordstyle=\color{codeblue},
   commentstyle=\color{codegreen}\itshape,
   stringstyle=\color{red},
+  aboveskip=0.5em,
+  belowskip=0.5em,
 }
 \lstset{style=code}
 
-\usepackage{fancyhdr}
-\pagestyle{fancy}
-\fancyhf{}
-\fancyhead[L]{\small\itshape Edmonds and Utting}
-\fancyhead[R]{\small\itshape J. Softw. Evol. Process}
-\fancyfoot[C]{\thepage}
-\renewcommand{\headrulewidth}{0.4pt}
+% Tighter inter-paragraph spacing for conference page budget
+\setlength{\parskip}{0.25em}
 
 \begin{document}
 
-\linenumbers
+% --- Title block (IEEEtran conference style) --------------------------------
+\title{Embedding Inferred JML Contracts in Java Bytecode\\
+       and OpenAPI Specifications}
 
-\noindent\textbf{RESEARCH ARTICLE}
-\vspace{1em}
+\author{%
+\IEEEauthorblockN{Brendan Edmonds, Mark Utting}
+\IEEEauthorblockA{%
+  UQ Cyber, School of Electrical Engineering and Computer Science\\
+  The University of Queensland, St Lucia QLD 4067, Australia\\
+  \{b.edmonds, m.utting\}@uq.edu.au}
+}
 
-\begin{center}
-{\LARGE\bfseries Embedding Inferred JML Contracts in Java Bytecode and OpenAPI Specifications}
-\vspace{1.5em}
+\maketitle
 
-{\large Brendan Edmonds\textsuperscript{1}* \quad Mark Utting\textsuperscript{1}}
-\vspace{0.5em}
+\begin{abstract}
+Consumers of compiled Java libraries and remote REST services rarely have
+the source code that produced them. This makes automatically inferred
+Java Modeling Language (JML) specifications, which have been shown to
+materially improve downstream tooling, unavailable to the very consumers
+that would benefit from them: test generators, IDEs, verifiers, and large
+language models reading APIs at runtime. Existing channels for shipping
+specifications alongside compiled artefacts --- JML stub files, sidecar
+files, runtime assertions --- are either ignored by the standard
+toolchain or restricted to a narrow set of properties. We propose a
+uniform mechanism for distributing inferred JML contracts in both
+settings: a runtime-retained Java annotation, \texttt{@JmlSpec}, written
+into class-file attributes by an ASM-based embedder, and a parallel
+OpenAPI~3.x extension family (\texttt{x-jml-*}) for service boundaries.
+We evaluate the embedder on three real-world Java libraries (Apache
+Commons Lang, Apache Commons IO, and Guava) totalling 20{,}546 methods
+with synthetic specifications that isolate the embedding mechanism, and
+on a real-inferred-specs corpus of 73 methods that exercises the full
+inference\,$\to$\,embedding pipeline. We measure 100.0\% roundtrip
+fidelity across all four corpora, 11.76--13.49\% bytecode-size overhead
+on the synthetic-spec runs, embedding throughput of 10{,}000--28{,}000
+methods/second, and reading throughput of 146{,}000--235{,}000
+methods/second. A negative test confirms that classes embedded with
+\texttt{@JmlSpec} load correctly in Java Virtual Machines (JVMs) that
+have no awareness of the annotation type. The contribution is a path
+from inferred specifications to consumer-readable contracts that
+requires no changes to the build toolchain: any existing JAR can be
+enriched in place.
+\end{abstract}
 
-{\small\textsuperscript{1}UQ Cyber, School of Electrical Engineering and Computer Science, University of Queensland, St Lucia QLD 4067, Australia}
-\vspace{0.5em}
-
-{\small *Correspondence: Brendan Edmonds, b.edmonds@uq.edu.au}
-\end{center}
-
-\vspace{1em}
-
-\noindent\textbf{Abstract}
-\vspace{0.5em}
-
-\noindent Inferred specifications are useful when they reach the methods that need them. In compiled Java libraries and REST service interfaces, source code is unavailable to downstream consumers, and the existing channels for shipping specifications --- JML stub files, sidecar artefacts, runtime assertions --- are either ignored by the standard toolchain or restricted to a narrow set of properties. This article proposes and evaluates a uniform mechanism for distributing inferred JML contracts in both settings: a runtime-retained Java annotation, \texttt{@JmlSpec}, written into class-file attributes by an ASM-based embedder, plus a parallel OpenAPI~3.x extension family (\texttt{x-jml-*}) for service boundaries.
-
-The approach is evaluated by applying the embedder to three real-world Java libraries (Apache Commons Lang, Apache Commons IO, and Guava) totalling 20{,}546 methods, with synthetic specifications that isolate the embedding mechanism, plus a separate real-inferred-specs corpus of 73 methods that exercises the full inferrer→embedder pipeline. Roundtrip fidelity is 100.0\% across all four corpora (zero clause-level mismatches anywhere); bytecode-size overhead is 11.76\%--13.49\% on the synthetic-spec runs; embedding throughput is 10{,}000--28{,}000 methods/second; reading throughput is 146{,}000--235{,}000 methods/second. A negative test confirms that classes embedded with \texttt{@JmlSpec} load correctly in JVMs that have no awareness of the annotation type.
-
-The contribution is a path from inferred specifications to consumer-readable contracts that requires no changes to the build toolchain: any existing JAR can be enriched in-place. This is the second instalment of a planned thesis; Article~1 established the inference engine and its empirical impact on LLM-based test generation. The infrastructure here is the carrier that makes the Article~1 system useful beyond a single source tree.
-
-\vspace{1em}
-
-\noindent\textbf{Keywords:} Java bytecode; ASM; OpenAPI; JML; specification distribution; runtime annotations; software contracts
-
-\vspace{1em}
-\hrule
-\vspace{1em}
+\begin{IEEEkeywords}
+JML, Java bytecode, ASM, OpenAPI, specification distribution, runtime
+annotations, software contracts
+\end{IEEEkeywords}
 
 \input{sections/introduction}
 \input{sections/background}
@@ -107,28 +104,12 @@ The contribution is a path from inferred specifications to consumer-readable con
 \input{sections/related_work}
 \input{sections/conclusion}
 
-\section*{Data Accessibility}
+\section*{Data Availability}
+A replication package containing the embedder/extractor source, the
+OpenAPI extension JSON Schema, raw measurement logs, and reproduction
+scripts is available at \url{https://github.com/[anonymized]/jml-inferrer}.
 
-A complete replication package is available at \url{https://github.com/[anonymized]/jml-inferrer/jml-embedder}, containing the embedder/extractor source, the OpenAPI extension JSON Schema, raw measurement logs from the empirical validation, and reproducibility scripts.
-
-\section*{Acknowledgments}
-
-This research was supported by the University of Queensland Cyber initiative.
-
-\section*{Conflict of Interest}
-
-The authors declare no conflict of interest.
-
-\section*{Author Contributions}
-
-\textbf{Brendan Edmonds}: Conceptualization, Methodology, Software, Validation, Investigation, Data Curation, Writing - Original Draft, Visualization. \textbf{Mark Utting}: Conceptualization, Methodology, Writing - Review \& Editing, Supervision.
-
-\section*{ORCID}
-
-Brendan Edmonds \url{https://orcid.org/0000-0000-0000-0000}\\
-Mark Utting \url{https://orcid.org/0000-0000-0000-0000}
-
-\bibliographystyle{plainnat}
+\bibliographystyle{IEEEtran}
 \bibliography{../article1/references}
 
 \end{document}

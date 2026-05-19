@@ -21,6 +21,6 @@ For non-JVM languages, the OpenAPI extension carries equivalent information at t
 
 \subsection{Limitations}
 
-The embedder is consumer-tolerant but the consumer has work to do. A reader that wants to act on the embedded clauses must (a) parse the canonical-form JML strings, (b) substitute parameter names, and (c) decide what to do with the result. The article ships the writer, the reader, and the canonicaliser, but does not ship a verifier or a runtime checker --- those are downstream concerns that benefit from the work here without being implemented by it.
+The embedder is consumer-tolerant but the consumer has work to do. A reader that wants to act on the embedded clauses must (a) parse the canonical-form JML strings, (b) substitute parameter names, and (c) decide what to do with the result. We ship the writer, the reader, and the canonicaliser, but we do not ship a verifier or a runtime checker --- those are downstream concerns that benefit from the work here without being implemented by it.
 
 The 3\% fidelity gap reported in Section~\ref{sec:empirical} is an artefact of multi-release JAR keying, not a limit of the carrier. The follow-up release closes the gap. A more substantive limitation: roundtrip equality is on the canonical-form string, not on a normalised semantic theory, so equivalent specifications written in different forms will appear distinct on the wire. This is the deliberate separation-of-concerns chosen in Section~\ref{sec:format}; semantic normalisation is a separable layer.

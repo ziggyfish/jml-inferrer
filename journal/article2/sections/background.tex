@@ -1,7 +1,7 @@
 \section{Background and Motivation}
 \label{sec:background}
 
-Source-level JML specifications are well established: the language~\cite{jml,leavens2006design} and its checker~\cite{openjml} have a thirty-year history, and the inference engine of Article~1 produces them at scale. The gap that motivates this article is downstream of inference: once a specification is known for a method, how does it travel to the consumer that needs it?
+Source-level JML specifications are well established: the language~\cite{jml,leavens2006design} and its checker~\cite{openjml} have a thirty-year history, and recent inference work~\cite{edmonds2026inference} produces them at scale. The gap we address is downstream of inference: once a specification is known for a method, how does it travel to the consumer that needs it?
 
 Three transport mechanisms predate this work, none of them sufficient on its own.
 
@@ -17,5 +17,5 @@ JVMS~\S4.7.1 permits vendor-defined class-file attributes. A custom attribute co
 \paragraph{REST API descriptions.}
 At service boundaries, OpenAPI~3.x and gRPC's protobuf carry a complementary class of metadata. OpenAPI permits arbitrary \texttt{x-*} extension properties; gRPC has no comparable extension point but supports custom Protobuf annotations. Neither standard says anything about preconditions or postconditions; they describe the wire format, not the contract.
 
-\paragraph{The carrier this article proposes.}
-A repeated runtime-retained annotation type (\texttt{@JmlSpec}, with one annotation per JML clause) plus an OpenAPI extension family (\texttt{x-jml-*}) covers the gap. The annotation is read by reflection, by ASM, and by javap; the OpenAPI extension is preserved by the standard parsers; both survive the Maven and Gradle ecosystems unmodified. Section~\ref{sec:format} specifies the format precisely; Section~\ref{sec:impl} describes the embedder/extractor implementation; Section~\ref{sec:empirical} reports the empirical evaluation.
+\paragraph{The carrier we propose.}
+A repeated runtime-retained annotation type (\texttt{@JmlSpec}, with one annotation per JML clause) plus an OpenAPI extension family (\texttt{x-jml-*}) covers the gap. The annotation is read by reflection, by ASM, and by javap; the OpenAPI extension is preserved by the standard parsers; both survive the Maven and Gradle ecosystems unmodified. Section~\ref{sec:format} specifies the format precisely; Section~\ref{sec:impl} describes our embedder/extractor implementation; Section~\ref{sec:empirical} reports the empirical evaluation.

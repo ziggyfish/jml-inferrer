@@ -1,25 +1,29 @@
 \section{Introduction}
 \label{sec:introduction}
 
-Article~1 of this thesis showed that automatically inferred JML specifications materially improve LLM-generated unit tests on Apache Commons Lang. The empirical claim assumed that the consumer of the specifications --- the test generator, an IDE, a verifier --- has access to the same source tree the inferrer ran over. That assumption is rarely satisfied in practice. Java libraries are distributed as JAR files; REST endpoints expose only their HTTP signature; gRPC services expose only their protobuf descriptors. Source code is the exception, not the norm.
+Recent work has shown that automatically inferred Java Modeling Language (JML) specifications materially improve LLM-generated unit tests on real-world Java code~\cite{edmonds2026inference}. That result, and others like it on inferred specifications for verification and tooling, share an unstated assumption: the consumer of the specifications --- the test generator, the IDE, the verifier, the language model reading the API at inference time --- has access to the same source tree the inferrer ran over. The assumption is rarely satisfied in practice. Java libraries are distributed as JAR files; REST endpoints expose only their HTTP signature; gRPC services expose only their protobuf descriptors. Source code is the exception, not the norm.
 
-This article asks: \emph{can inferred specifications be embedded in compiled artefacts and interface descriptions, with sufficient fidelity that downstream consumers can use them as if they had the source?} The empirical question is operational. The conceptual question --- whether specifications \emph{should} be transported alongside compiled artefacts --- has a long history~\cite{meyer1992design,leavens2006design,jml}; the practical question is whether the standard toolchain can be made to carry them without modification. The answer in this article is yes, with 100.0\% fidelity on three real-world libraries (Section~\ref{sec:empirical}) and an 11.76\%--13.49\% byte overhead.
+The conceptual question of whether specifications \emph{should} be transported alongside compiled artefacts has a long history~\cite{meyer1992design,leavens2006design,jml}. The practical question is whether the standard toolchain can be made to carry them without modification. In this paper, we propose and evaluate a uniform mechanism for distributing inferred JML contracts in compiled Java libraries and in REST service interfaces: a runtime-retained annotation written into class-file attributes by an ASM-based embedder, plus a parallel OpenAPI~3.x extension family for service boundaries.
 
-The contribution is the embedder/extractor pair plus its OpenAPI counterpart. Three concrete artefacts:
+We address the following research questions:
 
-\begin{enumerate}
-    \item A Java annotation type \texttt{@JmlSpec}, repeatable per clause, written by an ASM-based embedder into class-file \texttt{RuntimeVisibleAnnotations} attributes. Reflection or any class-file reader recovers the embedded specification.
-    \item An OpenAPI~3.x extension family (\texttt{x-jml-requires}, \texttt{x-jml-ensures}, \texttt{x-jml-assignable}, \texttt{x-jml-signals}, \texttt{x-jml-invariant}) carried per-operation and per-schema. The extension is preserved by standard OpenAPI parsers (swagger-parser, openapi-generator) without modification.
-    \item A Maven classifier sidecar (\texttt{<artifact>-jml.jar}) carrying JML stub files, used when in-bytecode embedding is unsuitable (signed JARs that cannot be re-signed; specifications too large to fit the per-class budget).
-\end{enumerate}
-
-The article evaluates the bytecode side empirically and the OpenAPI side by construction. The principal empirical findings:
-
-\begin{itemize}
-    \item Roundtrip fidelity is 100.0\% on all three libraries tested (20{,}546 methods total) plus the real-inferred-specs corpus, well above the 95\% threshold required for the system to be useful in CI/CD.
-    \item Bytecode-size overhead is in the 11.76\%--13.49\% range under a deliberately bulky synthetic-spec workload. Real inferred specifications are typically smaller per method, so this is an upper bound.
-    \item Embedding and reading are fast enough --- in the 10{,}000--235{,}000 methods/second range --- to support per-pull-request CI workflows on libraries an order of magnitude larger than those tested.
-    \item Classes embedded with \texttt{@JmlSpec} load correctly in JVMs with no awareness of the annotation type. The documented constraint is that reflective annotation access may raise \texttt{TypeNotPresentException}; class load itself succeeds.
+\begin{itemize}\setlength\itemsep{0.2em}
+  \item \textbf{RQ1.} Can inferred JML contracts be embedded in compiled Java artefacts and reproduced with full fidelity from the embedded bytes, with no source-code dependency?
+  \item \textbf{RQ2.} What is the bytecode-size overhead of the embedding, and how does it scale across libraries of different shapes (utility code, I/O abstractions, generics-heavy collections)?
+  \item \textbf{RQ3.} Is the embedding and reading throughput sufficient to support per-pull-request continuous-integration workflows on production-scale libraries?
+  \item \textbf{RQ4.} Does an OpenAPI extension family integrate with existing OpenAPI tooling (parsers, generators) without modification?
 \end{itemize}
 
-The remainder of the article is organised as follows. Section~\ref{sec:background} reviews the existing channels for shipping specifications alongside compiled Java code, and the gap each of them leaves. Section~\ref{sec:format} presents the format design --- the annotation type, the canonical-form printer, and the OpenAPI extension schema. Section~\ref{sec:impl} describes the implementation. Section~\ref{sec:empirical} reports the empirical validation. Section~\ref{sec:discussion} discusses generalisability; Section~\ref{sec:threats} the threats to validity. Section~\ref{sec:related} surveys related work and Section~\ref{sec:conclusion} concludes.
+We evaluate the bytecode side empirically on Apache Commons Lang, Apache Commons IO, and Guava (20{,}546 methods total) and the OpenAPI side by construction against the OpenAPI~3.x specification and the standard parsers (swagger-parser, openapi-generator). We summarise the principal findings in Table~\ref{tab:validation} and the supporting analysis in Section~\ref{sec:empirical}. In short: roundtrip fidelity is 100.0\% on all three libraries; bytecode overhead sits at 11.76--13.49\%; embedding throughput ranges from 10{,}000 to 28{,}000 methods/second; reading throughput is roughly an order of magnitude higher; and the OpenAPI extension is preserved by both standard parsers without modification.
+
+\textbf{Contributions.} In summary, this paper makes the following contributions:
+
+\begin{itemize}\setlength\itemsep{0.2em}
+  \item A Java annotation type, \texttt{@JmlSpec}, repeatable per clause, written by an ASM-based embedder into class-file \texttt{RuntimeVisibleAnnotations} attributes, from which reflection or any class-file reader recovers the embedded specification.
+  \item An OpenAPI~3.x extension family (\texttt{x-jml-requires}, \texttt{x-jml-ensures}, \texttt{x-jml-assignable}, \texttt{x-jml-signals}, \texttt{x-jml-invariant}) carried per-operation and per-schema, preserved by standard OpenAPI parsers without modification.
+  \item A Maven classifier sidecar (\texttt{<artifact>-jml.jar}) carrying JML stub files, used when in-bytecode embedding is unsuitable (signed JARs that cannot be re-signed; specifications too large to fit the per-class budget).
+  \item An empirical evaluation across 20{,}546 methods of three real-world Java libraries showing 100.0\% roundtrip fidelity, 11.76--13.49\% bytecode-size overhead, and embedding/reading throughput high enough to support per-pull-request continuous-integration workflows.
+  \item A negative test confirming that classes embedded with \texttt{@JmlSpec} load correctly in Java Virtual Machines that have no awareness of the annotation type.
+\end{itemize}
+
+\textbf{Paper organisation.} The remainder of the paper is structured as follows. Section~\ref{sec:background} reviews the existing channels for shipping specifications alongside compiled Java code and the gap each of them leaves. Section~\ref{sec:format} presents the format design --- the annotation type, the canonical-form printer, and the OpenAPI extension schema. Section~\ref{sec:impl} describes the implementation. Section~\ref{sec:empirical} reports the empirical validation. Section~\ref{sec:discussion} discusses generalisability; Section~\ref{sec:threats} the threats to validity. Section~\ref{sec:related} surveys related work and Section~\ref{sec:conclusion} concludes.
