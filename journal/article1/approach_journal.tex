@@ -23,7 +23,7 @@ The empirical study in Section~\ref{sec:results} requires specifications to be a
     \node[data, right=0.6cm of parser] (ast) {AST};
 
     % Phase 2: Analysis
-    \node[component, fill=lightgreen, right=0.6cm of ast] (analyzer) {Spec\\Analyzer};
+    \node[component, fill=lightgreen, right=0.6cm of ast] (analyzer) {Spec\\Analyser};
 
     % Sub-components of analyzer (below)
     \node[subcomponent, below=0.4cm of analyzer, xshift=-1cm] (wp) {WP};
@@ -61,8 +61,6 @@ The empirical study in Section~\ref{sec:results} requires specifications to be a
 \caption{System architecture. Phase~1 parses Java source into an AST. Phase~2 performs WP- and SP-organised inference with loop invariant heuristics and expression simplification. Phase~3 emits inferred specifications as JML annotations.}
 \label{fig:architecture}
 \end{figure}
-
-\subsection{Implementation}
 
 JML-Inferrer is implemented in Java~21 (approximately 20{,}000 lines of code at the time of submission) and uses JavaParser~\cite{javaparser} for AST construction. The pipeline comprises three phases: parsing, specification inference, and formatting. Source files are processed recursively, with annotations inserted in place, at an average of 88\,ms per file. The system is released under the Apache License 2.0; the present section describes only Phase~2, which contains the core inference logic. Phase~1 and Phase~3 are standard.
 

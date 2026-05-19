@@ -9,9 +9,7 @@ The comparison with Jdoctor reveals complementary strengths: Jdoctor recovers do
 
 Specifications improve test generation along three independent dimensions. Preconditions delimit valid input ranges, guiding the construction of boundary tests; postconditions define expected outputs, enabling oracles stronger than ``does not throw''; and the clause-by-clause decomposition allows LLMs to target individual specification clauses rather than reasoning about entire implementations. Although source-code access (P4) yields higher absolute scores, the substantial improvement from P1 to P3 confirms that specifications encode behavioural information that signatures alone cannot convey.
 
-\subsection{Generalisability}
-
-Although the evaluation uses Apache Commons Lang, the technique is applicable to any Java codebase. Effectiveness depends on code structure---well-structured code yields stronger specifications---and domain-specific business logic may require extending the heuristic repertoire. The JML specification format is independent of any particular LLM and widely recognised~\cite{leavens2006design}; comparable improvements are therefore expected with other models. Application areas include library API specification, legacy code modernisation, documentation generation, and runtime verification.
+These implications generalise beyond the Apache Commons Lang corpus in principle. The technique is applicable to any Java codebase, with effectiveness depending on code structure---well-structured code yields stronger specifications---and domain-specific business logic may require extending the heuristic repertoire. The JML specification format is independent of any particular LLM and widely recognised~\cite{leavens2006design}; comparable improvements are therefore expected with other models. Application areas extend to library API specification, legacy code modernisation, documentation generation, and runtime verification. Empirical confirmation across heterogeneous codebases remains future work and is identified explicitly as an external-validity threat in Section~\ref{sec:threats}.
 
 \subsection{Limitations}
 
