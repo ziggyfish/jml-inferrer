@@ -100,7 +100,7 @@ public class ExperimentRunner {
 
     // LLM configuration from paper Table 2
     private static final double TEMPERATURE = 0.3;
-    private static final int MAX_TOKENS = 8192;
+    private static final int MAX_TOKENS = 16384;
     private static final double TOP_P = 0.95;
 
     // Configuration
@@ -702,9 +702,7 @@ public class ExperimentRunner {
         if (response == null || response.isBlank()) return null;
 
         // Try to extract from ```java ... ``` block. Permissive about
-        // optional whitespace/newline between the fence and the code, so
-        // Gemini-2.5 outputs that include a CR or no newline at all are
-        // still matched.
+        // optional whitespace/newline between the fence and the code.
         Pattern javaBlockPattern = Pattern.compile("```\\s*java\\b\\s*(.*?)```", Pattern.DOTALL);
         Matcher matcher = javaBlockPattern.matcher(response);
         if (matcher.find()) {
@@ -716,9 +714,24 @@ public class ExperimentRunner {
         matcher = codeBlockPattern.matcher(response);
         if (matcher.find()) {
             String inner = matcher.group(1).trim();
-            // Heuristic: only accept if it looks Java-shaped.
             if (inner.contains("class ") || inner.contains("import ") || inner.contains("@Test")) {
                 return inner;
+            }
+        }
+
+        // Fallback for truncated responses: the response opens a
+        // ```java block but is cut off before the closing fence. Take
+        // everything after the opening fence as the body if it looks
+        // Java-shaped.
+        Pattern openOnly = Pattern.compile("```\\s*java\\b\\s*(.*)", Pattern.DOTALL);
+        matcher = openOnly.matcher(response);
+        if (matcher.find()) {
+            String tail = matcher.group(1).trim();
+            if (tail.contains("class ") || tail.contains("import ") || tail.contains("@Test")) {
+                // Drop any trailing stray ``` if the close was partial.
+                int lastFence = tail.lastIndexOf("```");
+                if (lastFence > 0) tail = tail.substring(0, lastFence).trim();
+                return tail;
             }
         }
 
