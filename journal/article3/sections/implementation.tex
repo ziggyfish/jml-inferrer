@@ -1,10 +1,7 @@
 \section{Implementation}
 \label{sec:impl}
 
-The pass is implemented as a single Java class,
-\texttt{com.jml.inferrer.analysis.CompositionalAnalyzer}, sitting next
-to the existing \texttt{InterproceduralAnalyzer} in the inferrer's
-module. The class is approximately 410 lines and depends only on the
+We implement the pass as a single Java class, \texttt{com.jml.\allowbreak{}inferrer.\allowbreak{}analysis.\allowbreak{}CompositionalAnalyzer}, sitting next to the existing \texttt{InterproceduralAnalyzer} in the inferrer's module. The class is approximately 410 lines and depends only on the
 inferrer's existing model (\texttt{MethodSpecification},
 \texttt{SpecificationCache}, \texttt{CallGraph}) and JavaParser.
 
@@ -28,8 +25,6 @@ for (MethodDeclaration m : allMethods) {
 CompositionalAnalyzer.RefinementResult result =
     new CompositionalAnalyzer(cache, callGraph, declarations)
         .refineAll();
-```
-}
 \end{lstlisting}
 
 The \texttt{RefinementResult} carries the number of methods refined,
@@ -39,7 +34,7 @@ deployment that prefers the cheaper single-pass output can omit it.
 
 \subsection{Two real bugs surfaced by the corpus-scale run}
 
-The analyser had been validated by a 15-test unit suite before this
+We had validated the analyser with a 15-test unit suite before this
 study. Running it on Apache Commons Lang surfaced two bugs that the
 unit tests did not exercise.
 
@@ -67,15 +62,10 @@ JavaParser ASTs: the printed representation of a type is
 implementation-dependent, and any string-splitting code over
 signatures must consider the worst case.
 
-\subsection{Repository layout}
+\subsection{Replication artefact}
 
-The analyser is at
-\texttt{src/main/java/com/jml/inferrer/analysis/} \texttt{CompositionalAnalyzer.java}
-in the project tree.
-Unit tests at
-\texttt{src/test/java/com/jml/inferrer/analysis/} \texttt{CompositionalAnalyzerTest.java}
-(15 tests, all passing after the fixes).
-The measurement harness for this paper is at
-\texttt{src/test/java/com/jml/inferrer/analysis/} \texttt{CompositionalAnalyzerCommonsLangExperimentTest.java}.
-Raw output is committed at
-\texttt{journal/rq3\_composition\_measurement.txt}.
+The analyser, unit tests, per-library measurement harnesses, and
+raw output logs are bundled in the anonymous replication package
+linked from the title footnote. A single Maven invocation
+(\texttt{mvn -Dtest=Compositional* test} on JDK~21) reproduces
+every number in Section~\ref{sec:empirical} deterministically.

@@ -1,0 +1,293 @@
+{
+  "className": "MutableInt",
+  "packageName": "org.apache.commons.lang3.mutable",
+  "methodCount": 26,
+  "methods": [
+    {
+      "name": "add",
+      "signature": "public void add(final int operand)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Adds a value to the value of this instance.\r\n *\r\n * @param operand  the value to add, not null.\r\n * @since 2.2\r\n */\r\npublic void add(final int operand) {\r\n    this.value +\u003d operand;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void add(final int operand)"
+    },
+    {
+      "name": "add",
+      "signature": "public void add(final Number operand)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Adds a value to the value of this instance.\r\n *\r\n * @param operand  the value to add, not null.\r\n * @throws NullPointerException if the object is null.\r\n * @since 2.2\r\n */\r\npublic void add(final Number operand) {\r\n    this.value +\u003d operand.intValue();\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void add(final Number operand)"
+    },
+    {
+      "name": "addAndGet",
+      "signature": "public int addAndGet(final int operand)",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Increments this instance\u0027s value by {@code operand}; this method returns the value associated with the instance\r\n * immediately after the addition operation. This method is not thread safe.\r\n *\r\n * @param operand the quantity to add, not null.\r\n * @return the value associated with this instance after adding the operand.\r\n * @since 3.5\r\n */\r\npublic int addAndGet(final int operand) {\r\n    this.value +\u003d operand;\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int addAndGet(final int operand)"
+    },
+    {
+      "name": "addAndGet",
+      "signature": "public int addAndGet(final Number operand)",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Increments this instance\u0027s value by {@code operand}; this method returns the value associated with the instance\r\n * immediately after the addition operation. This method is not thread safe.\r\n *\r\n * @param operand the quantity to add, not null.\r\n * @throws NullPointerException if {@code operand} is null.\r\n * @return the value associated with this instance after adding the operand.\r\n * @since 3.5\r\n */\r\npublic int addAndGet(final Number operand) {\r\n    this.value +\u003d operand.intValue();\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int addAndGet(final Number operand)"
+    },
+    {
+      "name": "compareTo",
+      "signature": "public int compareTo(final MutableInt other)",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Compares this mutable to another in ascending order.\r\n *\r\n * @param other  the other mutable to compare to, not null.\r\n * @return negative if this is less, zero if equal, positive if greater.\r\n */\r\n@Override\r\npublic int compareTo(final MutableInt other) {\r\n    return Integer.compare(this.value, other.value);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int compareTo(final MutableInt other)"
+    },
+    {
+      "name": "decrement",
+      "signature": "public void decrement()",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Decrements the value.\r\n *\r\n * @since 2.2\r\n */\r\npublic void decrement() {\r\n    value--;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void decrement()"
+    },
+    {
+      "name": "decrementAndGet",
+      "signature": "public int decrementAndGet()",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Decrements this instance\u0027s value by 1; this method returns the value associated with the instance\r\n * immediately after the decrement operation. This method is not thread safe.\r\n *\r\n * @return the value associated with the instance after it is decremented.\r\n * @since 3.5\r\n */\r\npublic int decrementAndGet() {\r\n    value--;\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int decrementAndGet()"
+    },
+    {
+      "name": "doubleValue",
+      "signature": "public double doubleValue()",
+      "returnType": "double",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns the value of this MutableInt as a double.\r\n *\r\n * @return the numeric value represented by this object after conversion to type double.\r\n */\r\n@Override\r\npublic double doubleValue() {\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public double doubleValue()"
+    },
+    {
+      "name": "equals",
+      "signature": "public boolean equals(final Object obj)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Compares this object to the specified object. The result is {@code true} if and only if the argument is\r\n * not {@code null} and is a {@link MutableInt} object that contains the same {@code int} value\r\n * as this object.\r\n *\r\n * @param obj  the object to compare with, null returns false.\r\n * @return {@code true} if the objects are the same; {@code false} otherwise.\r\n */\r\n@Override\r\npublic boolean equals(final Object obj) {\r\n    if (obj instanceof MutableInt) {\r\n        return value \u003d\u003d ((MutableInt) obj).intValue();\r\n    }\r\n    return false;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean equals(final Object obj)"
+    },
+    {
+      "name": "floatValue",
+      "signature": "public float floatValue()",
+      "returnType": "float",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns the value of this MutableInt as a float.\r\n *\r\n * @return the numeric value represented by this object after conversion to type float.\r\n */\r\n@Override\r\npublic float floatValue() {\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public float floatValue()"
+    },
+    {
+      "name": "getAndAdd",
+      "signature": "public int getAndAdd(final int operand)",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Increments this instance\u0027s value by {@code operand}; this method returns the value associated with the instance\r\n * immediately prior to the addition operation. This method is not thread safe.\r\n *\r\n * @param operand the quantity to add, not null.\r\n * @return the value associated with this instance immediately before the operand was added.\r\n * @since 3.5\r\n */\r\npublic int getAndAdd(final int operand) {\r\n    final int last \u003d value;\r\n    this.value +\u003d operand;\r\n    return last;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int getAndAdd(final int operand)"
+    },
+    {
+      "name": "getAndAdd",
+      "signature": "public int getAndAdd(final Number operand)",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Increments this instance\u0027s value by {@code operand}; this method returns the value associated with the instance\r\n * immediately prior to the addition operation. This method is not thread safe.\r\n *\r\n * @param operand the quantity to add, not null.\r\n * @throws NullPointerException if {@code operand} is null.\r\n * @return the value associated with this instance immediately before the operand was added.\r\n * @since 3.5\r\n */\r\npublic int getAndAdd(final Number operand) {\r\n    final int last \u003d value;\r\n    this.value +\u003d operand.intValue();\r\n    return last;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int getAndAdd(final Number operand)"
+    },
+    {
+      "name": "getAndDecrement",
+      "signature": "public int getAndDecrement()",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Decrements this instance\u0027s value by 1; this method returns the value associated with the instance\r\n * immediately prior to the decrement operation. This method is not thread safe.\r\n *\r\n * @return the value associated with the instance before it was decremented.\r\n * @since 3.5\r\n */\r\npublic int getAndDecrement() {\r\n    final int last \u003d value;\r\n    value--;\r\n    return last;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int getAndDecrement()"
+    },
+    {
+      "name": "getAndIncrement",
+      "signature": "public int getAndIncrement()",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Increments this instance\u0027s value by 1; this method returns the value associated with the instance\r\n * immediately prior to the increment operation. This method is not thread safe.\r\n *\r\n * @return the value associated with the instance before it was incremented.\r\n * @since 3.5\r\n */\r\npublic int getAndIncrement() {\r\n    final int last \u003d value;\r\n    value++;\r\n    return last;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int getAndIncrement()"
+    },
+    {
+      "name": "getValue",
+      "signature": "public Integer getValue()",
+      "returnType": "Integer",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets the value as a Integer instance.\r\n *\r\n * @return the value as a Integer, never null.\r\n * @deprecated Use {@link #get()}.\r\n */\r\n@Deprecated\r\n@Override\r\npublic Integer getValue() {\r\n    return Integer.valueOf(this.value);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public Integer getValue()"
+    },
+    {
+      "name": "hashCode",
+      "signature": "public int hashCode()",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns a suitable hash code for this mutable.\r\n *\r\n * @return a suitable hash code.\r\n */\r\n@Override\r\npublic int hashCode() {\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int hashCode()"
+    },
+    {
+      "name": "increment",
+      "signature": "public void increment()",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Increments the value.\r\n *\r\n * @since 2.2\r\n */\r\npublic void increment() {\r\n    value++;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void increment()"
+    },
+    {
+      "name": "incrementAndGet",
+      "signature": "public int incrementAndGet()",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Increments this instance\u0027s value by 1; this method returns the value associated with the instance\r\n * immediately after the increment operation. This method is not thread safe.\r\n *\r\n * @return the value associated with the instance after it is incremented.\r\n * @since 3.5\r\n */\r\npublic int incrementAndGet() {\r\n    value++;\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int incrementAndGet()"
+    },
+    {
+      "name": "intValue",
+      "signature": "public int intValue()",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "// shortValue and byteValue rely on Number implementation\r\n/**\r\n * Returns the value of this MutableInt as an int.\r\n *\r\n * @return the numeric value represented by this object after conversion to type int.\r\n */\r\n@Override\r\npublic int intValue() {\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int intValue()"
+    },
+    {
+      "name": "longValue",
+      "signature": "public long longValue()",
+      "returnType": "long",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns the value of this MutableInt as a long.\r\n *\r\n * @return the numeric value represented by this object after conversion to type long.\r\n */\r\n@Override\r\npublic long longValue() {\r\n    return value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public long longValue()"
+    },
+    {
+      "name": "setValue",
+      "signature": "public void setValue(final int value)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Sets the value.\r\n *\r\n * @param value  the value to set.\r\n */\r\npublic void setValue(final int value) {\r\n    this.value \u003d value;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void setValue(final int value)"
+    },
+    {
+      "name": "setValue",
+      "signature": "public void setValue(final Number value)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Sets the value from any Number instance.\r\n *\r\n * @param value  the value to set, not null.\r\n * @throws NullPointerException if the object is null.\r\n */\r\n@Override\r\npublic void setValue(final Number value) {\r\n    this.value \u003d value.intValue();\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void setValue(final Number value)"
+    },
+    {
+      "name": "subtract",
+      "signature": "public void subtract(final int operand)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Subtracts a value from the value of this instance.\r\n *\r\n * @param operand  the value to subtract, not null.\r\n * @since 2.2\r\n */\r\npublic void subtract(final int operand) {\r\n    this.value -\u003d operand;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void subtract(final int operand)"
+    },
+    {
+      "name": "subtract",
+      "signature": "public void subtract(final Number operand)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Subtracts a value from the value of this instance.\r\n *\r\n * @param operand  the value to subtract, not null.\r\n * @throws NullPointerException if the object is null.\r\n * @since 2.2\r\n */\r\npublic void subtract(final Number operand) {\r\n    this.value -\u003d operand.intValue();\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void subtract(final Number operand)"
+    },
+    {
+      "name": "toInteger",
+      "signature": "public Integer toInteger()",
+      "returnType": "Integer",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets this mutable as an instance of Integer.\r\n *\r\n * @return an Integer instance containing the value from this mutable, never null.\r\n */\r\npublic Integer toInteger() {\r\n    return Integer.valueOf(intValue());\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public Integer toInteger()"
+    },
+    {
+      "name": "toString",
+      "signature": "public String toString()",
+      "returnType": "String",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns the String value of this mutable.\r\n *\r\n * @return the mutable value as a string.\r\n */\r\n@Override\r\npublic String toString() {\r\n    return String.valueOf(value);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public String toString()"
+    }
+  ]
+}

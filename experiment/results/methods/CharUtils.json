@@ -1,0 +1,282 @@
+{
+  "className": "CharUtils",
+  "packageName": "org.apache.commons.lang3",
+  "methodCount": 25,
+  "methods": [
+    {
+      "name": "compare",
+      "signature": "public static int compare(final char x, final char y)",
+      "returnType": "int",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Compares two {@code char} values numerically. This is the same functionality as provided in Java 7.\r\n *\r\n * @param x the first {@code char} to compare\r\n * @param y the second {@code char} to compare\r\n * @return the value {@code 0} if {@code x \u003d\u003d y};\r\n *         a value less than {@code 0} if {@code x \u003c y}; and\r\n *         a value greater than {@code 0} if {@code x \u003e y}\r\n * @since 3.4\r\n */\r\npublic static int compare(final char x, final char y) {\r\n    return x - y;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static int compare(final char x, final char y)"
+    },
+    {
+      "name": "isAscii",
+      "signature": "public static boolean isAscii(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether the character is ASCII 7 bit.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isAscii(\u0027a\u0027)  \u003d true\r\n *   CharUtils.isAscii(\u0027A\u0027)  \u003d true\r\n *   CharUtils.isAscii(\u00273\u0027)  \u003d true\r\n *   CharUtils.isAscii(\u0027-\u0027)  \u003d true\r\n *   CharUtils.isAscii(\u0027\\n\u0027) \u003d true\r\n *   CharUtils.isAscii(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to check\r\n * @return true if less than 128\r\n */\r\npublic static boolean isAscii(final char ch) {\r\n    return ch \u003c 128;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isAscii(final char ch)"
+    },
+    {
+      "name": "isAsciiAlpha",
+      "signature": "public static boolean isAsciiAlpha(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether the character is ASCII 7 bit alphabetic.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isAsciiAlpha(\u0027a\u0027)  \u003d true\r\n *   CharUtils.isAsciiAlpha(\u0027A\u0027)  \u003d true\r\n *   CharUtils.isAsciiAlpha(\u00273\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlpha(\u0027-\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlpha(\u0027\\n\u0027) \u003d false\r\n *   CharUtils.isAsciiAlpha(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to check\r\n * @return true if between 65 and 90 or 97 and 122 inclusive\r\n */\r\npublic static boolean isAsciiAlpha(final char ch) {\r\n    return isAsciiAlphaUpper(ch) || isAsciiAlphaLower(ch);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isAsciiAlpha(final char ch)"
+    },
+    {
+      "name": "isAsciiAlphaLower",
+      "signature": "public static boolean isAsciiAlphaLower(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether the character is ASCII 7 bit alphabetic lower case.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isAsciiAlphaLower(\u0027a\u0027)  \u003d true\r\n *   CharUtils.isAsciiAlphaLower(\u0027A\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlphaLower(\u00273\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlphaLower(\u0027-\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlphaLower(\u0027\\n\u0027) \u003d false\r\n *   CharUtils.isAsciiAlphaLower(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to check\r\n * @return true if between 97 and 122 inclusive\r\n */\r\npublic static boolean isAsciiAlphaLower(final char ch) {\r\n    return ch \u003e\u003d \u0027a\u0027 \u0026\u0026 ch \u003c\u003d \u0027z\u0027;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isAsciiAlphaLower(final char ch)"
+    },
+    {
+      "name": "isAsciiAlphanumeric",
+      "signature": "public static boolean isAsciiAlphanumeric(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether the character is ASCII 7 bit alphanumeric character.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isAsciiAlphanumeric(\u0027a\u0027)  \u003d true\r\n *   CharUtils.isAsciiAlphanumeric(\u0027A\u0027)  \u003d true\r\n *   CharUtils.isAsciiAlphanumeric(\u00273\u0027)  \u003d true\r\n *   CharUtils.isAsciiAlphanumeric(\u0027-\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlphanumeric(\u0027\\n\u0027) \u003d false\r\n *   CharUtils.isAsciiAlphanumeric(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to check\r\n * @return true if between 48 and 57 or 65 and 90 or 97 and 122 inclusive\r\n */\r\npublic static boolean isAsciiAlphanumeric(final char ch) {\r\n    return isAsciiAlpha(ch) || isAsciiNumeric(ch);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isAsciiAlphanumeric(final char ch)"
+    },
+    {
+      "name": "isAsciiAlphaUpper",
+      "signature": "public static boolean isAsciiAlphaUpper(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether the character is ASCII 7 bit alphabetic upper case.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isAsciiAlphaUpper(\u0027a\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlphaUpper(\u0027A\u0027)  \u003d true\r\n *   CharUtils.isAsciiAlphaUpper(\u00273\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlphaUpper(\u0027-\u0027)  \u003d false\r\n *   CharUtils.isAsciiAlphaUpper(\u0027\\n\u0027) \u003d false\r\n *   CharUtils.isAsciiAlphaUpper(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to check\r\n * @return true if between 65 and 90 inclusive\r\n */\r\npublic static boolean isAsciiAlphaUpper(final char ch) {\r\n    return ch \u003e\u003d \u0027A\u0027 \u0026\u0026 ch \u003c\u003d \u0027Z\u0027;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isAsciiAlphaUpper(final char ch)"
+    },
+    {
+      "name": "isAsciiControl",
+      "signature": "public static boolean isAsciiControl(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether the character is ASCII 7 bit control.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isAsciiControl(\u0027a\u0027)  \u003d false\r\n *   CharUtils.isAsciiControl(\u0027A\u0027)  \u003d false\r\n *   CharUtils.isAsciiControl(\u00273\u0027)  \u003d false\r\n *   CharUtils.isAsciiControl(\u0027-\u0027)  \u003d false\r\n *   CharUtils.isAsciiControl(\u0027\\n\u0027) \u003d true\r\n *   CharUtils.isAsciiControl(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to check\r\n * @return true if less than 32 or equals 127\r\n */\r\npublic static boolean isAsciiControl(final char ch) {\r\n    return ch \u003c 32 || ch \u003d\u003d 127;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isAsciiControl(final char ch)"
+    },
+    {
+      "name": "isAsciiNumeric",
+      "signature": "public static boolean isAsciiNumeric(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether the character is ASCII 7 bit numeric.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isAsciiNumeric(\u0027a\u0027)  \u003d false\r\n *   CharUtils.isAsciiNumeric(\u0027A\u0027)  \u003d false\r\n *   CharUtils.isAsciiNumeric(\u00273\u0027)  \u003d true\r\n *   CharUtils.isAsciiNumeric(\u0027-\u0027)  \u003d false\r\n *   CharUtils.isAsciiNumeric(\u0027\\n\u0027) \u003d false\r\n *   CharUtils.isAsciiNumeric(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to check\r\n * @return true if between 48 and 57 inclusive\r\n */\r\npublic static boolean isAsciiNumeric(final char ch) {\r\n    return ch \u003e\u003d \u00270\u0027 \u0026\u0026 ch \u003c\u003d \u00279\u0027;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isAsciiNumeric(final char ch)"
+    },
+    {
+      "name": "isAsciiPrintable",
+      "signature": "public static boolean isAsciiPrintable(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether the character is ASCII 7 bit printable.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isAsciiPrintable(\u0027a\u0027)  \u003d true\r\n *   CharUtils.isAsciiPrintable(\u0027A\u0027)  \u003d true\r\n *   CharUtils.isAsciiPrintable(\u00273\u0027)  \u003d true\r\n *   CharUtils.isAsciiPrintable(\u0027-\u0027)  \u003d true\r\n *   CharUtils.isAsciiPrintable(\u0027\\n\u0027) \u003d false\r\n *   CharUtils.isAsciiPrintable(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to check\r\n * @return true if between 32 and 126 inclusive\r\n */\r\npublic static boolean isAsciiPrintable(final char ch) {\r\n    return ch \u003e\u003d 32 \u0026\u0026 ch \u003c 127;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isAsciiPrintable(final char ch)"
+    },
+    {
+      "name": "isHex",
+      "signature": "public static boolean isHex(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether a character is a hexadecimal character.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.isHex(\u00270\u0027)  \u003d true\r\n *   CharUtils.isHex(\u00273\u0027)  \u003d true\r\n *   CharUtils.isHex(\u00279\u0027)  \u003d true\r\n *   CharUtils.isHex(\u0027a\u0027)  \u003d true\r\n *   CharUtils.isHex(\u0027f\u0027)  \u003d true\r\n *   CharUtils.isHex(\u0027g\u0027)  \u003d false\r\n *   CharUtils.isHex(\u0027A\u0027)  \u003d true\r\n *   CharUtils.isHex(\u0027F\u0027)  \u003d true\r\n *   CharUtils.isHex(\u0027G\u0027)  \u003d false\r\n *   CharUtils.isHex(\u0027#\u0027)  \u003d false\r\n *   CharUtils.isHex(\u0027-\u0027)  \u003d false\r\n *   CharUtils.isHex(\u0027\\n\u0027) \u003d false\r\n *   CharUtils.isHex(\u0027\u0026copy;\u0027) \u003d false\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to test.\r\n * @return true if character is a hexadecimal character.\r\n * @since 3.18.0\r\n */\r\npublic static boolean isHex(final char ch) {\r\n    return isAsciiNumeric(ch) || ch \u003e\u003d \u0027a\u0027 \u0026\u0026 ch \u003c\u003d \u0027f\u0027 || ch \u003e\u003d \u0027A\u0027 \u0026\u0026 ch \u003c\u003d \u0027F\u0027;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isHex(final char ch)"
+    },
+    {
+      "name": "isOctal",
+      "signature": "public static boolean isOctal(final char ch)",
+      "returnType": "boolean",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests if the given char is an octal digit. Octal digits are the character representations of the digits 0 to 7.\r\n *\r\n * @param ch the char to check\r\n * @return true if the given char is the character representation of one of the digits from 0 to 7\r\n * @since 3.18.0\r\n */\r\npublic static boolean isOctal(final char ch) {\r\n    return ch \u003e\u003d \u00270\u0027 \u0026\u0026 ch \u003c\u003d \u00277\u0027;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static boolean isOctal(final char ch)"
+    },
+    {
+      "name": "toChar",
+      "signature": "public static char toChar(final Character ch)",
+      "returnType": "char",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the Character to a char throwing an exception for {@code null}.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toChar(\u0027 \u0027)  \u003d \u0027 \u0027\r\n *   CharUtils.toChar(\u0027A\u0027)  \u003d \u0027A\u0027\r\n *   CharUtils.toChar(null) throws NullPointerException\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert\r\n * @return the char value of the Character\r\n * @throws NullPointerException if the Character is null\r\n */\r\npublic static char toChar(final Character ch) {\r\n    return Objects.requireNonNull(ch, \"ch\").charValue();\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static char toChar(final Character ch)"
+    },
+    {
+      "name": "toChar",
+      "signature": "public static char toChar(final Character ch, final char defaultValue)",
+      "returnType": "char",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the Character to a char handling {@code null}.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toChar(null, \u0027X\u0027) \u003d \u0027X\u0027\r\n *   CharUtils.toChar(\u0027 \u0027, \u0027X\u0027)  \u003d \u0027 \u0027\r\n *   CharUtils.toChar(\u0027A\u0027, \u0027X\u0027)  \u003d \u0027A\u0027\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert\r\n * @param defaultValue  the value to use if the  Character is null\r\n * @return the char value of the Character or the default if null\r\n */\r\npublic static char toChar(final Character ch, final char defaultValue) {\r\n    return ch !\u003d null ? ch.charValue() : defaultValue;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static char toChar(final Character ch, final char defaultValue)"
+    },
+    {
+      "name": "toChar",
+      "signature": "public static char toChar(final String str)",
+      "returnType": "char",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the String to a char using the first character, throwing\r\n * an exception on empty Strings.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toChar(\"A\")  \u003d \u0027A\u0027\r\n *   CharUtils.toChar(\"BA\") \u003d \u0027B\u0027\r\n *   CharUtils.toChar(null) throws NullPointerException\r\n *   CharUtils.toChar(\"\")   throws IllegalArgumentException\r\n * \u003c/pre\u003e\r\n *\r\n * @param str  the character to convert\r\n * @return the char value of the first letter of the String\r\n * @throws NullPointerException if the string is null\r\n * @throws IllegalArgumentException if the String is empty\r\n */\r\npublic static char toChar(final String str) {\r\n    Validate.notEmpty(str, \"The String must not be empty\");\r\n    return str.charAt(0);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static char toChar(final String str)"
+    },
+    {
+      "name": "toChar",
+      "signature": "public static char toChar(final String str, final char defaultValue)",
+      "returnType": "char",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the String to a char using the first character, defaulting\r\n * the value on empty Strings.\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toChar(null, \u0027X\u0027) \u003d \u0027X\u0027\r\n *   CharUtils.toChar(\"\", \u0027X\u0027)   \u003d \u0027X\u0027\r\n *   CharUtils.toChar(\"A\", \u0027X\u0027)  \u003d \u0027A\u0027\r\n *   CharUtils.toChar(\"BA\", \u0027X\u0027) \u003d \u0027B\u0027\r\n * \u003c/pre\u003e\r\n *\r\n * @param str  the character to convert\r\n * @param defaultValue  the value to use if the  Character is null\r\n * @return the char value of the first letter of the String or the default if null\r\n */\r\npublic static char toChar(final String str, final char defaultValue) {\r\n    return StringUtils.isEmpty(str) ? defaultValue : str.charAt(0);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static char toChar(final String str, final char defaultValue)"
+    },
+    {
+      "name": "toCharacterObject",
+      "signature": "public static Character toCharacterObject(final char c)",
+      "returnType": "Character",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Delegates to {@link Character#valueOf(char)}.\r\n *\r\n * @param c the character to convert\r\n * @return a {@code Character} representing {@code c}.\r\n * @deprecated Use {@link Character#valueOf(char)}.\r\n */\r\n@Deprecated\r\npublic static Character toCharacterObject(final char c) {\r\n    return Character.valueOf(c);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Character toCharacterObject(final char c)"
+    },
+    {
+      "name": "toCharacterObject",
+      "signature": "public static Character toCharacterObject(final String str)",
+      "returnType": "Character",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the String to a Character using the first character, returning\r\n * null for empty Strings.\r\n *\r\n * \u003cp\u003eFor ASCII 7 bit characters, this uses a cache that will return the\r\n * same Character object each time.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toCharacterObject(null) \u003d null\r\n *   CharUtils.toCharacterObject(\"\")   \u003d null\r\n *   CharUtils.toCharacterObject(\"A\")  \u003d \u0027A\u0027\r\n *   CharUtils.toCharacterObject(\"BA\") \u003d \u0027B\u0027\r\n * \u003c/pre\u003e\r\n *\r\n * @param str  the character to convert\r\n * @return the Character value of the first letter of the String\r\n */\r\npublic static Character toCharacterObject(final String str) {\r\n    return StringUtils.isEmpty(str) ? null : Character.valueOf(str.charAt(0));\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Character toCharacterObject(final String str)"
+    },
+    {
+      "name": "toIntValue",
+      "signature": "public static int toIntValue(final char ch)",
+      "returnType": "int",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the character to the Integer it represents, throwing an\r\n * exception if the character is not numeric.\r\n *\r\n * \u003cp\u003eThis method converts the char \u00271\u0027 to the int 1 and so on.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toIntValue(\u00273\u0027)  \u003d 3\r\n *   CharUtils.toIntValue(\u0027A\u0027)  throws IllegalArgumentException\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert\r\n * @return the int value of the character\r\n * @throws IllegalArgumentException if the character is not ASCII numeric\r\n */\r\npublic static int toIntValue(final char ch) {\r\n    if (!isAsciiNumeric(ch)) {\r\n        throw new IllegalArgumentException(\"The character \" + ch + \" is not in the range \u00270\u0027 - \u00279\u0027\");\r\n    }\r\n    return ch - 48;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static int toIntValue(final char ch)"
+    },
+    {
+      "name": "toIntValue",
+      "signature": "public static int toIntValue(final char ch, final int defaultValue)",
+      "returnType": "int",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the character to the Integer it represents, throwing an\r\n * exception if the character is not numeric.\r\n *\r\n * \u003cp\u003eThis method converts the char \u00271\u0027 to the int 1 and so on.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toIntValue(\u00273\u0027, -1)  \u003d 3\r\n *   CharUtils.toIntValue(\u0027A\u0027, -1)  \u003d -1\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert\r\n * @param defaultValue  the default value to use if the character is not numeric\r\n * @return the int value of the character\r\n */\r\npublic static int toIntValue(final char ch, final int defaultValue) {\r\n    return isAsciiNumeric(ch) ? ch - 48 : defaultValue;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static int toIntValue(final char ch, final int defaultValue)"
+    },
+    {
+      "name": "toIntValue",
+      "signature": "public static int toIntValue(final Character ch)",
+      "returnType": "int",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the character to the Integer it represents, throwing an\r\n * exception if the character is not numeric.\r\n *\r\n * \u003cp\u003eThis method converts the char \u00271\u0027 to the int 1 and so on.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toIntValue(\u00273\u0027)  \u003d 3\r\n *   CharUtils.toIntValue(null) throws NullPointerException\r\n *   CharUtils.toIntValue(\u0027A\u0027)  throws IllegalArgumentException\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert, not null\r\n * @return the int value of the character\r\n * @throws NullPointerException if the Character is null\r\n * @throws IllegalArgumentException if the Character is not ASCII numeric\r\n */\r\npublic static int toIntValue(final Character ch) {\r\n    return toIntValue(toChar(ch));\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static int toIntValue(final Character ch)"
+    },
+    {
+      "name": "toIntValue",
+      "signature": "public static int toIntValue(final Character ch, final int defaultValue)",
+      "returnType": "int",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the character to the Integer it represents, throwing an\r\n * exception if the character is not numeric.\r\n *\r\n * \u003cp\u003eThis method converts the char \u00271\u0027 to the int 1 and so on.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toIntValue(null, -1) \u003d -1\r\n *   CharUtils.toIntValue(\u00273\u0027, -1)  \u003d 3\r\n *   CharUtils.toIntValue(\u0027A\u0027, -1)  \u003d -1\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert\r\n * @param defaultValue  the default value to use if the character is not numeric\r\n * @return the int value of the character\r\n */\r\npublic static int toIntValue(final Character ch, final int defaultValue) {\r\n    return ch !\u003d null ? toIntValue(ch.charValue(), defaultValue) : defaultValue;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static int toIntValue(final Character ch, final int defaultValue)"
+    },
+    {
+      "name": "toString",
+      "signature": "public static String toString(final char ch)",
+      "returnType": "String",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the character to a String that contains the one character.\r\n *\r\n * \u003cp\u003eFor ASCII 7 bit characters, this uses a cache that will return the\r\n * same String object each time.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toString(\u0027 \u0027)  \u003d \" \"\r\n *   CharUtils.toString(\u0027A\u0027)  \u003d \"A\"\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert\r\n * @return a String containing the one specified character\r\n */\r\npublic static String toString(final char ch) {\r\n    if (ch \u003c CHAR_STRING_ARRAY.length) {\r\n        return CHAR_STRING_ARRAY[ch];\r\n    }\r\n    return String.valueOf(ch);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static String toString(final char ch)"
+    },
+    {
+      "name": "toString",
+      "signature": "public static String toString(final Character ch)",
+      "returnType": "String",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the character to a String that contains the one character.\r\n *\r\n * \u003cp\u003eFor ASCII 7 bit characters, this uses a cache that will return the\r\n * same String object each time.\u003c/p\u003e\r\n *\r\n * \u003cp\u003eIf {@code null} is passed in, {@code null} will be returned.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.toString(null) \u003d null\r\n *   CharUtils.toString(\u0027 \u0027)  \u003d \" \"\r\n *   CharUtils.toString(\u0027A\u0027)  \u003d \"A\"\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert\r\n * @return a String containing the one specified character\r\n */\r\npublic static String toString(final Character ch) {\r\n    return ch !\u003d null ? toString(ch.charValue()) : null;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static String toString(final Character ch)"
+    },
+    {
+      "name": "unicodeEscaped",
+      "signature": "public static String unicodeEscaped(final char ch)",
+      "returnType": "String",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the string to the Unicode format \u0027\\u0020\u0027.\r\n *\r\n * \u003cp\u003eThis format is the Java source code format.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.unicodeEscaped(\u0027 \u0027) \u003d \"\\u0020\"\r\n *   CharUtils.unicodeEscaped(\u0027A\u0027) \u003d \"\\u0041\"\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert\r\n * @return the escaped Unicode string\r\n */\r\npublic static String unicodeEscaped(final char ch) {\r\n    return \"\\\\u\" + HEX_DIGITS[ch \u003e\u003e 12 \u0026 15] + HEX_DIGITS[ch \u003e\u003e 8 \u0026 15] + HEX_DIGITS[ch \u003e\u003e 4 \u0026 15] + HEX_DIGITS[ch \u0026 15];\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static String unicodeEscaped(final char ch)"
+    },
+    {
+      "name": "unicodeEscaped",
+      "signature": "public static String unicodeEscaped(final Character ch)",
+      "returnType": "String",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Converts the string to the Unicode format \u0027\\u0020\u0027.\r\n *\r\n * \u003cp\u003eThis format is the Java source code format.\u003c/p\u003e\r\n *\r\n * \u003cp\u003eIf {@code null} is passed in, {@code null} will be returned.\u003c/p\u003e\r\n *\r\n * \u003cpre\u003e\r\n *   CharUtils.unicodeEscaped(null) \u003d null\r\n *   CharUtils.unicodeEscaped(\u0027 \u0027)  \u003d \"\\u0020\"\r\n *   CharUtils.unicodeEscaped(\u0027A\u0027)  \u003d \"\\u0041\"\r\n * \u003c/pre\u003e\r\n *\r\n * @param ch  the character to convert, may be null\r\n * @return the escaped Unicode string, null if null input\r\n */\r\npublic static String unicodeEscaped(final Character ch) {\r\n    return ch !\u003d null ? unicodeEscaped(ch.charValue()) : null;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static String unicodeEscaped(final Character ch)"
+    }
+  ]
+}

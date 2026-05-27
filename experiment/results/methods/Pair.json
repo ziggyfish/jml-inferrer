@@ -1,0 +1,168 @@
+{
+  "className": "Pair",
+  "packageName": "org.apache.commons.lang3.tuple",
+  "methodCount": 15,
+  "methods": [
+    {
+      "name": "emptyArray",
+      "signature": "public static Pair\u003cL, R\u003e[] emptyArray()",
+      "returnType": "Pair\u003cL,R\u003e[]",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns the empty array singleton that can be assigned without compiler warning.\r\n *\r\n * @param \u003cL\u003e the left element type.\r\n * @param \u003cR\u003e the right element type.\r\n * @return the empty array singleton that can be assigned without compiler warning.\r\n * @since 3.10\r\n */\r\n@SuppressWarnings(\"unchecked\")\r\npublic static \u003cL, R\u003e Pair\u003cL, R\u003e[] emptyArray() {\r\n    return (Pair\u003cL, R\u003e[]) EMPTY_ARRAY;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Pair\u003cL, R\u003e[] emptyArray()"
+    },
+    {
+      "name": "of",
+      "signature": "public static Pair\u003cL, R\u003e of(final L left, final R right)",
+      "returnType": "Pair\u003cL,R\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates an immutable pair of two objects inferring the generic types.\r\n *\r\n * @param \u003cL\u003e the left element type.\r\n * @param \u003cR\u003e the right element type.\r\n * @param left  the left element, may be null.\r\n * @param right  the right element, may be null.\r\n * @return an immutable pair formed from the two parameters, not null.\r\n */\r\npublic static \u003cL, R\u003e Pair\u003cL, R\u003e of(final L left, final R right) {\r\n    return ImmutablePair.of(left, right);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Pair\u003cL, R\u003e of(final L left, final R right)"
+    },
+    {
+      "name": "of",
+      "signature": "public static Pair\u003cL, R\u003e of(final Map.Entry\u003cL, R\u003e pair)",
+      "returnType": "Pair\u003cL,R\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates an immutable pair from a map entry.\r\n *\r\n * @param \u003cL\u003e the left element type.\r\n * @param \u003cR\u003e the right element type.\r\n * @param pair the map entry.\r\n * @return an immutable pair formed from the map entry.\r\n * @since 3.10\r\n */\r\npublic static \u003cL, R\u003e Pair\u003cL, R\u003e of(final Map.Entry\u003cL, R\u003e pair) {\r\n    return ImmutablePair.of(pair);\r\n}",
+      "jmlAnnotations": "",
+      "annotatedSignature": "public static Pair\u003cL, R\u003e of(final Map.Entry\u003cL, R\u003e pair)"
+    },
+    {
+      "name": "ofNonNull",
+      "signature": "public static Pair\u003cL, R\u003e ofNonNull(final L left, final R right)",
+      "returnType": "Pair\u003cL,R\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates an immutable pair of two non-null objects inferring the generic types.\r\n *\r\n * @param \u003cL\u003e the left element type.\r\n * @param \u003cR\u003e the right element type.\r\n * @param left  the left element, may not be null.\r\n * @param right  the right element, may not  be null.\r\n * @return an immutable pair formed from the two parameters, not null.\r\n * @throws NullPointerException if any input is null.\r\n * @since 3.13.0\r\n */\r\npublic static \u003cL, R\u003e Pair\u003cL, R\u003e ofNonNull(final L left, final R right) {\r\n    return ImmutablePair.ofNonNull(left, right);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Pair\u003cL, R\u003e ofNonNull(final L left, final R right)"
+    },
+    {
+      "name": "accept",
+      "signature": "public void accept(final FailableBiConsumer\u003cL, R, E\u003e consumer) throws E",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Accepts this key and value as arguments to the given consumer.\r\n *\r\n * @param \u003cE\u003e The kind of thrown exception or error.\r\n * @param consumer the consumer to call.\r\n * @throws E Thrown when the consumer fails.\r\n * @since 3.13.0\r\n */\r\npublic \u003cE extends Throwable\u003e void accept(final FailableBiConsumer\u003cL, R, E\u003e consumer) throws E {\r\n    consumer.accept(getKey(), getValue());\r\n}",
+      "jmlAnnotations": "",
+      "annotatedSignature": "public void accept(final FailableBiConsumer\u003cL, R, E\u003e consumer) throws E"
+    },
+    {
+      "name": "apply",
+      "signature": "public V apply(final FailableBiFunction\u003cL, R, V, E\u003e function) throws E",
+      "returnType": "V",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Applies this key and value as arguments to the given function.\r\n *\r\n * @param \u003cV\u003e The function return type.\r\n * @param \u003cE\u003e The kind of thrown exception or error.\r\n * @param function the consumer to call.\r\n * @return the function\u0027s return value.\r\n * @throws E Thrown when the consumer fails.\r\n * @since 3.13.0\r\n */\r\npublic \u003cV, E extends Throwable\u003e V apply(final FailableBiFunction\u003cL, R, V, E\u003e function) throws E {\r\n    return function.apply(getKey(), getValue());\r\n}",
+      "jmlAnnotations": "",
+      "annotatedSignature": "public V apply(final FailableBiFunction\u003cL, R, V, E\u003e function) throws E"
+    },
+    {
+      "name": "compareTo",
+      "signature": "public int compareTo(final Pair\u003cL, R\u003e other)",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Compares the pair based on the left element followed by the right element.\r\n * The types must be {@link Comparable}.\r\n *\r\n * @param other  the other pair, not null.\r\n * @return negative if this is less, zero if equal, positive if greater.\r\n */\r\n@Override\r\npublic int compareTo(final Pair\u003cL, R\u003e other) {\r\n    // @formatter:off\r\n    return new CompareToBuilder().append(getLeft(), other.getLeft()).append(getRight(), other.getRight()).toComparison();\r\n    // @formatter:on\r\n}",
+      "jmlAnnotations": "",
+      "annotatedSignature": "public int compareTo(final Pair\u003cL, R\u003e other)"
+    },
+    {
+      "name": "equals",
+      "signature": "public boolean equals(final Object obj)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Compares this pair to another based on the two elements.\r\n *\r\n * @param obj  the object to compare to, null returns false.\r\n * @return true if the elements of the pair are equal.\r\n */\r\n@Override\r\npublic boolean equals(final Object obj) {\r\n    if (obj \u003d\u003d this) {\r\n        return true;\r\n    }\r\n    if (obj instanceof Map.Entry\u003c?, ?\u003e) {\r\n        final Map.Entry\u003c?, ?\u003e other \u003d (Map.Entry\u003c?, ?\u003e) obj;\r\n        return Objects.equals(getKey(), other.getKey()) \u0026\u0026 Objects.equals(getValue(), other.getValue());\r\n    }\r\n    return false;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean equals(final Object obj)"
+    },
+    {
+      "name": "getKey",
+      "signature": "public final L getKey()",
+      "returnType": "L",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets the key from this pair.\r\n *\r\n * \u003cp\u003eThis method implements the {@code Map.Entry} interface returning the\r\n * left element as the key.\u003c/p\u003e\r\n *\r\n * @return the left element as the key, may be null.\r\n */\r\n@Override\r\npublic final L getKey() {\r\n    return getLeft();\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public final L getKey()"
+    },
+    {
+      "name": "getLeft",
+      "signature": "public abstract L getLeft()",
+      "returnType": "L",
+      "isStatic": false,
+      "isAbstract": true,
+      "sourceCode": "/**\r\n * Gets the left element from this pair.\r\n *\r\n * \u003cp\u003eWhen treated as a key-value pair, this is the key.\u003c/p\u003e\r\n *\r\n * @return the left element, may be null.\r\n */\r\npublic abstract L getLeft();",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public abstract L getLeft()"
+    },
+    {
+      "name": "getRight",
+      "signature": "public abstract R getRight()",
+      "returnType": "R",
+      "isStatic": false,
+      "isAbstract": true,
+      "sourceCode": "/**\r\n * Gets the right element from this pair.\r\n *\r\n * \u003cp\u003eWhen treated as a key-value pair, this is the value.\u003c/p\u003e\r\n *\r\n * @return the right element, may be null.\r\n */\r\npublic abstract R getRight();",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public abstract R getRight()"
+    },
+    {
+      "name": "getValue",
+      "signature": "public R getValue()",
+      "returnType": "R",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets the value from this pair.\r\n *\r\n * \u003cp\u003eThis method implements the {@code Map.Entry} interface returning the\r\n * right element as the value.\u003c/p\u003e\r\n *\r\n * @return the right element as the value, may be null.\r\n */\r\n@Override\r\npublic R getValue() {\r\n    return getRight();\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public R getValue()"
+    },
+    {
+      "name": "hashCode",
+      "signature": "public int hashCode()",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns a suitable hash code.\r\n * \u003cp\u003e\r\n * The hash code follows the definition in {@code Map.Entry}.\r\n * \u003c/p\u003e\r\n *\r\n * @return the hash code.\r\n */\r\n@Override\r\npublic int hashCode() {\r\n    // See Map.Entry API specification\r\n    return Objects.hashCode(getKey()) ^ Objects.hashCode(getValue());\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int hashCode()"
+    },
+    {
+      "name": "toString",
+      "signature": "public String toString()",
+      "returnType": "String",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns a String representation of this pair using the format {@code (left,right)}.\r\n *\r\n * @return a string describing this object, not null.\r\n */\r\n@Override\r\npublic String toString() {\r\n    return \"(\" + getLeft() + \u0027,\u0027 + getRight() + \u0027)\u0027;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public String toString()"
+    },
+    {
+      "name": "toString",
+      "signature": "public String toString(final String format)",
+      "returnType": "String",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Formats the receiver using the given format.\r\n *\r\n * \u003cp\u003e\r\n * This uses {@link String#format(String, Object...)} to the format. Two variables may be used to embed the left and right elements. Use {@code %1$s} for\r\n * the left element (key) and {@code %2$s} for the right element (value).\r\n * \u003c/p\u003e\r\n *\r\n * @param format the format string, optionally containing {@code %1$s} and {@code %2$s}, not null.\r\n * @return the formatted string, not null.\r\n * @see String#format(String, Object...)\r\n */\r\npublic String toString(final String format) {\r\n    return String.format(format, getLeft(), getRight());\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public String toString(final String format)"
+    }
+  ]
+}

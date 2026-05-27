@@ -1,0 +1,62 @@
+Experiment 01 H2: client-side propagation across commons-lang3 3.12.0 -> 3.14.0
+===================================================================
+client methods inferred against 3.12.0     : 66
+client methods inferred against 3.14.0     : 66
+client methods in both                     : 66
+  spec UNCHANGED                           : 50
+  spec CHANGED                             : 16
+    with precondition change               : 16
+    with postcondition change              : 4
+-------------------------------------------------------------------
+total requires-clauses added on client     : 23
+total requires-clauses removed on client   : 3
+total ensures-clauses added on client      : 4
+total ensures-clauses removed on client    : 0
+-------------------------------------------------------------------
+per-method diff (clauses added [+] or removed [-]):
+  Client.addDays(java.util.Date,int)
+      +requires d != null
+      +ensures  \result == nanosToMillis(getNanoTime())
+  Client.causeByName(Throwable,String)
+      +requires methodName != null
+  Client.makePair(L,R)
+      +requires l != null
+      +requires r != null
+  Client.makeTriple(L,M,R)
+      +requires l != null
+      +requires m != null
+      +requires r != null
+  Client.pairKey(String,Integer)
+      +requires k != null
+      +requires v != null
+  Client.pairVal(String,Integer)
+      +requires k != null
+      +requires v != null
+  Client.setField(java.util.Date,int,int)
+      +requires d != null
+      +ensures  \result == nanosToMillis(getNanoTime())
+  Client.stackFrameList(Throwable)
+      -requires "at" != null
+  Client.toCalOf(java.util.Date)
+      +requires d != null
+  [callee] DateUtils.add(Date,int,int)
+      +requires date != null
+  [callee] DateUtils.set(Date,int,int)
+      +requires date != null
+  [callee] DateUtils.toCalendar(Date)
+      +requires date != null
+  [callee] ExceptionUtils.getCauseUsingMethodName(Throwable,String)
+      +requires methodName != null
+  [callee] ExceptionUtils.getStackFrameList(Throwable)
+      +requires throwable != null
+      -requires t != null
+      -requires "at" != null
+  [callee] ImmutablePair.of(L,R)
+      +requires left != null
+      +requires right != null
+      +ensures  !(left != null || right != null) ==> \result == nullPair()
+  [callee] ImmutableTriple.of(L,M,R)
+      +requires left != null
+      +requires middle != null
+      +requires right != null
+      +ensures  !(left != null | middle != null || right != null) ==> \result == nullTriple()

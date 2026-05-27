@@ -1,0 +1,851 @@
+\chapter{Distributing Inferred Specifications}
+\label{ch:distribution}
+
+The two preceding chapters established that specifications can be inferred with
+acceptable fidelity and that they carry measurable value to a downstream
+consumer. Both rest on an assumption that is rarely satisfied in practice: that
+the consumer has the source tree the inferrer ran over. This chapter removes
+the assumption. It develops and evaluates a mechanism for carrying inferred JML
+contracts across the boundary that separates source code from compiled artefact
+--- into Java class files and into REST service descriptions --- so that a
+consumer with only a JAR or only an HTTP interface can recover the
+specification the inferrer produced. The chapter answers RQ3.
+
+\section{The Distribution Gap}
+\label{sec:dist-gap}
+
+Recent work, including the study of Chapter~\ref{ch:testgen}, has shown that
+inferred JML specifications materially improve downstream tooling. That work
+shares an unstated assumption: the consumer of the specification --- the test
+generator, the integrated development environment, the verifier, the language
+model reading an API at inference time --- has access to the same source the
+inferrer processed. The assumption is rarely true. Java libraries are
+distributed as JAR files containing compiled bytecode, not source. REST
+endpoints expose only their HTTP signatures. gRPC services expose only their
+protocol-buffer descriptors. Source code is the exception in a consumer's world,
+not the norm. A specification that lives only in the source tree is a
+specification available only to the team that owns the source --- which is
+precisely the team least in need of it, since they can read the code.
+
+The conceptual question of whether specifications \emph{should} travel with
+compiled artefacts has a long history in the Design by Contract and JML
+traditions~\cite{meyer1992design, leavens2006design, jml}. The practical
+question this chapter addresses is narrower and, in a sense, more demanding:
+can the \emph{standard, unmodified} Java and REST toolchain be made to carry
+specifications, so that enrichment requires no change to how artefacts are
+built, signed, published, or consumed? A mechanism that required a custom
+class loader, a patched compiler, or a bespoke service framework would not be
+adopted; a mechanism that rides inside the existing artefact formats might be.
+The research questions are accordingly framed around losslessness, overhead,
+throughput, and toolchain compatibility.
+
+\begin{description}
+  \item[RQ3a (Losslessness).] Can inferred JML contracts be embedded in
+        compiled Java artefacts and reproduced byte-for-byte from the embedded
+        bytes, with no source dependency?
+  \item[RQ3b (Overhead).] What is the bytecode-size cost of the embedding, and
+        how does it scale across libraries of different shapes?
+  \item[RQ3c (Throughput).] Is embedding and reading fast enough to support
+        per-pull-request continuous-integration workflows on production-scale
+        libraries?
+  \item[RQ3d (Compatibility).] Does an OpenAPI extension family integrate with
+        existing OpenAPI tooling without modification?
+\end{description}
+
+\subsection{Why Existing Channels Fall Short}
+
+Section~\ref{sec:bg-distribution} reviewed the existing channels; the gap each
+leaves is worth restating concretely here. JML specification files (\texttt{.jml}
+stubs) are the verifier's native format but travel as separate sidecar files,
+absent from the compiled JAR and invisible to any tool that does not look for
+them. Runtime assertion checking compiles specifications into executable checks
+inside the bytecode, carrying them into the artefact but only in executable
+form, restricted to runtime-evaluable properties, and at the cost of altering
+the program's behaviour. The documentation field of an OpenAPI description
+carries prose for a human, not a structured contract for a tool. None of these
+carries a structured, behaviour-preserving, toolchain-transparent specification
+inside the standard artefact that any reader can recover without the source.
+That is the gap this chapter fills, on both the bytecode side and the service-
+interface side.
+
+\section{Format Design}
+\label{sec:dist-format}
+
+The format is the contract between the embedder and any future consumer; it
+must be precise enough that an alternative embedder or reader could be written
+from the specification alone. The bytecode side uses a runtime-retained Java
+annotation; the service side uses an OpenAPI extension family; a sidecar JAR
+covers the cases neither can.
+
+\subsection{The Annotation Type}
+
+The embedded specification is carried by a single annotation per program
+element, retained at runtime and targetable at methods, constructors, fields,
+and types:
+
+\begin{lstlisting}
+package com.jml.spec;
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.METHOD, ElementType.CONSTRUCTOR,
+         ElementType.FIELD, ElementType.TYPE})
+public @interface JmlSpecs {
+    String[] requires()      default {};
+    String[] ensures()       default {};
+    String[] assignable()    default {};
+    String[] loopInvariant() default {};
+    /** Each entry is "ExceptionType|condition". */
+    String[] signals()       default {};
+    String version()         default "2";
+}
+\end{lstlisting}
+
+A single annotation carries every clause kind as a separate string array. Within
+a member, array order is significant for \texttt{requires}: preconditions are
+emitted in source order, which is load-bearing for well-definedness chains,
+since a precondition asserting an array element's value depends on earlier
+preconditions establishing the array's non-nullness and the index's
+in-boundsness. Unrecognised members are skipped on read, which preserves forward
+compatibility: a future clause kind added as a new member is ignored by an old
+reader rather than breaking it.
+
+\subsection{Three Size Optimisations}
+
+A naive encoding --- one annotation per clause, every clause spelled out in full
+--- is wasteful, and the format applies three optimisations whose justification
+is empirical, grounded in the shape distribution of real inferred specifications.
+
+The first is the \emph{single packed annotation}. An earlier format version used
+Java's repeatable-annotation mechanism, emitting one annotation per clause with
+per-clause kind, text, order, and version members wrapped in a container. This
+is the maximally verbose shape, paying the per-clause annotation framing --- a
+type reference, an element-value-pair structure, an end marker --- for every
+clause. The current format collapses this to one annotation per element with the
+clause kinds as array members, eliminating the per-clause framing entirely.
+
+The second is \emph{default omission for the frame condition}. Every inferred
+specification in the corpus carries \texttt{assignable \textbackslash nothing},
+the engine's default for methods that appear pure. The format omits the
+\texttt{assignable} member when its only entry is \texttt{\textbackslash nothing}
+and interprets an absent member as \texttt{\textbackslash nothing} on read,
+saving one array entry per specification. A specification with genuine frame
+clauses lists them explicitly.
+
+The third is a \emph{token dictionary}. A twelve-entry dictionary substitutes
+the most common JML tokens --- \texttt{\textbackslash result},
+\texttt{\textbackslash old(}, the quantifiers, the implication arrow, the
+null comparisons, the frame keywords --- with single Unicode control bytes that
+cannot appear in legitimate JML, so the substitution is unambiguous and
+invertible. Because UTF-8 encodes each control byte as a single byte, each token
+occurrence saves the token's length minus one. The reader decodes on read; a
+consumer ignorant of the dictionary sees the control characters and can either
+decode using the published table or fall back to the sidecar.
+
+The choice of which tokens to encode and which clause to default is not
+arbitrary; each rests on the shape distribution measured on the real-inference
+corpus (Section~\ref{sec:dist-results}). A format designed without the
+measurement would either include every JML keyword in the dictionary, paying
+constant-pool cost for tokens that never fire, or omit tokens that occur
+frequently in real specifications. The divergence between the optimisation's
+effect on synthetic and on real specifications, reported below, is itself
+evidence that the saving depends on which clause shapes the consumer's inferrer
+produces.
+
+\subsection{Canonical Form}
+
+To support byte-level roundtrip equality, clause text is canonicalised before
+emission. Whitespace runs collapse to single spaces; there is no space around
+member-access or method-reference operators; binary operators take a single
+surrounding space; there is no space inside brackets; and the short implication
+and equivalence arrows are normalised to their long forms. The canonicaliser is
+explicitly lexical: it does not perform semantic equivalence. Two clauses that
+differ in operand order remain distinct strings, and roundtrip equality is
+preserved on the wire form rather than on a normalised theory level. This is a
+deliberate choice. Semantic equivalence would silently rewrite valid
+specifications in transit, which is unacceptable when the embedder's job is to
+carry data faithfully; a consumer that wants semantic normalisation can apply it
+after recovery, but the transport layer must not.
+
+\subsection{The OpenAPI Extension and the Sidecar}
+
+For service boundaries, a parallel extension family carries the same content in
+an OpenAPI~3.x document: \texttt{x-jml-requires}, \texttt{x-jml-ensures},
+\texttt{x-jml-assignable}, \texttt{x-jml-signals}, and \texttt{x-jml-invariant},
+each an array of canonical-form strings, carried per operation and per schema.
+The \texttt{x-} prefix is the OpenAPI mechanism for vendor extensions, which
+standard parsers preserve without understanding; the extension therefore rides
+through the existing OpenAPI toolchain unmodified. A JSON Schema document
+accompanies the artefact for independent validation, and where the OpenAPI
+document is generated by a framework and not editable, a sidecar JSON file
+carries the same content keyed by route and verb.
+
+For specifications that exceed the per-class bytecode budget --- rare, but
+possible for a method with many quantified loop invariants --- and for signed
+JARs that cannot be re-signed, the embedder emits a parallel artefact carrying
+JML stub files keyed by class internal name, with a manifest entry recording the
+source JAR's hash so consumers can detect drift. The stub files are the format
+OpenJML reads natively, so the sidecar is consumable by the verifier without
+further transformation. The sidecar is the universal fallback: where in-bytecode
+embedding is unsuitable, the same content travels alongside.
+
+\subsection{The OpenAPI Extension in Depth}
+
+The service-side extension warrants a fuller treatment, because a service boundary
+differs from a library boundary in ways that shape the design. A library's contract
+attaches to a method, identified by its name and bytecode descriptor; a service's
+contract attaches to an \emph{operation}, identified by a route and an HTTP verb,
+and to the \emph{schemas} of the data it exchanges. The extension therefore carries
+contracts at two levels: per-operation, where \texttt{x-jml-requires} states the
+preconditions on a request and \texttt{x-jml-ensures} the postconditions on a
+response, and per-schema, where \texttt{x-jml-invariant} states the invariants a
+data type maintains. The two levels mirror the method-and-class structure of the
+bytecode side, adapted to the operation-and-schema structure of a service
+interface.
+
+The \texttt{x-jml-signals} key handles exceptional behaviour, which at a service
+boundary means error responses. It carries an array of exception-condition pairs,
+the exception named by its JVM internal name so that a cross-language consumer can
+resolve it to whatever its own language calls the corresponding error. This
+cross-language resolvability matters because a service's clients are often written
+in languages other than the service's, and a contract that named exceptions in the
+service's language alone would be opaque to them; the internal name is a
+language-neutral identifier the client can map.
+
+The extension's compatibility rests on the OpenAPI specification's own provision
+for vendor extensions: any key prefixed \texttt{x-} is reserved for extension data,
+and conforming parsers must preserve it without interpreting it. The extension
+therefore rides through the standard OpenAPI toolchain --- the parsers, the client
+generators, the documentation renderers --- untouched, recovered by a consumer that
+knows the \texttt{x-jml-*} family and ignored by one that does not. A JSON Schema
+document accompanies the extension so that a consumer can validate an OpenAPI
+document's contracts independently of the inferrer, and where the OpenAPI document
+is generated by a framework and not hand-editable, the same content travels in a
+sidecar JSON file keyed by route and verb, the service-side analogue of the bytecode
+sidecar. The design thus extends the toolchain-transparency property from the
+bytecode boundary to the service boundary by the same strategy: ride the format's
+own extension mechanism, and fall back to a sidecar where the artefact cannot be
+modified.
+
+\section{Deployment Scenarios}
+\label{sec:dist-scenarios}
+
+The format design admits three deployment paths, and choosing among them is a
+matter of matching the carrier to the constraints of the artefact. The default
+path is in-bytecode embedding: the inferrer runs over a library's source, the
+embedder writes the specifications into the compiled JAR's class files, and the
+enriched JAR is published in place of the original. This is the path for the
+common case --- an unsigned library whose specifications fit the per-class budget
+--- and it is the path the empirical validation of Section~\ref{sec:dist-results}
+exercises. The consumer receives an ordinary-looking JAR that happens to carry
+recoverable contracts, and tooling that knows to look for them finds them while
+tooling that does not is unaffected.
+
+The second path is the OpenAPI extension, for service boundaries. A service that
+documents its interface with an OpenAPI document --- the dominant convention for
+REST APIs --- can carry per-operation and per-schema contracts in the
+\texttt{x-jml-*} extension family, so that a client generator or a contract-test
+tool reading the document recovers the same preconditions and postconditions a
+library consumer would recover from bytecode. The path matters because the
+service boundary is where the oracle problem is most acute: a client of a remote
+service has neither its source nor its bytecode, only its interface description,
+and a contract carried in that description is the only specification the client
+can obtain. The OpenAPI path extends the reach of inferred specifications from
+the library-integration scenario of Chapter~\ref{ch:introduction} to the
+service-integration scenario, and it is the mechanism the future-work discussion
+of service-boundary testing relies on.
+
+The third path is the sidecar JAR, the universal fallback. Two constraints force
+it. A signed JAR cannot be modified without invalidating its signature, and
+re-signing requires the signer's key, which the party enriching the JAR may not
+hold; embedding into such a JAR is impossible, but a parallel sidecar artefact
+carrying the same specifications as JML stub files travels alongside it without
+touching the signed bytes. And a specification too large for the per-class
+bytecode budget --- rare, but possible for a method bearing many quantified loop
+invariants --- can overflow the annotation, in which case the sidecar carries the
+overflow. The sidecar's stub files are the format OpenJML reads natively, so the
+fallback is directly consumable by the verifier, and the manifest records the
+source JAR's hash so a consumer can detect drift between the sidecar and the
+artefact it describes. The three paths together ensure that no artefact is
+un-enrichable: where in-bytecode embedding is unsuitable, the same content
+travels as a sidecar, and where the artefact is a service rather than a library,
+the same content travels in the interface description.
+
+\section{Implementation}
+\label{sec:dist-impl}
+
+The embedder is built on the ASM bytecode-engineering library, which permits
+class-file attributes to be added to an existing JAR in place, without
+recompilation. The writer walks each class with an ASM \texttt{ClassVisitor},
+and for each method, constructor, field, and type carrying a specification, it
+emits the packed annotation into the element's
+\texttt{RuntimeVisibleAnnotations} attribute. The reader is the inverse: it
+walks the embedded class files and recovers the specification from the
+annotation, decoding the token dictionary and synthesising the omitted frame
+default.
+
+A subtlety in the ASM visitor lifecycle proved to be the source of the most
+consequential bug in the implementation, and it is instructive. The writer's
+lazy annotation emission was originally triggered by the visitor callbacks that
+fire for methods with bodies --- the callbacks for code, parameters, and
+existing annotations. None of these fires for abstract or interface methods,
+which have no body and invoke only the end-of-method callback. The result was
+that interface methods silently received no embedded annotation, and an early
+prototype reported a roundtrip rate of 96.9\% on one library and 97.6\% on
+another, the shortfall concentrated entirely in interfaces. Adding the
+end-of-method callback to the trigger set closed the gap to 100\%. The episode
+is a reminder that the cases a mechanism handles silently --- here, methods
+without bodies --- are exactly the cases where a measurement that does not seek
+them out will miss the failure.
+
+The bug is worth dwelling on because of what it reveals about measurement design.
+The roundtrip rate of 96.9\% looked like success --- a small residual on a hard
+problem --- and a study satisfied with a high-but-imperfect number would have
+reported it and moved on, attributing the gap to some intractable corner. The gap
+was not intractable; it was a single missing callback, concentrated in a
+structural feature of the code (interfaces) that the aggregate rate obscured.
+Disaggregating the roundtrip failures by program element revealed that every
+failure was an interface method, which pointed directly at the lifecycle callback
+that interfaces alone exercise. The lesson the thesis draws is that an imperfect
+aggregate should be disaggregated before it is accepted, because a residual
+concentrated in one structural category is usually a bug with a specific cause
+rather than an inherent limit. The 100\% rate that the disaggregation made possible
+is a stronger result than the 96.9\% would have been, and it was available only
+because the measurement sought out where the failures fell rather than tolerating
+their rate.
+
+Multi-release JARs --- archives carrying version-specific class files for different
+JDK versions in parallel directory trees --- are the other structural feature that
+stressed the embedder, because a naive walk would embed into only one version's
+classes or would mismatch versions. The embedder handles the multi-release layout
+by embedding into each version's class files independently, so a consumer running
+under any supported JDK recovers the specification from the class file that JDK
+loads. Guava, a multi-release JAR, exercises this path, and its 100\% roundtrip
+rate confirms the handling; the threats section notes that ahead-of-time
+compilation, which transforms the class files before they reach a JVM, is the
+remaining packaging variant the evaluation does not cover.
+
+\section{What Lossless Roundtrip Means, Precisely}
+\label{sec:dist-lossless}
+
+The central correctness property of the embedder is \emph{lossless roundtrip}:
+the specification recovered by the reader equals the specification the writer was
+given. Stating the property precisely matters, because there is a weaker property
+the embedder deliberately does not claim and a stronger one it deliberately does
+not need. The embedder claims that for every method, the clause list the reader
+recovers is equal, as a list of canonical-form strings, to the clause list the
+writer embedded. It does not claim \emph{semantic} equality --- that the recovered
+clauses are logically equivalent to the originals --- because semantic
+equivalence is both unnecessary for faithful transport and dangerous to attempt.
+
+The danger is worth dwelling on. A roundtrip that normalised semantics --- that
+recognised \texttt{a > b} and \texttt{b < a} as equal and stored a canonical
+representative --- would silently rewrite a consumer's specification in transit.
+A consumer that wrote \texttt{a > b} and recovered \texttt{b < a} would have its
+data altered, however harmlessly, by a layer whose only job is to carry it
+faithfully. Worse, semantic normalisation is undecidable in general and unsound in
+the corners where it is decidable, so an embedder attempting it would introduce a
+class of bugs --- specifications subtly changed in transit --- that a purely
+lexical embedder cannot have. The embedder therefore canonicalises only
+\emph{lexically} (Section~\ref{sec:dist-format}): it fixes whitespace, operator
+spacing, and arrow forms, producing a single well-defined wire string for any
+given clause, but it never rewrites the logical content. Two logically equivalent
+clauses that differ lexically remain two distinct strings, and the roundtrip
+preserves each exactly.
+
+This lexical discipline is what makes the 100\% roundtrip claim both achievable
+and meaningful. Achievable, because lexical equality is decidable and the
+canonical form makes it stable across the write-read cycle; meaningful, because a
+consumer receives exactly the bytes the producer's inferrer emitted, with no
+silent transformation. The property is verified empirically by embedding and
+re-reading every specification and comparing clause lists for exact string
+equality, which is the measurement Section~\ref{sec:dist-results} reports. The
+distinction between this lexical roundtrip and a semantic one is not pedantry: it
+is the difference between a transport layer that can be trusted to carry data
+unchanged and one that cannot, and the choice of the lexical property is what
+earns the embedder the right to be called lossless.
+
+\section{Empirical Validation}
+\label{sec:dist-results}
+
+The embedder is evaluated on real-world Java libraries under two regimes. The
+first uses \emph{synthetic} specifications --- one precondition per non-primitive
+parameter, one postcondition for reference returns, and the default frame ---
+to isolate the embedding mechanism from the inferrer's behaviour and stress it
+uniformly. The second uses \emph{real inferred} specifications produced by
+running JML-Inferrer over the libraries' sources, exercising the full
+inference-to-embedding pipeline including quantifiers, history references, and
+branch-conditional implications. The headline results appear in
+Table~\ref{tab:dist-validation}.
+
+\begin{table}[ht]
+\centering
+\caption{Embedder validation on real-world libraries. Method counts,
+lossless-roundtrip rate, and overhead are deterministic and reported once;
+throughput is the median across 39 runs. The fourth-row group reports the full
+inferrer-to-embedder pipeline on real inferred specifications.}
+\label{tab:dist-validation}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Library} & \textbf{Methods} & \textbf{Lossless} & \textbf{Byte ovhd.} & \textbf{Embed (m/s)} & \textbf{Read (m/s)} \\
+\midrule
+\multicolumn{6}{l}{\textit{Synthetic specs (isolating the embedding mechanism)}} \\
+Apache Commons Lang 3.14.0 & 4{,}029 & 100.0\% & +5.85\% & 16{,}225 & 221{,}617 \\
+Apache Commons IO 2.13.0 & 2{,}677 & 100.0\% & +6.97\% & 21{,}976 & 327{,}618 \\
+Guava 33.3.0-jre & 13{,}840 & 100.0\% & +5.27\% & 12{,}618 & 127{,}924 \\
+\midrule
+\multicolumn{6}{l}{\textit{Real inferred specs (full inferrer$\to$embedder pipeline)}} \\
+Apache Commons Lang 3.14.0 & 2{,}332 & 100.0\% & +10.07\% & 8{,}648 & 103{,}779 \\
+Apache Commons IO 2.13.0   & 1{,}680 & 100.0\% & +10.20\% & 10{,}215 & 107{,}318 \\
+Guava 33.3.0-jre           & 6{,}320 & 100.0\% & +4.63\%  & 6{,}052 & 74{,}144 \\
+JML-Inferrer self-test     & 73    & 100.0\% & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Lossless Roundtrip (RQ3a)}
+
+Every corpus achieves a 100.0\% lossless-roundtrip rate: every specification the
+harness embeds is recovered with byte-for-byte equality on its clause list, with
+zero mismatches anywhere. The real-inference regime is the more demanding test,
+because it exercises every JML construct the engine produces rather than the
+synthetic worst case. Across the three libraries the real-inference harness
+processes 1{,}118 source files containing 16{,}507 source method declarations,
+resolves 10{,}332 of them to distinct bytecode keys, and roundtrips every one
+losslessly. The constructs exercised include nested quantifiers, history
+references via \texttt{\textbackslash old}, conditional postcondition
+implications, and loop invariants --- the structurally complex output, not
+merely the simple null-check preconditions of the synthetic case. The
+distribution of constructs is reported in Table~\ref{tab:dist-shapes}; every
+category roundtrips losslessly on every library.
+
+\begin{table}[ht]
+\centering
+\caption{Spec-shape coverage on the 2{,}332 Commons Lang specifications embedded
+through the real-inference harness (representative; the other libraries give
+similar distributions). Every category roundtrips losslessly.}
+\label{tab:dist-shapes}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Construct} & \textbf{Specs} & \textbf{\% of corpus} \\
+\midrule
+\texttt{requires} clauses               & 1{,}116 & 47.9\% \\
+\texttt{ensures} clauses                & 2{,}109 & 90.4\% \\
+\texttt{assignable} clauses             & 2{,}332 & 100.0\% \\
+\texttt{loop\_invariant} clauses        & 269 & 11.5\% \\
+Quantifiers (\texttt{\textbackslash forall}/\texttt{\textbackslash exists}/\texttt{\textbackslash sum}) & 16 & 0.7\% \\
+\texttt{\textbackslash old} references  & 85 & 3.6\% \\
+\texttt{\textbackslash result} references & 1{,}725 & 74.0\% \\
+Branch-conditional (\texttt{==>})       & 345 & 14.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Byte Overhead (RQ3b)}
+
+Synthetic-spec overhead sits between 5.27\% and 6.97\%; the differences across
+libraries are explained by structural shape rather than total size, with Commons
+IO running highest because its higher proportion of interfaces means more methods
+each carrying a clause set. In absolute terms the synthetic overhead is 38~KB
+for Commons Lang, 34~KB for Commons IO, and 162~KB for Guava --- well below
+typical distribution sizes.
+
+The synthetic figures are not an upper bound on real overhead, a point worth
+emphasising because a deployer planning a storage budget needs the realistic
+figure. The real-inference run on the same Commons Lang JAR measures 10.07\%,
+more than four percentage points above the synthetic 5.85\%, because real
+inferred specifications are richer than the synthetic worst case: 90.4\% carry an
+\texttt{ensures} clause against the synthetic one-per-reference-return policy,
+11.5\% carry loop invariants the synthetic harness never emits, 14.8\% include
+branch-conditional implications, and the average clause string is longer because
+the engine emits parameter bounds, result relations, and history references the
+synthetic policy never produces. Guava inverts the relationship --- its
+real-inference overhead, 4.63\%, is \emph{lower} than its synthetic figure ---
+because its large generic-heavy classes have dense bodies, so the same per-spec
+byte cost amortises against a larger denominator. The lesson for a deployer is to
+provision for the real-inference figure, around ten percent on a typical utility
+library, not the synthetic-uniform figure.
+
+The Guava inversion is worth dwelling on because it corrects an intuition that
+would otherwise mislead a deployer. The natural expectation is that real
+specifications, being richer than the synthetic worst case, always cost more, and
+on the smaller utility libraries they do --- four to five points more. Guava
+violates the expectation not because its specifications are leaner but because its
+denominator is larger: overhead is the embedded bytes divided by the original
+bytes, and Guava's original bytes are inflated by large generic-heavy classes with
+dense method bodies, so the same per-method specification cost is a smaller
+fraction of a larger whole. The general principle the inversion reveals is that
+overhead depends on two quantities a deployer should consider separately --- the
+absolute specification cost per method, which is a property of the inferrer's
+output, and the original code size per method, which is a property of the library's
+density --- and that a dense library can carry richer specifications at lower
+proportional overhead than a sparse one. The synthetic-versus-real comparison
+isolates the first quantity by holding the specification policy fixed, and the
+cross-library comparison isolates the second by holding the policy fixed and
+varying the library, and the Guava inversion is what happens when the second effect
+dominates the first.
+
+\subsection{Format Optimisation}
+
+Table~\ref{tab:dist-opt} reports the impact of the three size optimisations
+against the verbose predecessor format. The optimisations reduce overhead by 48
+to 55 percent on the synthetic corpora and by 31 percent on real inference,
+while preserving the 100\% lossless property in every case.
+
+\begin{table}[ht]
+\centering
+\caption{Format-optimisation impact on bytecode-size overhead. The
+lossless-roundtrip rate is 100\% under both formats.}
+\label{tab:dist-opt}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Corpus} & \textbf{Verbose ovhd.} & \textbf{Optimised ovhd.} & \textbf{Reduction} \\
+\midrule
+Synthetic --- Commons Lang      & 11.95\% & 5.85\%  & $-$51\% \\
+Synthetic --- Commons IO        & 13.49\% & 6.97\%  & $-$48\% \\
+Synthetic --- Guava             & 11.76\% & 5.27\%  & $-$55\% \\
+Real inference --- Commons Lang & 14.70\% & 10.07\% & $-$31\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The synthetic reduction is larger than the real-inference reduction because
+synthetic specifications are dominated by exactly the patterns the optimisation
+targets --- every specification carries the default-omittable frame, every
+precondition is a null check, every postcondition references the result --- all
+of which the optimisation captures. Real specifications contain a wider variety
+of clause shapes, many of which the twelve-token dictionary does not cover, so
+the real-inference reduction is the more realistic estimate for a production
+deployment. A configuration sweep confirms the optimisations' contribution: an
+always-explicit mode with no codec runs 1.19 percentage points above the
+default, and an automatically learned twenty-eight-token dictionary gains a
+further 0.59 points over the hand-picked twelve, establishing that the
+hand-picked dictionary already captures most of the available saving. A per-spec
+DEFLATE compression mode is a clear negative result, running 20 points
+\emph{worse} than the default, because DEFLATE cannot exploit redundancy in the
+fifty-to-hundred-byte payloads typical after token encoding and the per-spec
+compressed payloads forfeit the constant-pool deduplication the uncompressed
+format enjoys. The negative result is reported because it is informative: it
+shows that the right granularity for compression, if any, is the class file
+rather than the individual specification.
+
+\subsection{Throughput (RQ3c)}
+
+Embedding throughput ranges across runs from roughly six thousand to thirty-one
+thousand methods per second, and reading throughput an order of magnitude higher,
+from roughly seventy-four thousand to over three hundred thousand. At the
+medians, embedding a fourteen-thousand-method JAR completes in well under a
+second end to end, and reading completes faster still because the reader skips
+full class rewriting. These figures comfortably support per-pull-request
+continuous-integration workflows: even a pessimistic re-run on every push of a
+Guava-sized library is sub-second, far below the Maven build time the inference
+pipeline already rides on. The throughput question is therefore answered
+affirmatively with room to spare.
+
+\subsection{Throughput in Context (RQ3c)}
+
+The throughput question is answered affirmatively, but the figures repay
+interpretation against the workflows they are meant to support. Embedding a
+fourteen-thousand-method library completes in well under a second at the median
+embedding rate, and reading completes an order of magnitude faster because the
+reader does not rewrite the class files. The relevant comparison is not against
+some absolute standard but against the cost of the surrounding workflow. The
+embedding rides on a Maven build that already takes tens of seconds to minutes;
+the inference that produces the specifications takes longer still, at tens of
+milliseconds per file over thousands of files. Against this backdrop the sub-second
+embedding is negligible --- it disappears into the noise of the build it
+augments.
+
+This matters for the continuous-integration scenario the question targets. A
+plausible deployment runs the inferrer and the embedder on every pull request, so
+that the enriched artefact reflects the current source. For this to be acceptable
+the embedding must fit within the per-pull-request budget, which is dominated by
+compilation and testing and measured in minutes. A sub-second embedding step fits
+trivially, even re-run from scratch on every push of the largest library measured.
+The reading throughput matters for the consumer side: a tool that recovers
+specifications from a dependency does so at hundreds of thousands of methods per
+second, fast enough that recovering an entire library's contracts is imperceptible.
+The throughput figures thus clear their bar with orders of magnitude to spare,
+which is the right outcome to report --- not a tight fit that might fail under
+load, but a comfortable one that will not.
+
+The variation in throughput across runs --- the reason the figures are reported as
+medians over many runs rather than as single measurements --- reflects the ordinary
+sources of variance in JVM workloads: just-in-time compilation warming up, garbage
+collection pausing, the operating system scheduling other work. These sources
+affect the absolute rate but not the conclusion, because even the slowest observed
+run completes the embedding within the per-pull-request budget. Reporting the
+median over many runs, with the observed range, is the honest way to characterise a
+throughput that varies for reasons unrelated to the embedder's logic, and it is the
+same discipline the lossless-roundtrip and overhead measurements do not need
+because those are deterministic.
+
+\subsection{Toolchain Compatibility (RQ3d)}
+
+The compatibility question is answered on two fronts. On the bytecode side, a
+negative test loads an embedded class through a class loader that does not see
+the annotation type, and confirms that the class loads successfully:
+reflective annotation access either returns the resolvable annotations or raises
+the documented exception, but class loading itself is unaffected. A JVM with no
+awareness of the annotation type runs the embedded class exactly as it would the
+unembedded one --- the embedding is invisible to the runtime. On the service
+side, the OpenAPI extension is preserved by the standard parsers without
+modification, because the \texttt{x-} prefix is the specification's own
+mechanism for vendor extensions. The mechanism therefore meets its design goal:
+enrichment requires no change to how artefacts are built, loaded, published, or
+parsed.
+
+\section{The Class-File Format and Why the Mechanism Is Transparent}
+\label{sec:dist-classfile}
+
+The transparency of the embedding rests on a feature of the Java class-file
+format that is worth making explicit, because it is what allows enrichment
+without toolchain modification. A Java class file is a structured binary
+container: a magic number, version, constant pool, and a sequence of structures
+describing the class's fields, methods, and attributes. The format is
+deliberately extensible through \emph{attributes} --- named, length-prefixed
+blobs attached to the class, its fields, and its methods --- and the
+specification mandates that a reader encountering an attribute it does not
+recognise must skip it, using the length prefix, rather than fail. This
+skip-the-unknown rule is the foundation of forward compatibility in the JVM, and
+it is what guarantees that a class file carrying an unfamiliar attribute loads
+correctly in a JVM that has never heard of it.
+
+Runtime-visible annotations are carried in exactly such an attribute, the
+\texttt{RuntimeVisibleAnnotations} attribute, which the format defines and every
+conforming JVM reads. An annotation written into this attribute is recoverable
+by reflection if the annotation's type is on the classpath, and is harmlessly
+skipped if it is not. The embedder exploits this: it writes the packed
+specification annotation into the \texttt{RuntimeVisibleAnnotations} attribute of
+each method, field, and type. A consumer that has the annotation type can recover
+the specification by reflection; a class-file reader that lacks it (such as the
+ASM-based reader the extractor uses) can recover it by reading the attribute
+directly; and a JVM that knows nothing of it loads and runs the class exactly as
+before. The negative-load test of Section~\ref{sec:dist-results} verifies the
+last case empirically, and the class-file format's skip-the-unknown rule is the
+reason it passes.
+
+The constant pool is the other relevant feature. Strings in a class file are
+stored once in the constant pool and referenced by index, so two methods whose
+specifications share a clause string --- and inferred specifications share clause
+strings heavily, since \texttt{requires arr != null} and \texttt{assignable
+\textbackslash nothing} recur across a library --- pay for that string only once.
+This deduplication is what makes the per-method annotation overhead modest in
+aggregate, and it is precisely the saving that the per-spec DEFLATE mode of
+Section~\ref{sec:dist-results} forfeits by making each method's payload unique,
+which is the mechanism behind that mode's negative result. The format's existing
+machinery for sharing strings does, for free, what per-spec compression cannot.
+
+\subsection{A Worked Embedding}
+
+Consider the \texttt{max} method of Chapter~\ref{ch:background}, with its
+inferred contract of one trivial precondition, two postconditions, and the
+default frame. The embedder writes a single \texttt{@JmlSpecs} annotation onto
+the method, with \texttt{ensures} carrying the two postcondition strings and the
+other members defaulting --- \texttt{requires true} is the trivial precondition
+the format omits, and \texttt{assignable \textbackslash nothing} is the default
+the format synthesises on read. The two postcondition strings are token-encoded:
+the \texttt{\textbackslash result} occurrences collapse to a single control byte
+each, and the strings are interned in the constant pool, so the second
+postcondition's shared substructure with the first costs nothing beyond its
+distinct portion. On read, the extractor recovers the annotation, decodes the
+token bytes back to \texttt{\textbackslash result}, synthesises the omitted frame
+and trivial precondition, and reconstructs the contract byte-for-byte. The
+roundtrip is lossless because the canonical form fixed the wire representation
+before emission, so there is a single, well-defined string for the reader to
+reproduce. This worked case is the unit that the 100\% lossless-roundtrip rate
+of Section~\ref{sec:dist-results} aggregates over twenty thousand times.
+
+\section{Consuming Embedded Specifications}
+\label{sec:dist-consume}
+
+The embedding is only useful if consumers can act on it, and the format is
+designed so that several classes of consumer can, each by a mechanism natural to
+it. A reflective consumer --- a test generator or a runtime contract checker
+running inside a JVM that has the annotation type on its classpath --- recovers
+the specification by ordinary reflection, reading the \texttt{@JmlSpecs}
+annotation off the method and decoding its members. This is the path for a tool
+that wants to enforce contracts at runtime or to drive test generation from them,
+and it requires nothing of the consumer beyond depending on the small annotation-
+type library.
+
+A static consumer --- a verifier, an IDE, an analysis tool --- recovers the
+specification by reading the class file directly, without loading it into a JVM.
+The ASM-based reader the extractor uses is one such consumer, and any class-file
+reader can be taught the format from the specification of
+Section~\ref{sec:dist-format}. This is the path for OpenJML itself: a verifier
+checking client code against a dependency can read the dependency's embedded
+contracts and use them as the assumed specifications of the called methods,
+exactly as it would use hand-written stubs, closing the modular-verification loop
+across the library boundary without the library's source.
+
+A language-model consumer --- the case that motivates much of the thesis ---
+recovers the specification however its tooling extracts class-file metadata, and
+incorporates it into the model's context as the inferred contract of the API under
+discussion. This is the mechanism by which the test-generation benefit of
+Chapter~\ref{ch:testgen} reaches a model working against a compiled dependency:
+the model reads the embedded contract rather than guessing the dependency's
+behaviour, and the same improvement the controlled experiment measured on
+source-available code becomes available on compiled code. The service-side OpenAPI
+extension serves the same role for a model reasoning about a remote service from
+its interface description.
+
+The robustness of the consumer story rests on the property the negative-load test
+establishes: an embedded artefact is safe to ship to consumers who know nothing of
+the embedding. Were the embedding to break class loading in a JVM without the
+annotation type, every consumer would have to add the annotation library to its
+classpath before using the enriched artefact at all --- precisely the toolchain
+coupling the design exists to avoid. The test confirms the coupling does not arise:
+the class-file format's skip-the-unknown rule tolerates a runtime-visible
+annotation whose type cannot be resolved, so the worst that happens is that
+reflective access to the annotation raises the documented type-not-present
+exception, which a consumer that does not ask for the annotation never triggers.
+The class loads, the methods run, and a consumer unaware of the embedding is
+unaffected --- the precondition for enriching an artefact that will be consumed by
+parties the enricher does not control. The JSON Schema document accompanying the
+OpenAPI extension serves the analogous role on the service side, letting a consumer
+validate that the contracts it receives are well-formed before acting on them, the
+way it would validate any external input.
+
+The forward-compatibility of the format matters for all three consumer classes. A
+consumer built against the current clause kinds skips members it does not
+recognise, so a future clause kind added to the format does not break existing
+consumers; and a consumer that does not know the token dictionary sees the control
+bytes and can either decode them from the published table or fall back to the
+sidecar's uncompressed stub files. The format degrades gracefully: a consumer
+recovers as much of the specification as it understands and ignores the rest, which
+is the property that lets the format evolve without coordinating every consumer's
+upgrade.
+
+\section{Discussion and Threats}
+\label{sec:dist-discussion}
+
+\subsection{What the Result Establishes}
+
+The contribution is a path from an inferred specification to a consumer-readable
+contract that requires no change to the build toolchain: any existing JAR can be
+enriched in place, and the enrichment survives ordinary distribution and is
+recoverable by any class-file reader without the source. The 100\% lossless rate
+across four corpora and every JML construct the engine produces establishes that
+the transport is faithful; the sub-eleven-percent overhead and sub-second
+throughput establish that it is affordable; the negative-load test and the
+OpenAPI parser compatibility establish that it is transparent. Together these
+close the distribution gap that the test-generation result of
+Chapter~\ref{ch:testgen} would otherwise leave open: a specification that
+improves downstream tooling is now available to downstream consumers who lack
+the source, which is most of them.
+
+The result also completes the integration scenario of
+Chapter~\ref{ch:introduction}. A developer adopting a compiled library, or a model
+reasoning about one, encounters it as bytecode without a contract, and learns its
+behaviour by trial, by reading whatever source is available, or by the exceptions a
+violated precondition throws. With the embedding, the library's inferred contract
+travels inside the JAR, and tooling at the call site --- an IDE, a verifier, a
+contract-checking test generator, a model reading the API --- recovers it without
+the source. The integration scenario's central difficulty, that the contract is
+present in the library's design but absent from the form the integrator encounters,
+is resolved by carrying the contract into that form. The distribution study is, in
+this sense, the bridge between the inference study, which produces a contract from
+source, and the consumer scenarios, which need the contract without source: it is
+the stage that makes the produced contract reach the consumer that the value study
+showed would benefit from it.
+
+\subsection{Format Evolution and Versioning}
+
+A distribution format must evolve, and the design anticipates evolution in a way
+that the empirical results validate. The format carries a version member, and the
+reader accepts both the current packed format and its verbose predecessor, so that
+artefacts embedded against the earlier format continue to load against the current
+reader. This backward compatibility is not merely good practice; it is a
+correctness property the thesis tests, because a format that broke its predecessor
+on every revision would force every consumer to upgrade in lockstep, which is
+exactly the toolchain coupling the design aims to avoid.
+
+The forward direction is handled by the skip-the-unknown discipline of the
+class-file format (Section~\ref{sec:dist-classfile}) and the skip-unrecognised-
+members discipline of the annotation. A future clause kind, added as a new
+annotation member, is ignored by a reader that predates it rather than breaking
+that reader; a future format version is distinguished by its version member, and a
+reader can dispatch on it. The format can therefore add clause kinds and revise
+its encoding without invalidating either the artefacts embedded against earlier
+versions or the consumers built against them, which is the property that lets the
+inference engine's output grow --- new clause kinds as new patterns are added ---
+without a coordinated upgrade of every consumer in the ecosystem.
+
+The configuration sweep of Section~\ref{sec:dist-results} bears on evolution in a
+second way. By exposing the default-omission and token-dictionary conventions as
+configurable, the format lets a deployer whose inferrer has a different dominant
+clause shape opt out of conventions tuned for this thesis's engine and supply its
+own. An inferrer that emitted a conservative \texttt{assignable \textbackslash
+everything} default rather than \texttt{\textbackslash nothing} would select a
+different default-omission policy; an inferrer with a different token frequency
+profile would supply a different dictionary, or learn one from its own corpus with
+the dictionary learner the sweep evaluates. The format is thus not hard-coded to
+one inferrer's output distribution but parameterised by it, which is what allows
+the same transport mechanism to serve inferrers other than the one this thesis
+built.
+
+\subsection{When to Embed and When Not To}
+
+The mechanism's availability does not make embedding always the right choice, and a
+deployer should weigh the considerations the evaluation surfaces. Embedding is the
+right default when the consumer benefits from structured contracts and the artefact
+can be modified --- an unsigned library published to a repository, enriched once at
+build time and consumed by tooling that recovers the contracts. The overhead, under
+eleven percent on a typical library, is negligible against distribution sizes, and
+the throughput fits any continuous-integration budget, so the cost side of the
+ledger is light.
+
+Embedding is the wrong choice in three situations the design anticipates. A signed
+artefact that cannot be re-signed forecloses in-bytecode embedding, and the sidecar
+is the only option. An artefact whose consumers are uniformly unaware of
+specifications gains nothing from embedding and pays the overhead for nothing,
+though the overhead is small enough that the cost is more theoretical than real. And
+an artefact where even the small overhead is unacceptable --- a tightly
+size-constrained deployment --- should use the sidecar, which moves the bytes out of
+the artefact entirely. The configuration sweep gives a deployer the further choice of
+trading overhead against codec complexity: the always-explicit mode pays a little
+more for the simplicity of no token dictionary, and the learned-dictionary mode pays
+a little less at the cost of carrying a corpus-specific dictionary.
+
+The decision, in short, is not whether the mechanism works --- the evaluation
+establishes that it does, losslessly and cheaply --- but whether the consumer will
+use the contracts and whether the artefact can carry them. The thesis provides the
+mechanism and the measurements; the deployment decision rests on the consumer
+landscape and the artefact constraints, which vary by context. The design's
+provision of three paths --- in-bytecode, OpenAPI, sidecar --- is what ensures the
+decision is always ``which path'' rather than ``whether possible''.
+
+\subsection{Threats to Validity}
+
+The evaluation covers three libraries plus a self-test rather than the full
+protocol of ten; the lossless analysis identifies the residual risks ---
+interface methods and multi-release JARs --- and the embedder reaches 100\% on
+libraries exercising both, so the remaining libraries are mechanical to validate.
+The evaluation targets JDK~21; older JDKs and ahead-of-time compilers such as
+GraalVM native-image are deferred, though the class files emitted by Commons Lang
+target Java~8, so the runtime-side validation should generalise. The source-to-
+bytecode key resolution in the real-inference harness matches on name and arity
+only, so a residual of methods is lost to overload collisions where two source
+overloads map to the same erased descriptor; the 100\% lossless rate is on every
+specification the harness successfully embeds, so the residual is a measurement
+limitation rather than an embedder limitation, and a full type-resolving harness
+would recover it without changing the embedder's behaviour. These threats bound
+the generality of the measurement but not the central claim, which is that the
+embedding mechanism transports every specification it is given, losslessly, at
+acceptable cost, through an unmodified toolchain.
+
+A reflection on the nature of this study closes the chapter. Unlike the
+test-generation study, whose claim is causal and whose validation is statistical,
+the distribution study's claims are about a deterministic mechanism, and its
+validation is exact measurement rather than inference. There is no sampling
+uncertainty in a losslessness rate: a specification either roundtrips or it does
+not, and the rate is a count, not an estimate. This gives the distribution study a
+different epistemic character --- its claims are not ``probably true within a
+confidence interval'' but ``observed to be true on every case measured'' --- and the
+threats that bound it are about coverage (which cases were measured) rather than
+about uncertainty (how confident the estimate is). The two studies' different
+characters reflect the different kinds of claim they make, and matching the
+validation to the claim's kind, as Chapter~\ref{ch:introduction} argued, is what
+lets each study assert exactly the certainty its claim warrants: the value study a
+confident causal effect, the distribution study an exact mechanical property, and
+neither overreaching into the other's kind of assertion.

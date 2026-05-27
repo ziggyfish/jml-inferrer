@@ -1,8 +1,13 @@
-\documentclass[conference]{IEEEtran}
+\documentclass[10pt,conference]{IEEEtran}
 \IEEEoverridecommandlockouts
 
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
+% Silence the harmless "OT1/ptm/m/scit undefined" warning that IEEEtran's
+% \thanks issues when the title-note URL is set in its small-caps-italic
+% slot. The pdfTeX Times metrics map this shape to ordinary italic, which
+% is the right behaviour for our use.
+\DeclareFontShape{OT1}{ptm}{m}{scit}{<-> ptmri7t}{}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{booktabs}
@@ -14,6 +19,20 @@
             breaklinks=true]{hyperref}
 \usepackage{cleveref}
 \usepackage{textcomp}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,calc}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[most]{tcolorbox}
+\tcbset{
+  takeawaybox/.style={
+    colback=black!4, colframe=black!50, boxrule=0.3pt,
+    arc=1pt, left=4pt, right=4pt, top=3pt, bottom=3pt,
+    boxsep=1pt, before skip=4pt, after skip=4pt,
+    fontupper=\small\itshape, sharp corners
+  }
+}
 
 \definecolor{codeblue}{rgb}{0.0,0.0,0.6}
 \definecolor{codegreen}{rgb}{0,0.5,0}
@@ -37,19 +56,19 @@
   belowskip=0.5em,
 }
 \lstset{style=code}
-\setlength{\parskip}{0.25em}
+\setlength{\parskip}{0.15em}
 
 \begin{document}
 
 \title{Does Compositional Refinement Strictly Extend Heuristic\\
-       Specification Inference? A Measurement Study}
+       Specification Inference? A Measurement Study%
+\thanks{Replication package (analyser source, harness, per-library logs, parsed clause samples) at \protect\url{https://anonymous.4open.science/r/jml-inferrer-anon} during review; non-anonymous DOI-archived release in the camera-ready version.}}
 
 \author{%
-\IEEEauthorblockN{Brendan Edmonds, Mark Utting}
+\IEEEauthorblockN{Author names omitted for double-blind review}
 \IEEEauthorblockA{%
-  UQ Cyber, School of Electrical Engineering and Computer Science\\
-  The University of Queensland, St Lucia QLD 4067, Australia\\
-  \{b.edmonds, m.utting\}@uq.edu.au}
+  Affiliation omitted for double-blind review\\
+  Contact email omitted for double-blind review}
 }
 
 \maketitle
@@ -72,16 +91,20 @@ iterates to a fixpoint on cyclic strongly-connected components) and
 measure its effect on five open-source Java libraries spanning four
 idiom families (Apache Commons Lang, Commons IO, Commons Math, jOOL,
 Vavr): 1{,}712 source files and 21{,}052 inferred methods in total.
-The result is unambiguous: \textbf{the second pass refines 24--44\% of
-methods in each library's cache (median 36.33\%) and adds 42{,}370
+The result is unambiguous: \textbf{the second pass refines 23--43\% of
+methods in each library's cache (median 35.53\%) and adds 45{,}740
 new precondition clauses overall.} Branch-conditional implications
 of the form \texttt{guard ==> obligation} dominate on four libraries
-of five (34--64\% of new clauses), and disjunctive obligations from
-polymorphic dispatch are present on every library (1.8--9.7\%); both
+of five (46--67\% of new clauses), and disjunctive obligations from
+polymorphic dispatch are present on every library (1.8--9.8\%); both
 are shapes the single-pass propagation cannot produce because it
 lacks the control-flow context the WP walk supplies and resolves
 each call to a single nominal callee. The single pass does
 \emph{not} subsume the compositional pass on any library studied.
+A version-step instance --- inferring across Commons Lang 3.12.0 and
+3.14.0 --- surfaces 525 candidate behavioural changes and 144
+strengthened preconditions, the candidate-breaking artefact a
+specification-level compatibility checker would consume.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -100,13 +123,7 @@ precondition, Java, static analysis
 \input{sections/related}
 \input{sections/conclusion}
 
-\section*{Data Availability}
-A replication package containing the
-\texttt{CompositionalAnalyzer} source, the harness that produced
-every measurement reported here, the per-library output logs, and
-the parsed clause samples is available at
-\url{https://github.com/[anonymized]/jml-inferrer}.
-
+\newpage
 \bibliographystyle{IEEEtran}
 \bibliography{../article1/references}
 

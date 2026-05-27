@@ -127,3 +127,53 @@ The discharge layer uses a forked OpenJML build that emits SMT-LIB \texttt{defin
 \label{subsec:categorization}
 
 To enable systematic evaluation across diverse implementations, the analysis assigns each method to one of six categories, extending Dragan et al.'s method stereotypes~\cite{dragan2006reverse} (inter-rater reliability: Cohen's $\kappa = 0.87$). The categories are: \emph{accessors and mutators} (field read or write), \emph{control flow} (conditionals and loops), \emph{factory and delegate} (object construction and forwarding), \emph{utility} (static helpers), \emph{state modification} (field modification under logic), and \emph{other} (event handlers, callbacks). When multiple patterns match, the most specific category is selected.
+
+\subsection{Engine Development: Probe-and-Backport}
+\label{subsec:probe-backport}
+
+The heuristic repertoire described in the preceding subsections was not specified in advance. It was extended incrementally over the course of the project by a development loop that pairs an LLM with the OpenJML verifier and an agentic coding assistant. The loop has four steps, applied whenever a new code pattern is encountered for which the engine fails to emit a discharged specification (Figure~\ref{fig:probe-backport}):
+
+\begin{enumerate}
+    \item \emph{Specify by example.} A failing pattern is reduced to a minimal Java method. An LLM (or, for harder cases, the authors by hand) drafts a candidate JML contract for the method.
+    \item \emph{Verify with the SMT oracle.} OpenJML's Extended Static Checker is invoked on the annotated method under the strictness configuration of Section~\ref{subsec:validation}. Clauses that discharge are accepted as ground truth for the pattern; clauses that fail are revised and reverified, or discarded if they cannot be made to discharge under the present solver/strictness budget. The verifier acts as a non-negotiable filter on what the LLM is permitted to propose: a clause that the LLM finds plausible but Z3 rejects is not allowed to enter the development corpus.
+    \item \emph{Encode the validated example as a probe test.} The minimal method and the discharged contract are committed to the verification regression suite (576 tests at submission) as a probe: a test that asserts that the inferrer, given the bare method, emits a specification that OpenJML then discharges.
+    \item \emph{Backport via an agentic coding assistant.} The agent is given the failing probe, the engine source, and the WP/SP framing of Section~\ref{sec:background}, and is tasked with extending the appropriate analyser (one of the WP, SP, loop-invariant, or simplification components) until the probe passes without regressing any other probe in the suite. The strictness configuration is fixed throughout, so any regression is a real one.
+\end{enumerate}
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.6cm and 0.9cm,
+    pbstep/.style={rectangle, draw, rounded corners, minimum width=2.6cm, minimum height=1.0cm, align=center, font=\footnotesize},
+    artefact/.style={rectangle, draw, dashed, minimum width=2.2cm, minimum height=0.7cm, align=center, font=\scriptsize},
+    arrow/.style={->, >=stealth, thick},
+]
+    \node[pbstep, fill=lightyellow] (s1) {1. LLM drafts\\candidate JML};
+    \node[pbstep, fill=lightgreen, right=of s1] (s2) {2. OpenJML ESC\\discharges or rejects};
+    \node[pbstep, fill=lightblue!50, right=of s2] (s3) {3. Validated example\\$\rightarrow$ probe test};
+    \node[pbstep, fill=lightpurple, right=of s3] (s4) {4. Agent extends\\inferrer until probe passes};
+
+    \node[artefact, below=of s1] (a1) {Minimal\\Java method};
+    \node[artefact, below=of s2] (a2) {Discharged\\JML clauses};
+    \node[artefact, below=of s3] (a3) {Regression\\suite (+1)};
+    \node[artefact, below=of s4] (a4) {Updated\\heuristic};
+
+    \draw[arrow] (s1) -- (s2);
+    \draw[arrow] (s2) -- (s3);
+    \draw[arrow] (s3) -- (s4);
+    \draw[arrow, dashed] (s4.south east) to[bend left=20] node[below, font=\scriptsize] {next pattern} (s1.south west);
+
+    \draw[arrow] (a1) -- (s1);
+    \draw[arrow] (s2) -- (a2);
+    \draw[arrow] (s3) -- (a3);
+    \draw[arrow] (s4) -- (a4);
+
+    \draw[arrow, dashed] (s2.south) -- ++(0,-0.3) -| node[pos=0.25, above, font=\scriptsize] {revise/discard} (s1.south);
+\end{tikzpicture}%
+}
+\caption{Probe-and-backport development loop. An LLM proposes candidate JML for a target code pattern; OpenJML's ESC discharges or rejects each clause under the fixed strictness configuration of Section~\ref{subsec:validation}; validated examples are pinned as probe tests in the verification regression suite; an agentic coding assistant then extends the appropriate inference component until the probe passes without regressing existing probes. The verifier is the non-negotiable filter on what the LLM is allowed to teach the inferrer.}
+\label{fig:probe-backport}
+\end{figure}
+
+The verifier-in-the-loop is the load-bearing element. Direct LLM-driven specification inference, evaluated as a baseline in Section~\ref{sec:results}, exhibits 72.4\% run-to-run consistency: the same method, prompted identically, yields non-identical contracts across runs at the configured temperature, and the variance includes clauses that the verifier would reject. The probe-and-backport workflow forces every clause that enters the engine's repertoire to be one that OpenJML has actually discharged on an example, and the discharged examples then anchor the engine's structural heuristics by regression. The same loop is also the recommended user workflow for extending JML-Inferrer to a previously unrecognised pattern in a downstream codebase: write the minimal method, draft the contract, verify, and either upstream the probe and the heuristic, or carry it as a local extension.

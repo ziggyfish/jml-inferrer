@@ -1,0 +1,99 @@
+\documentclass[11pt,a4paper,oneside]{report}
+
+% --- Packages ----------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=3cm]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{url}
+\usepackage{listings}
+\usepackage[hyphens]{xurl}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage[hidelinks,breaklinks=true]{hyperref}
+\usepackage{cite}
+
+% --- Listings (Java / JML code) ---------------------------------------------
+\definecolor{codeblue}{rgb}{0.0,0.0,0.6}
+\definecolor{codegreen}{rgb}{0,0.5,0}
+\lstdefinestyle{code}{
+  language=Java,
+  basicstyle=\fontsize{8.5}{10}\selectfont\ttfamily,
+  numbers=none,
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  frame=single,
+  rulecolor=\color{black!40},
+  tabsize=2,
+  captionpos=b,
+  breaklines=true,
+  breakatwhitespace=true,
+  keywordstyle=\color{codeblue},
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{red},
+  aboveskip=0.8em,
+  belowskip=0.8em,
+}
+\lstset{style=code}
+
+% --- Layout ------------------------------------------------------------------
+\onehalfspacing
+\setlength{\parskip}{0.4em}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\nouppercase{\leftmark}}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{Configuring Formal Methods for Industry:\\
+       Inferring, Distributing, and Propagating JML Specifications}
+\author{Brendan Edmonds}
+\date{}
+
+\begin{document}
+
+% =============================================================================
+% FRONT MATTER
+% =============================================================================
+\pagenumbering{roman}
+\input{front/titlepage}
+\input{front/abstract}
+\input{front/declaration}
+\input{front/publications}
+\input{front/acknowledgements}
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+% =============================================================================
+% MAIN MATTER
+% =============================================================================
+\cleardoublepage
+\pagenumbering{arabic}
+
+\input{chapters/ch1_introduction}
+\input{chapters/ch2_background}
+\input{chapters/ch3_inference}
+\input{chapters/ch4_testgen}
+\input{chapters/ch5_distribution}
+\input{chapters/ch6_compositional}
+\input{chapters/ch7_discussion}
+\input{chapters/ch8_conclusion}
+
+% =============================================================================
+% BIBLIOGRAPHY
+% =============================================================================
+\bibliographystyle{plain}
+\bibliography{../article1/references}
+
+\end{document}

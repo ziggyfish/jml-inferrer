@@ -42,7 +42,7 @@ OpenJML SC subsume the compositional reasoning we perform but do not
 \emph{produce} the specification --- they consume one written by hand.
 The Edmonds 2026 inferrer produces JML at this scale but propagates
 single-pass; it cannot synthesise the branch-guarded or polymorphic
-shapes that account for 38--74\% of the new clauses on our five-library
+shapes that account for 30--71\% of the new clauses on our five-library
 corpus (Table~\ref{tab:shapes}). Infer is genuinely compositional
 but does not target JML and is not designed for downstream
 verification by OpenJML. The gap our work closes is therefore narrow
@@ -78,16 +78,13 @@ compositional information) is specific to static syntactic
 inferrers.
 
 \paragraph{Specification inference for JML.}
-The immediate predecessor is~\cite{edmonds2026inference}, which
-introduced the heuristic JML inferrer we extend, and
-~\cite{edmonds2026embedding}, which addressed the distribution
-problem (embedding inferred specs in compiled bytecode and OpenAPI
-descriptions). PreInfer~\cite{preinfer2017} uses dynamic symbolic
-execution to infer preconditions; its propagation strategy is
-trace-driven rather than syntactic and is not directly comparable.
-Jdoctor~\cite{jdoctor2018} extracts exception preconditions from
-Javadoc; its scope is narrower than ours but its precondition
-synthesis is purely textual and does not propagate.
+The immediate predecessor is~\cite{edmonds2026inference}, which introduced the heuristic JML inferrer we extend, and~\cite{edmonds2026embedding}, which addressed the distribution problem (embedding inferred specs in compiled bytecode and OpenAPI descriptions). PreInfer~\cite{preinfer2017} uses dynamic symbolic execution to infer preconditions; its propagation strategy is trace-driven rather than syntactic and is not directly comparable. Jdoctor~\cite{jdoctor2018} extracts exception preconditions from Javadoc; its scope is narrower than ours but its precondition synthesis is purely textual and does not propagate. Toradocu~\cite{toradocu2016} and Pandita et al.~\cite{pandita2012inferring} likewise mine specifications from natural-language documentation. A more recent line uses LLMs to synthesise contracts or oracles directly~\cite{endres2024can,ma2024specgen,richter2025beyondpostconditions,konstantinou2024oracles}; those approaches are complementary to ours --- whatever produces the per-method spec, our compositional refinement pass can be applied to the cache afterwards.
+
+\paragraph{Bytecode rewriting and analysis frameworks.}
+ASM~\cite{asm} is the standard library for JVM class-file rewriting and was used by the predecessor distribution paper~\cite{edmonds2026embedding}; Byte Buddy~\cite{bytebuddy} and Javassist~\cite{chiba2000javassist} provide higher-level alternatives. Soot~\cite{vallee1999soot} sits on the analysis side. AspectJ~\cite{kiczales1997aspectj} pioneered runtime-retained annotations as bytecode-level advice carriers. None of these frameworks target compositional spec inference; the compositional analyser implemented here sits at the source-AST layer and writes back to the inferrer's in-memory cache, then leaves the embedding to the predecessor distribution layer.
+
+\paragraph{Test generation that consumes contracts.}
+Korat~\cite{boyapati2002korat} generates structurally diverse test inputs from \texttt{@Requires} predicates; EvoSuite~\cite{fraser2011evosuite} uses search-based optimisation guided by branch coverage and was extended to consume contracts as oracles. Feedback-directed random test generation~\cite{pacheco2007randoop} (Randoop) treats observed exceptions as implicit oracles. TOGA~\cite{dinella2022toga} and TOGLL~\cite{hossain2024togll} are neural oracle generators that consume method-context features; richer per-method specifications such as the ones our refinement pass produces are a strict improvement in input quality for all of these tools.
 
 \paragraph{Polymorphic dispatch in static analysis.}
 Tip et al.~\cite{tip2002practical} address polymorphic dispatch via
@@ -99,11 +96,3 @@ trade-off is the standard CHA precision/conservatism trade-off:
 disjunction over a large set of candidates produces preconditions
 that are easy to satisfy and therefore less informative.
 
-\paragraph{Mutation testing as a downstream evaluation.}
-PIT~\cite{coles2016pitest} is the mutation-testing pipeline the
-predecessor work uses to evaluate downstream spec quality. The
-present article does not run a mutation experiment; we report only
-the structural-extension claim. The follow-up evaluation will run
-PIT against test suites generated from the isolated baseline and
-from the compositionally-refined specs to ask whether the additional
-clauses translate into more bugs caught at the suite level.

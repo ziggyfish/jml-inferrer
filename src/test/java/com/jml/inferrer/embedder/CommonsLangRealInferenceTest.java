@@ -67,6 +67,21 @@ class CommonsLangRealInferenceTest {
     private static final Path GUAVA_SOURCES = m2Path(
             "com/google/guava/guava/33.3.0-jre", "guava-33.3.0-jre-sources.jar");
 
+    private static final Path COMMONS_MATH_JAR = m2Path(
+            "org/apache/commons/commons-math3/3.6.1", "commons-math3-3.6.1.jar");
+    private static final Path COMMONS_MATH_SOURCES = m2Path(
+            "org/apache/commons/commons-math3/3.6.1", "commons-math3-3.6.1-sources.jar");
+
+    private static final Path JOOL_JAR = m2Path(
+            "org/jooq/jool/0.9.14", "jool-0.9.14.jar");
+    private static final Path JOOL_SOURCES = m2Path(
+            "org/jooq/jool/0.9.14", "jool-0.9.14-sources.jar");
+
+    private static final Path VAVR_JAR = m2Path(
+            "io/vavr/vavr/0.10.4", "vavr-0.10.4.jar");
+    private static final Path VAVR_SOURCES = m2Path(
+            "io/vavr/vavr/0.10.4", "vavr-0.10.4-sources.jar");
+
     private static Path m2Path(String repoSub, String file) {
         return Paths.get(System.getProperty("user.home"), ".m2", "repository")
                 .resolve(repoSub).resolve(file);
@@ -82,6 +97,18 @@ class CommonsLangRealInferenceTest {
 
     static boolean guavaAvailable() {
         return Files.exists(GUAVA_JAR) && Files.exists(GUAVA_SOURCES);
+    }
+
+    static boolean commonsMathAvailable() {
+        return Files.exists(COMMONS_MATH_JAR) && Files.exists(COMMONS_MATH_SOURCES);
+    }
+
+    static boolean joolAvailable() {
+        return Files.exists(JOOL_JAR) && Files.exists(JOOL_SOURCES);
+    }
+
+    static boolean vavrAvailable() {
+        return Files.exists(VAVR_JAR) && Files.exists(VAVR_SOURCES);
     }
 
     @Test
@@ -100,6 +127,24 @@ class CommonsLangRealInferenceTest {
     @EnabledIf("guavaAvailable")
     void guavaRealInferenceRoundtrip() throws IOException {
         runOn("guava-33.3.0-jre", GUAVA_JAR, GUAVA_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("commonsMathAvailable")
+    void commonsMathRealInferenceRoundtrip() throws IOException {
+        runOn("commons-math3-3.6.1", COMMONS_MATH_JAR, COMMONS_MATH_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("joolAvailable")
+    void joolRealInferenceRoundtrip() throws IOException {
+        runOn("jool-0.9.14", JOOL_JAR, JOOL_SOURCES);
+    }
+
+    @Test
+    @EnabledIf("vavrAvailable")
+    void vavrRealInferenceRoundtrip() throws IOException {
+        runOn("vavr-0.10.4", VAVR_JAR, VAVR_SOURCES);
     }
 
     private void runOn(String label, Path binaryJar, Path sourcesJar) throws IOException {

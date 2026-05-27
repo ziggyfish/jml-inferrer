@@ -61,6 +61,21 @@ class OssJarValidationTest {
             ".m2", "repository", "commons-io", "commons-io",
             "2.13.0", "commons-io-2.13.0.jar");
 
+    private static final Path COMMONS_MATH_JAR = Paths.get(
+            System.getProperty("user.home"),
+            ".m2", "repository", "org", "apache", "commons", "commons-math3",
+            "3.6.1", "commons-math3-3.6.1.jar");
+
+    private static final Path VAVR_JAR = Paths.get(
+            System.getProperty("user.home"),
+            ".m2", "repository", "io", "vavr", "vavr",
+            "0.10.4", "vavr-0.10.4.jar");
+
+    private static final Path JOOL_JAR = Paths.get(
+            System.getProperty("user.home"),
+            ".m2", "repository", "org", "jooq", "jool",
+            "0.9.14", "jool-0.9.14.jar");
+
     static boolean commonsLangAvailable() {
         return Files.exists(COMMONS_LANG_JAR);
     }
@@ -71,6 +86,18 @@ class OssJarValidationTest {
 
     static boolean commonsIoAvailable() {
         return Files.exists(COMMONS_IO_JAR);
+    }
+
+    static boolean commonsMathAvailable() {
+        return Files.exists(COMMONS_MATH_JAR);
+    }
+
+    static boolean vavrAvailable() {
+        return Files.exists(VAVR_JAR);
+    }
+
+    static boolean joolAvailable() {
+        return Files.exists(JOOL_JAR);
     }
 
     @Test
@@ -93,6 +120,30 @@ class OssJarValidationTest {
     @EnabledIf("commonsIoAvailable")
     void commonsIoValidation() throws IOException {
         ValidationReport report = validate("commons-io-2.13.0", COMMONS_IO_JAR);
+        assertReasonableMetrics(report);
+        appendMetrics(report);
+    }
+
+    @Test
+    @EnabledIf("commonsMathAvailable")
+    void commonsMathValidation() throws IOException {
+        ValidationReport report = validate("commons-math3-3.6.1", COMMONS_MATH_JAR);
+        assertReasonableMetrics(report);
+        appendMetrics(report);
+    }
+
+    @Test
+    @EnabledIf("vavrAvailable")
+    void vavrValidation() throws IOException {
+        ValidationReport report = validate("vavr-0.10.4", VAVR_JAR);
+        assertReasonableMetrics(report);
+        appendMetrics(report);
+    }
+
+    @Test
+    @EnabledIf("joolAvailable")
+    void joolValidation() throws IOException {
+        ValidationReport report = validate("jool-0.9.14", JOOL_JAR);
         assertReasonableMetrics(report);
         appendMetrics(report);
     }

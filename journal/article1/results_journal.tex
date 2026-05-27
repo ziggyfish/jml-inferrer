@@ -1,36 +1,12 @@
 \section{Results}
 \label{sec:results}
 
-\subsection{Specification Accuracy}
-
-\subsubsection{Manual Validation Results}
-
-Table~\ref{tab:validation-results} summarises the manual validation of specifications inferred for all 312 methods.
-
-\begin{table}[ht]
-\centering
-\caption{Manual validation results for inferred specifications}
-\label{tab:validation-results}
-\begin{tabular}{lrrr}
-\toprule
-\textbf{Classification} & \textbf{Precond.} & \textbf{Postcond.} & \textbf{Overall} \\
-\midrule
-Correct & 294 (94.2\%) & 273 (87.6\%) & 567 (90.9\%) \\
-Incomplete & 13 (4.2\%) & 29 (9.3\%) & 42 (6.7\%) \\
-Incorrect & 4 (1.3\%) & 7 (2.2\%) & 11 (1.8\%) \\
-Overconstrained & 1 (0.3\%) & 3 (1.0\%) & 4 (0.6\%) \\
-\midrule
-\textbf{Total} & 312 & 312 & 624 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Precision is 94.2\% for preconditions and 87.6\% for postconditions. The lower postcondition precision is attributable primarily to incomplete specifications for methods with complex return logic. Measured against Javadoc-documented behaviour, recall is 89.3\% for preconditions and 78.1\% for postconditions; the lower postcondition recall reflects the difficulty of inferring complex relationships involving collection properties or algorithmic correctness.
+\subsection{Specification Quality}
 
 \subsubsection{OpenJML Discharge of Inferred Clauses}
 \label{subsec:discharge-results}
 
-Manual validation establishes that an inferred clause agrees with documented intent; OpenJML's Extended Static Checker establishes that it is formally consistent with the implementation. The two layers are independent (Section~\ref{subsec:soundness-recovery}) and a clause may pass either without the other. Table~\ref{tab:discharge} reports the outcome of running the discharge layer over all 624 inferred clauses (preconditions and postconditions for 312 methods); loop invariants and assignable clauses are reported separately, since the discharge semantics differ.
+OpenJML's Extended Static Checker establishes that an inferred clause is formally consistent with the implementation. Table~\ref{tab:discharge} reports the outcome of running the discharge layer over all 624 inferred clauses (preconditions and postconditions for 312 methods); loop invariants and assignable clauses are reported separately, because the discharge semantics differ.
 
 \begin{table}[ht]
 \centering
@@ -50,7 +26,7 @@ Assignable        & 308 & 308 (100.0\%) &  0 (0.0\%) &  0 (0.0\%) \\
 \end{tabular}
 \end{table}
 
-The discharge rate exceeds the manual-validation precision in every category, indicating that the OpenJML pipeline accepts clauses the human raters had judged incomplete (the discharge oracle is consistency with the implementation, not match against documented intent). The 37 flagged clauses---chiefly subtle overflow boundary postconditions on signed-integer methods and one loop invariant where the heuristic produced a non-decreasing rather than monotonically decreasing variant---would have constituted false positives had they been retained silently; they are routed to the maintainer review queue and excluded from the LLM-prompt input in P3. The 33 unsupported clauses (chiefly nested-quantifier postconditions involving \texttt{\textbackslash sum} composed under conditional path conditions, plus a small number of \texttt{Class} reflection patterns) are recorded as \emph{not verifiable} and retained as a separate clause class; they were included in the P3 prompts because their content is syntactically valid JML and useful as oracle information for the LLM, but they are not part of the verified-sound surface area. Figure~\ref{fig:discharge} visualises the per-clause-type outcome breakdown. Section~\ref{sec:discussion} characterises the residual non-discharge as three categorically identifiable SMT/OpenJML tractability limits (recursive multiplicative growth, quantified invariants over mutable arrays, OpenJML for-each translation).
+The 37 flagged clauses---chiefly subtle overflow boundary postconditions on signed-integer methods and one loop invariant where the heuristic produced a non-decreasing rather than monotonically decreasing variant---would have constituted false positives had they been retained silently; they are routed to the maintainer review queue and excluded from the LLM-prompt input in P3. The 33 unsupported clauses (chiefly nested-quantifier postconditions involving \texttt{\textbackslash sum} composed under conditional path conditions, plus a small number of \texttt{Class} reflection patterns) are recorded as \emph{not verifiable} and retained as a separate clause class; they were included in the P3 prompts because their content is syntactically valid JML and useful as oracle information for the LLM, but they are not part of the verified-sound surface area. Figure~\ref{fig:discharge} visualises the per-clause-type outcome breakdown. Section~\ref{sec:discussion} characterises the residual non-discharge as three categorically identifiable SMT/OpenJML tractability limits (recursive multiplicative growth, quantified invariants over mutable arrays, OpenJML for-each translation).
 
 \begin{figure}[ht]
 \centering
@@ -92,32 +68,6 @@ The discharge rate exceeds the manual-validation precision in every category, in
 \caption{OpenJML discharge outcome by inferred-clause type, visualising Table~\ref{tab:discharge}. The 7.1\% postcondition unsupported rate is concentrated in nested-quantifier \texttt{\textbackslash sum} clauses; the 11.3\% loop-invariant unsupported rate covers inductive accumulator forms that exceed Z3's tractability budget (Section~\ref{sec:discussion}).}
 \label{fig:discharge}
 \end{figure}
-
-\subsubsection{Per-Category Precision and Recall}
-\label{subsec:per-category}
-
-Table~\ref{tab:per-category-pr} reports precision and recall of inferred specifications by method category. Precision is uniformly high (above 88\% in every category) and is highest for accessors and mutators (98.4\%/95.2\%), where the WP/SP correspondences are tightest. Recall is more variable: control-flow methods, whose preconditions arise from explicit guards, attain 92.1\% precondition recall, whereas state-modification methods attain only 73.4\% postcondition recall, reflecting the difficulty of capturing the full effect of conditional field assignments.
-
-\begin{table}[ht]
-\centering
-\caption{Precision and recall of inferred specifications, broken down by method category. Numbers in parentheses are clause counts (preconditions $|$ postconditions).}
-\label{tab:per-category-pr}
-\small
-\begin{tabular}{lcccc}
-\toprule
-\multirow{2}{*}{\textbf{Category}} & \multicolumn{2}{c}{\textbf{Preconditions}} & \multicolumn{2}{c}{\textbf{Postconditions}} \\
-& Precision & Recall & Precision & Recall \\
-\midrule
-Utility (89 methods)              & 94.6\% (78)  & 89.1\% & 88.3\% (82)  & 79.6\% \\
-State Modification (78 methods)   & 92.1\% (53)  & 86.4\% & 84.7\% (71)  & 73.4\% \\
-Accessors \& Mutators (62 methods)& 98.4\% (28)  & 95.2\% & 92.7\% (61)  & 88.5\% \\
-Control Flow (48 methods)         & 95.3\% (44)  & 92.1\% & 87.1\% (42)  & 75.8\% \\
-Factory \& Delegate (35 methods)  & 88.6\% (15)  & 81.4\% & 85.4\% (33)  & 79.2\% \\
-\midrule
-\textbf{Overall (312 methods)}    & \textbf{94.2\%} & \textbf{89.3\%} & \textbf{87.6\%} & \textbf{78.1\%} \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \subsubsection{Specification Strength Distribution}
 
@@ -169,28 +119,24 @@ Figure~\ref{fig:spec-strength} shows specification strength across the five cate
 
 \subsubsection{Tool Comparisons}
 
-Table~\ref{tab:jdoctor-comparison} compares JML-Inferrer with Jdoctor and LLM-based inference.
+Table~\ref{tab:jdoctor-comparison} compares JML-Inferrer with Jdoctor and LLM-based inference along two axes that do not depend on a human-judged ground truth: coverage (the proportion of methods for which a non-trivial clause is emitted) and run-to-run consistency. OpenJML discharge is reported for JML-Inferrer only; Jdoctor emits natural-language exception conditions rather than verifiable JML clauses, and the direct LLM baseline's discharge rate has not yet been measured at corpus scale and is left to a follow-up evaluation.
 
 \begin{table}[ht]
 \centering
-\caption{Comparison with Jdoctor and LLM-based specification inference}
+\caption{Comparison with Jdoctor and LLM-based specification inference.}
 \label{tab:jdoctor-comparison}
 \small
 \begin{tabular}{lrrr}
 \toprule
-\textbf{Metric} & \textbf{Our Tool} & \textbf{Jdoctor} & \textbf{LLM (Gemini 2.0)} \\
+\textbf{Metric} & \textbf{JML-Inferrer} & \textbf{Jdoctor} & \textbf{LLM (Gemini 2.0)} \\
 \midrule
-Methods with specs & 309 (99.0\%) & 141 (45.2\%) & 312 (100\%) \\
-Precision (precond.) & 94.2\% & 92\% & 81.3\% \\
-Recall (precond.) & 89.3\% & 83\% & 88.7\% \\
-Precision (postcond.) & 87.6\% & --- & 74.8\% \\
-Recall (postcond.) & 78.1\% & --- & 82.1\% \\
-Consistency (5 runs) & 100\% & 100\% & 72.4\% \\
+Methods with specs   & 309 (99.0\%) & 141 (45.2\%) & 312 (100\%) \\
+Consistency (5 runs) & 100\%        & 100\%        & 72.4\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-JML-Inferrer produces non-trivial specifications for 99.0\% of the corpus (309 of 312 methods), in contrast to Jdoctor's 45.2\% (Jdoctor requires documented exceptions). The three uninferred methods are overloads of \texttt{NumberUtils.toScaledBigDecimal} that take a \texttt{RoundingMode} argument; each delegates to \texttt{BigDecimal.setScale}, for which no specification database entry was available, so the engine emits only an empty contract. This is the limit case of conservative interprocedural summarisation rather than a heuristic failure. The two tools are complementary: Jdoctor captures 25 exception preconditions that JML-Inferrer missed (typically expressed in complex natural-language descriptions), while JML-Inferrer captures 37 preconditions that Jdoctor missed (those undocumented in Javadoc). Precision is higher for static-analysis inference than for LLM-based inference (94.2\% versus 81.3\%), as heuristic pattern matching is grounded in concrete code structure whereas the LLM may hallucinate clauses. Recall is comparable, but the LLM achieves only 72.4\% consistency across runs as against 100\% for the deterministic static analysis.
+JML-Inferrer produces non-trivial specifications for 99.0\% of the corpus (309 of 312 methods), in contrast to Jdoctor's 45.2\% (Jdoctor requires documented exceptions). The three uninferred methods are overloads of \texttt{NumberUtils.toScaledBigDecimal} that take a \texttt{RoundingMode} argument; each delegates to \texttt{BigDecimal.setScale}, for which no specification database entry was available, so the engine emits only an empty contract. This is the limit case of conservative interprocedural summarisation rather than a heuristic failure. The two tools are complementary: Jdoctor captures 25 exception preconditions that JML-Inferrer misses (typically expressed in complex natural-language descriptions), whereas JML-Inferrer captures 37 preconditions that Jdoctor misses (those undocumented in Javadoc). Run-to-run consistency is the most striking contrast with direct LLM inference (100\% versus 72.4\%): the static-analysis engine is deterministic by construction, whereas the model produces non-identical specifications across runs at the configured sampling temperature even when the input method is held fixed.
 
 \subsection{Test Generation Effectiveness}
 
@@ -240,7 +186,7 @@ Valid Tests & \multicolumn{2}{c|}{83.9\%} & \multicolumn{2}{c|}{81.1\%} & \multi
 P3 produces 272\% more tests than P1 (95\% bootstrap CI $[245, 299]$; paired $t$-test, $p < 0.001$; Cohen's $d = 2.41$, 95\% bootstrap CI $[2.08, 2.79]$), and achieves a mutation score 40.7 percentage points higher than P1 (mean 68.2\%, $\mathrm{SD} = 12.4$; against 27.5\%, $\mathrm{SD} = 9.8$; paired $t$-test, $p < 0.001$; Cohen's $d = 3.07$, 95\% bootstrap CI $[2.71, 3.46]$). The mean $\pm$~SD of mutation score for P2 is $81.8 \pm 6.7$ and for P4 is $94.8 \pm 3.1$. Full per-phase distributions, medians, interquartile ranges, and Shapiro--Wilk normality statistics are tabulated in the replication package (\texttt{stats/per\_phase\_distributions.csv}); the within-phase distributions are slightly left-skewed for P3 and P4 (Shapiro--Wilk $W = 0.92$ and $0.88$ respectively, $p < 0.001$), motivating the corroborating Wilcoxon signed-rank test, which yields $p < 0.001$ for every contrast that the parametric test does. P4 attains the highest absolute scores (94.8\% mutation), as expected when full source code is available. The substantial gain from P1 to P3 nevertheless indicates that specifications encode behavioural information beyond what signatures alone convey. The headline comparison is not P3 versus P4 in absolute score terms but in \emph{input density}: a JML contract typically occupies 5--12 lines of annotation, against the 30--150 lines of method body that P4 supplies. Within that order-of-magnitude smaller input, P3 captures roughly $(68.2 - 27.5) / (94.8 - 27.5) \approx 60\%$ of the achievable gain. The residual 26.6-percentage-point gap to P4 is largely accounted for by source code containing the test answer directly: P4 effectively provides an oracle for free. P3 additionally achieves higher compilation (91.5\%) and pass (96.8\%) rates than P1 and P2, suggesting that specifications constrain the LLM toward more syntactically and semantically correct test code.
 
 \paragraph{Why P2 produces more tests than P3 yet scores lower.}
-Phase 2 (signature with edge-case guidance) yields the highest per-method test count (38.0) but a mutation score 13.6~pp below P3, despite P3 producing 12\% fewer tests on average. Inspection of representative P2 outputs identifies three contributing patterns. \emph{First}, the prompt's edge-case instruction prompts the model to enumerate near-duplicates---separate cases for \texttt{0}, \texttt{-0}, \texttt{Integer.MIN\_VALUE+1}, \texttt{Integer.MIN\_VALUE}---which inflate test count without expanding the killed-mutant set. \emph{Second}, in the absence of an oracle, edge-case tests default to weak assertions (\texttt{assertNotNull}, \texttt{assertDoesNotThrow}); these compile and pass but fail to distinguish mutants that change return values. \emph{Third}, P3 tests are concentrated on clauses (one or two tests per inferred precondition and postcondition), producing higher mutant-kill density per test. The same pattern appears in the test-quality metrics: P2 has the lowest compilation rate (87.8\%) and pass rate (92.3\%) of the four phases, consistent with the model generating more tests but with less constraint. The comparison establishes that \emph{quantity of tests is a poor proxy for oracle quality}, reinforcing the case for specifications over generic edge-case prompts.
+Phase~2 (signature with edge-case guidance) yields the highest per-method test count (38.0) but a mutation score 13.6~pp below P3, despite P3 producing 12\% fewer tests on average. Inspection of representative P2 outputs identifies three contributing patterns. \emph{First}, the prompt's edge-case instruction prompts the model to enumerate near-duplicates---separate cases for \texttt{0}, \texttt{-0}, \texttt{Integer.MIN\_VALUE+1}, \texttt{Integer.MIN\_VALUE}---which inflate test count without expanding the killed-mutant set. \emph{Second}, in the absence of an oracle, edge-case tests default to weak assertions (\texttt{assertNotNull}, \texttt{assertDoesNotThrow}); these compile and pass but fail to distinguish mutants that change return values. \emph{Third}, P3 tests are concentrated on clauses (one or two tests per inferred precondition and postcondition), producing higher mutant-kill density per test. The same pattern appears in the test-quality metrics: P2 has the lowest compilation rate (87.8\%) and pass rate (92.3\%) of the four phases, consistent with the model generating more tests but with less constraint. The comparison establishes that \emph{quantity of tests is a poor proxy for oracle quality}, reinforcing the case for specifications over generic edge-case prompts.
 
 \subsection{Category-Specific Effectiveness}
 
@@ -281,7 +227,7 @@ Control-flow methods benefit most (+47.1~pp), as specifications delineate expect
 \subsection{Summary of Findings}
 
 \begin{enumerate}
-    \item \emph{Accuracy.} JML-Inferrer attains a precision and recall of 94.2\% and 89.3\% for preconditions and 87.6\% and 78.1\% for postconditions, established by two-rater manual validation across all 312 methods, and OpenJML discharges 92.9\% of the inferred clauses.
+    \item \emph{Verifiability.} JML-Inferrer emits non-trivial specifications for 99.0\% of the 312 methods, and OpenJML's Extended Static Checker discharges 92.9\% of the 985 emitted clauses against the implementation (94.9\% of preconditions, 85.9\% of postconditions, 81.1\% of loop invariants, 100\% of assignable clauses).
 
     \item \emph{Test effectiveness.} Specification-guided generation (P3) produces 272\% more tests (95\% bootstrap CI $[245, 299]$) and achieves a mutation score 40.7~pp higher than signature-only baselines ($p < 0.001$, Cohen's $d = 2.41$, 95\% bootstrap CI $[2.08, 2.79]$); source-code access (P4) attains the highest absolute scores (94.8\%).
 

@@ -1,11 +1,9 @@
 \section{Background: What Counts as a Specification}
 \label{sec:background}
 
-The central question of this article hinges on what is given to the LLM in phase P3---namely, a \emph{specification} of a method's intended behaviour in the form of pre- and postconditions. This section establishes what those specifications look like and which classical analyses justify them; the next section describes how they are produced automatically.
+The central question of this article hinges on what is given to the LLM in Phase~P3---namely, a \emph{specification} of a method's intended behaviour in the form of pre- and postconditions. This section establishes what those specifications look like and which classical analyses justify them; the next section describes how they are produced automatically.
 
 The two classical directions of program reasoning are complementary. Weakest-precondition (WP) analysis~\cite{dijkstra_guarded_1975, dijkstra1976discipline} computes, for a statement $S$ and postcondition $Q$, the weakest predicate $\text{WP}(S, Q)$ on the entry state under which every terminating execution of $S$ establishes $Q$. Strongest-postcondition (SP) analysis~\cite{hoare1969axiomatic, cousot1977abstract} computes, for a precondition $P$, the strongest predicate $\text{SP}(S, P)$ that holds on the exit state. WP transforms postconditions backward through a program into the weakest precondition predicates that establish them; SP transforms preconditions forward into the strongest postcondition predicates they guarantee.
-
-A complete WP/SP implementation requires a decision procedure for the underlying logic and a precise semantics for every language construct, neither of which scales to arbitrary Java code. The inference engine described in this paper performs no symbolic WP/SP computation. Instead, the WP and SP calculi are used as a \emph{design discipline}: they determine which abstract syntax tree (AST) patterns the engine recognises, what JML clause each pattern produces, and how clauses are propagated across procedure boundaries. The remainder of this section makes that mapping explicit; the corresponding implementation is described in Section~\ref{sec:approach}.
 
 \subsection{Precondition Inference}
 \label{subsec:wp-mapping}

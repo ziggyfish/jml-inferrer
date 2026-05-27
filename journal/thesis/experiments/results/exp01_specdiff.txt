@@ -1,0 +1,60 @@
+Experiment 01 (detection step): inferred-spec diff, commons-lang3 3.12.0 -> 3.14.0
+===========================================================
+methods with inferred spec, 3.12.0   : 3216
+methods with inferred spec, 3.14.0   : 3494
+methods present in both versions     : 3188
+methods only in 3.12.0 (removed)     : 28
+methods only in 3.14.0 (added)       : 306
+-----------------------------------------------------------
+of the 3188 common methods:
+  inferred spec UNCHANGED            : 2663
+  inferred spec CHANGED              : 525
+-----------------------------------------------------------
+precondition change (candidate compatibility signal):
+  precondition STRENGTHENED (+req)   : 144   <- candidate-breaking
+  precondition WEAKENED (-req)       : 87
+  precondition MIXED (+ and -)       : 90
+postcondition change:
+  postcondition STRENGTHENED (+ens)  : 78
+  postcondition WEAKENED (-ens)      : 48   <- candidate-breaking
+  postcondition MIXED (+ and -)      : 178
+  frame (assignable) changed         : 1
+-----------------------------------------------------------
+total requires-clauses added         : 349
+total requires-clauses removed       : 303
+total ensures-clauses added          : 330
+total ensures-clauses removed        : 268
+-----------------------------------------------------------
+examples of methods with a STRENGTHENED precondition
+(client calling 3.12.0 may violate the added requires in 3.14.0):
+    AbstractCircuitBreaker.close()
+      +requires exception != null | this.childInitializers != null
+    ArchUtils.getProcessor(String)
+      +requires value < ARCH_TO_PROCESSOR.size()
+      -requires value < this.size()
+    ArrayUtils.toObject(double[])
+      +requires new Double[array.length] != null
+    BitField.clearByte(byte)
+      +requires this.bitSet != null
+    Builder.namingPattern(String)
+      +requires pattern != null
+    Builder.wrappedFactory(ThreadFactory)
+      +requires factory != null
+    CallableBackgroundInitializer.checkCallable(Callable)
+      +requires callable != null
+    CallableBackgroundInitializer.initialize()
+      +requires this.initializer != null
+    CaseInsensitiveTextStrategy.setCalendar(FastDateParser,Calendar,String)
+      +requires this.bitSet != null
+    CharRange.contains(char)
+      +requires this.set != null
+    CharRange.iterator()
+      +requires calendar != null
+      -requires focus != null
+    CharSequenceTranslator.translate(CharSequence,Writer)
+      +requires writer != null
+      -requires out != null
+
+Note: this is the syntactic detection step (Exp01 H1). SMT
+subsumption (does pre_new imply pre_old?) and changelog-validated
+precision/recall (Exp01 H3 / Exp02) are not run here.

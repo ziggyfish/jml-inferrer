@@ -36,6 +36,12 @@ public class MethodSpecification {
     private final Map<String, Integer> loopDecreasesLine;
     private final List<String> exceptionSpecifications;
     private final List<String> assignableClauses;
+    // Callee parameter names, captured at inference time. Used by the
+    // interprocedural analyser to substitute callee params with caller args
+    // when propagating cross-CompilationUnit specs (e.g. a client calling a
+    // library method whose MethodDeclaration is not in the caller's CU and
+    // therefore not reachable via `findCalleeDecl`'s AST walk).
+    private List<String> parameterNames = new ArrayList<>();
 
     // Confidence tracking for each specification
     private final Map<String, ConfidenceLevel> specificationConfidence;
@@ -108,6 +114,14 @@ public class MethodSpecification {
 
     public int getLoopDecreasesLine(String expr) {
         return loopDecreasesLine.getOrDefault(expr, 0);
+    }
+
+    public void setParameterNames(List<String> names) {
+        this.parameterNames = names == null ? new ArrayList<>() : new ArrayList<>(names);
+    }
+
+    public List<String> getParameterNames() {
+        return parameterNames;
     }
 
     public void addPrecondition(String precondition) {

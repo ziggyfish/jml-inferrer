@@ -3,19 +3,15 @@
 
 \subsection{The single-pass strategy is not subsuming}
 
-The measurement settles a question the predecessor papers left open:
-the isolated-pass inferrer's
-\texttt{InterproceduralAnalyzer}~\cite{edmonds2026inference} does not
-capture what a compositional refinement would, on any of the five
-libraries we measured. Two structural shapes are out of reach by
+Our measurement settles a question the predecessor papers left open: the isolated-pass inferrer's \texttt{InterproceduralAnalyzer}~\cite{edmonds2026inference} does not capture what a compositional refinement would, on any of the five libraries we measured. Two structural shapes are out of reach by
 construction: branch-conditional implications that depend on the
 caller's control-flow context, and disjunctive obligations from
 polymorphic dispatch. The cross-library data shows these are not
 edge cases --- branch-conditional implications make up the
 \emph{majority} of newly-added preconditions on Lang, IO, Math, and
-Vavr, and a substantial third on jOOL; disjunctive shapes are
+Vavr, and a substantial quarter on jOOL; disjunctive shapes are
 present on every library and dominant where interface inheritance
-runs deep (Vavr, 9.7\%).
+runs deep (Vavr, 9.8\%).
 
 The implication for the inferrer's downstream consumers
 (test generators, IDEs, LLMs) is that running the second pass before
@@ -27,13 +23,13 @@ that the gap exists and that it is structurally explainable.
 
 \subsection{Why the single pass already does so much}
 
-It is also worth noting what the single pass \emph{does} cover. The
+We also note what the single pass \emph{does} cover. The
 isolated baseline already produces 11.95\% bytecode overhead under
 synthetic specs and 10.07\% under real inferred
 specs~\cite{edmonds2026embedding}; a substantial fraction of those
 clauses are interprocedural propagations the
 \texttt{InterproceduralAnalyzer} produces during isolated inference.
-The second pass adds 42{,}370 \emph{new} clauses on top of an
+The second pass adds 45{,}740 \emph{new} clauses on top of an
 already-rich baseline across the five libraries. The single pass
 does the right thing on unguarded call sites and on calls to
 single-candidate methods; it is the guarded and polymorphic cases
@@ -41,11 +37,7 @@ where the gap appears, and those cases concentrate the additions.
 
 \subsection{Implications for analyser architecture}
 
-For inferrers that target downstream tools where richer specs help
-(verification, test generation, LLM consumption), the second pass is
-clearly worth integrating: an extra 44 seconds total across all five
-libraries for an average of 35.6\% of methods receiving refined
-specifications is a strong trade. For inferrers that target downstream tools that consume
+For inferrers that target downstream tools where richer specs help (deductive verification with KeY~\cite{key2016book} or OpenJML~\cite{openjml}, test generation with EvoSuite~\cite{fraser2011evosuite} or Randoop~\cite{pacheco2007randoop}, mutation-testing pipelines~\cite{coles2016pitest,papadakis2019mutation}, or LLM-driven consumers~\cite{schafer2023adaptive,lemieux2023codamosa,kang2023libro}), the second pass is clearly worth integrating: an extra 34 seconds total across all five libraries for an average of 34.47\% of methods receiving refined specifications is a strong trade. For inferrers that target downstream tools that consume
 specs eagerly (auto-completion, hover text in an IDE), the
 runtime cost may not justify the extra clauses; the second pass
 is opt-in by design so deployers can choose.

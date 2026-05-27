@@ -1,0 +1,115 @@
+{
+  "className": "MutablePair",
+  "packageName": "org.apache.commons.lang3.tuple",
+  "methodCount": 10,
+  "methods": [
+    {
+      "name": "emptyArray",
+      "signature": "public static MutablePair\u003cL, R\u003e[] emptyArray()",
+      "returnType": "MutablePair\u003cL,R\u003e[]",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Returns the empty array singleton that can be assigned without compiler warning.\r\n *\r\n * @param \u003cL\u003e the left element type.\r\n * @param \u003cR\u003e the right element type.\r\n * @return the empty array singleton that can be assigned without compiler warning.\r\n * @since 3.10\r\n */\r\n@SuppressWarnings(\"unchecked\")\r\npublic static \u003cL, R\u003e MutablePair\u003cL, R\u003e[] emptyArray() {\r\n    return (MutablePair\u003cL, R\u003e[]) EMPTY_ARRAY;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static MutablePair\u003cL, R\u003e[] emptyArray()"
+    },
+    {
+      "name": "of",
+      "signature": "public static MutablePair\u003cL, R\u003e of(final L left, final R right)",
+      "returnType": "MutablePair\u003cL,R\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a mutable pair of two objects inferring the generic types.\r\n *\r\n * @param \u003cL\u003e the left element type.\r\n * @param \u003cR\u003e the right element type.\r\n * @param left  the left element, may be null.\r\n * @param right  the right element, may be null.\r\n * @return a mutable pair formed from the two parameters, not null.\r\n */\r\npublic static \u003cL, R\u003e MutablePair\u003cL, R\u003e of(final L left, final R right) {\r\n    return new MutablePair\u003c\u003e(left, right);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static MutablePair\u003cL, R\u003e of(final L left, final R right)"
+    },
+    {
+      "name": "of",
+      "signature": "public static MutablePair\u003cL, R\u003e of(final Map.Entry\u003cL, R\u003e pair)",
+      "returnType": "MutablePair\u003cL,R\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a mutable pair from a map entry.\r\n *\r\n * @param \u003cL\u003e the left element type.\r\n * @param \u003cR\u003e the right element type.\r\n * @param pair the existing map entry.\r\n * @return a mutable pair formed from the map entry.\r\n */\r\npublic static \u003cL, R\u003e MutablePair\u003cL, R\u003e of(final Map.Entry\u003cL, R\u003e pair) {\r\n    final L left;\r\n    final R right;\r\n    if (pair !\u003d null) {\r\n        left \u003d pair.getKey();\r\n        right \u003d pair.getValue();\r\n    } else {\r\n        left \u003d null;\r\n        right \u003d null;\r\n    }\r\n    return new MutablePair\u003c\u003e(left, right);\r\n}",
+      "jmlAnnotations": "",
+      "annotatedSignature": "public static MutablePair\u003cL, R\u003e of(final Map.Entry\u003cL, R\u003e pair)"
+    },
+    {
+      "name": "ofNonNull",
+      "signature": "public static MutablePair\u003cL, R\u003e ofNonNull(final L left, final R right)",
+      "returnType": "MutablePair\u003cL,R\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a mutable pair of two non-null objects inferring the generic types.\r\n *\r\n * @param \u003cL\u003e the left element type.\r\n * @param \u003cR\u003e the right element type.\r\n * @param left  the left element, may not be null.\r\n * @param right  the right element, may not be null.\r\n * @return a mutable pair formed from the two parameters, not null.\r\n * @throws NullPointerException if any input is null.\r\n * @since 3.13.0\r\n */\r\npublic static \u003cL, R\u003e MutablePair\u003cL, R\u003e ofNonNull(final L left, final R right) {\r\n    return of(Objects.requireNonNull(left, \"left\"), Objects.requireNonNull(right, \"right\"));\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static MutablePair\u003cL, R\u003e ofNonNull(final L left, final R right)"
+    },
+    {
+      "name": "ofNonNull",
+      "signature": "public static MutablePair\u003cL, R\u003e ofNonNull(final Map.Entry\u003cL, R\u003e pair)",
+      "returnType": "MutablePair\u003cL,R\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a mutable pair from a map entry.\r\n *\r\n * @param \u003cL\u003e the left element type\r\n * @param \u003cR\u003e the right element type\r\n * @param pair the existing map entry.\r\n * @return a mutable pair formed from the map entry\r\n * @throws NullPointerException if the pair is null.\r\n * @since 3.20\r\n */\r\npublic static \u003cL, R\u003e MutablePair\u003cL, R\u003e ofNonNull(final Map.Entry\u003cL, R\u003e pair) {\r\n    return of(Objects.requireNonNull(pair, \"pair\"));\r\n}",
+      "jmlAnnotations": "",
+      "annotatedSignature": "public static MutablePair\u003cL, R\u003e ofNonNull(final Map.Entry\u003cL, R\u003e pair)"
+    },
+    {
+      "name": "getLeft",
+      "signature": "public L getLeft()",
+      "returnType": "L",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * {@inheritDoc}\r\n */\r\n@Override\r\npublic L getLeft() {\r\n    return left;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public L getLeft()"
+    },
+    {
+      "name": "getRight",
+      "signature": "public R getRight()",
+      "returnType": "R",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * {@inheritDoc}\r\n */\r\n@Override\r\npublic R getRight() {\r\n    return right;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public R getRight()"
+    },
+    {
+      "name": "setLeft",
+      "signature": "public void setLeft(final L left)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Sets the left element of the pair.\r\n *\r\n * @param left  the new value of the left element, may be null.\r\n */\r\npublic void setLeft(final L left) {\r\n    this.left \u003d left;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void setLeft(final L left)"
+    },
+    {
+      "name": "setRight",
+      "signature": "public void setRight(final R right)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Sets the right element of the pair.\r\n *\r\n * @param right  the new value of the right element, may be null.\r\n */\r\npublic void setRight(final R right) {\r\n    this.right \u003d right;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public void setRight(final R right)"
+    },
+    {
+      "name": "setValue",
+      "signature": "public R setValue(final R value)",
+      "returnType": "R",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Sets the {@code Map.Entry} value.\r\n * This sets the right element of the pair.\r\n *\r\n * @param value  the right value to set, not null.\r\n * @return the old value for the right element.\r\n */\r\n@Override\r\npublic R setValue(final R value) {\r\n    final R result \u003d getRight();\r\n    setRight(value);\r\n    return result;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public R setValue(final R value)"
+    }
+  ]
+}

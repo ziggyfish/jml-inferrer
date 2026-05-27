@@ -50,6 +50,11 @@ class InterproceduralAnalyzer {
                     if (calleeDecl != null) {
                         calleeDecl.getParameters().forEach(p ->
                                 calleeParamNames.add(p.getNameAsString()));
+                    } else if (!calledSpec.getParameterNames().isEmpty()) {
+                        // Cross-CompilationUnit callee (e.g. library method called
+                        // from a separately parsed client): the spec carries the
+                        // callee's parameter names captured at inference time.
+                        calleeParamNames.addAll(calledSpec.getParameterNames());
                     }
 
                     Set<String> callerParamNames = new HashSet<>();
@@ -292,6 +297,8 @@ class InterproceduralAnalyzer {
                             if (calleeDecl != null) {
                                 calleeDecl.getParameters().forEach(p ->
                                         calleeParamNames.add(p.getNameAsString()));
+                            } else if (!calledSpec.getParameterNames().isEmpty()) {
+                                calleeParamNames.addAll(calledSpec.getParameterNames());
                             }
 
                             for (String calledPostcond : calledSpec.getPostconditions()) {
@@ -374,9 +381,14 @@ class InterproceduralAnalyzer {
                 scopeStr = "";
             }
             if (!scopeStr.isEmpty()) {
+                // Emit both arity-bearing and bare forms; the cache supports
+                // both, and the arity form disambiguates overloads (e.g.
+                // FieldUtils.getField(2) vs FieldUtils.getField(3)).
+                signatures.add(scopeStr + "." + methodName + "(" + argCount + ")");
                 signatures.add(scopeStr + "." + methodName);
                 String[] parts = scopeStr.split("\\.");
                 if (parts.length > 0) {
+                    signatures.add(parts[parts.length - 1] + "." + methodName + "(" + argCount + ")");
                     signatures.add(parts[parts.length - 1] + "." + methodName);
                 }
             }
@@ -385,11 +397,23 @@ class InterproceduralAnalyzer {
         // For unqualified calls (square(a) inside the same class), the cache key
         // is `EnclosingClass.methodName`. Find the enclosing class via the call's
         // ancestry so we hit the cache that JMLInferenceVisitor populated.
-        call.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                .ifPresent(cls -> signatures.add(cls.getNameAsString() + "." + methodName));
+        // Gate this on having no explicit scope: a qualified call like
+        // `c.set(calendarField, amount)` is NOT a self-class call; adding the
+        // enclosing class here lets a method's own signature falsely match an
+        // unrelated callee (e.g. DateUtils.set's body calling Calendar.set
+        // grabbing DateUtils.set's own cached spec).
+        boolean hasExplicitScope = call.getScope().isPresent()
+                && !call.getScope().get().toString().equals("this");
+        if (!hasExplicitScope) {
+            call.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .ifPresent(cls -> {
+                        signatures.add(cls.getNameAsString() + "." + methodName + "(" + argCount + ")");
+                        signatures.add(cls.getNameAsString() + "." + methodName);
+                    });
+        }
 
-        signatures.add(methodName);
         signatures.add(methodName + "(" + argCount + ")");
+        signatures.add(methodName);
 
         return signatures;
     }

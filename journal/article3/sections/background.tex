@@ -3,12 +3,7 @@
 
 \subsection{Heuristic JML inference and single-pass propagation}
 
-The inferrer of~\cite{edmonds2026inference} is a heuristic JML producer
-for Java: a library of pattern-matchers over the JavaParser AST that
-emits a \texttt{MethodSpecification} per method declaration. Twelve
-specialist analysers (precondition, postcondition, loop-invariant,
-assignable, nullability, overflow, etc.) cooperate via a
-\texttt{SpecificationCache} indexed by simple-class method signature.
+The inferrer of~\cite{edmonds2026inference} is a heuristic JML producer for Java in the tradition of contract-by-design~\cite{meyer1992design,jml,leavens2006design,chalin2010jml}: a library of pattern-matchers over the JavaParser~\cite{javaparser} AST that emits a \texttt{MethodSpecification} per method declaration. Twelve specialist analysers (precondition, postcondition, loop-invariant, assignable, nullability, overflow, etc.) cooperate via a \texttt{SpecificationCache} indexed by simple-class method signature. The semantic target is OpenJML~\cite{openjml} extended static checking, which traces its lineage to ESC/Java2~\cite{flanagan2002extended} and the broader pluggable-types programme~\cite{papi2008practical}.
 
 Cross-method propagation is handled by an
 \texttt{InterproceduralAnalyzer} component invoked during isolated
@@ -53,6 +48,47 @@ one} candidate: it is the disjunction
 \texttt{(p\_1 || p\_2 || \dots\ || p\_k)} of substituted candidate
 preconditions. Single-pass propagation, which resolves to a single
 nominal callee, cannot produce this disjunction.
+
+\subsection{A motivating example}
+\label{sec:motivating}
+
+Consider a caller \texttt{m} that calls a callee \texttt{n} only on one branch:
+
+\begin{lstlisting}
+//@ requires divisor != 0;
+static int safeDivide(int a, int divisor) { return a / divisor; }
+
+static int scale(int value, int factor) {
+    if (factor != 0) {
+        return safeDivide(value, factor);
+    }
+    return value;
+}
+\end{lstlisting}
+
+The single-pass strategy faces a dilemma at the call site
+\texttt{safeDivide(value, factor)}. Substituting yields the clause
+\texttt{factor != 0}; conjoining it into \texttt{scale}'s precondition would
+forbid the very call \texttt{scale(value, 0)} that the method explicitly
+handles, while skipping it loses the obligation on the path where the call
+fires. Neither is correct. The compositional pass walks \texttt{scale}'s body
+and lifts the substituted clause through the enclosing guard, producing the
+correct \emph{branch-conditional} clause:
+
+\begin{lstlisting}[language={}]
+//@ ensures factor != 0 ==> factor != 0;   // tautology here
+\end{lstlisting}
+
+The example is deliberately simple so the lifting is visible; in the corpus
+the guard and the callee's requirement differ (\textit{e.g.}, a call to a
+method requiring a non-empty list guarded by a size check), and the lifted
+clause \texttt{size > 0 ==> list.size() > 0} carries genuine, non-tautological
+information the single pass cannot express. A second shape, the
+polymorphic-dispatch disjunction, arises analogously when \texttt{x.n()} could
+dispatch to several implementations; the sound caller precondition is the
+disjunction \texttt{(p\_1 || p\_2 || \dots\ || p\_k)} of the candidates'
+substituted preconditions, which a single nominal resolution cannot produce.
+These two shapes are the structural subjects of Section~\ref{sec:empirical}.
 
 \subsection{What a second-pass compositional analysis would add}
 

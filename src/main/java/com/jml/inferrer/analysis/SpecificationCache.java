@@ -51,6 +51,59 @@ public class SpecificationCache {
     }
 
     /**
+     * Returns the arity N if {@code signature} ends with `(N)` where N is a
+     * non-negative integer. Returns -1 otherwise. Used to filter overloads in
+     * {@link #get(String)} when the caller supplied a degraded `method(N)`
+     * signature instead of a full type list.
+     */
+    private int parseArity(String signature) {
+        int open = signature.lastIndexOf('(');
+        if (open < 0 || !signature.endsWith(")")) return -1;
+        String inside = signature.substring(open + 1, signature.length() - 1).trim();
+        if (inside.isEmpty()) return 0;
+        try { return Integer.parseInt(inside); } catch (NumberFormatException e) { return -1; }
+    }
+
+    /**
+     * Counts comma-separated parameter slots in a stored cache signature like
+     * `Class.method(Type,Type)`. Returns 0 for `Class.method()` and -1 if the
+     * signature has no parameter list.
+     */
+    private int countParams(String storedSignature) {
+        int open = storedSignature.indexOf('(');
+        if (open < 0 || !storedSignature.endsWith(")")) return -1;
+        String inside = storedSignature.substring(open + 1, storedSignature.length() - 1).trim();
+        if (inside.isEmpty()) return 0;
+        int count = 1;
+        int depth = 0;
+        for (int i = 0; i < inside.length(); i++) {
+            char c = inside.charAt(i);
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0) count++;
+        }
+        return count;
+    }
+
+    /**
+     * Returns the single cached spec whose key starts with {@code prefix}, or
+     * null if zero or multiple match. When {@code arity} >= 0, only signatures
+     * with that exact parameter count count toward the match.
+     */
+    private MethodSpecification prefixLookup(String prefix, int arity) {
+        MethodSpecification onlyMatch = null;
+        int matchCount = 0;
+        for (Map.Entry<String, MethodSpecification> e : cache.entrySet()) {
+            if (!e.getKey().startsWith(prefix)) continue;
+            if (arity >= 0 && countParams(e.getKey()) != arity) continue;
+            onlyMatch = e.getValue();
+            matchCount++;
+            if (matchCount > 1) return null;
+        }
+        return matchCount == 1 ? onlyMatch : null;
+    }
+
+    /**
      * Extracts the method name from a signature.
      */
     private String extractMethodName(String signature) {
@@ -92,6 +145,36 @@ public class SpecificationCache {
         spec = cache.get(withoutParams);
         if (spec != null) {
             return spec;
+        }
+
+        // Try Class.method prefix match, optionally disambiguating by arity.
+        // The lookup signature may take three shapes:
+        //   - "Class.method"        → any single overload in that class
+        //   - "Class.method(N)"     → only overloads with exactly N parameters
+        //   - "method(N)"           → only methods named `method` with N params
+        // This lets cross-CompilationUnit callees (e.g. a client calling
+        // `DateUtils.toCalendar(d)` against a separately parsed library) resolve
+        // when method-name-only is ambiguous across overloads.
+        int aritySpec = parseArity(methodSignature);
+        if (withoutParams.contains(".")) {
+            MethodSpecification result = prefixLookup(withoutParams + "(", aritySpec);
+            if (result != null) return result;
+        }
+        if (aritySpec >= 0) {
+            String onlyMethodName = extractMethodName(methodSignature);
+            List<String> arityCandidates = methodNameIndex.get(onlyMethodName);
+            if (arityCandidates != null) {
+                MethodSpecification onlyMatch = null;
+                int matchCount = 0;
+                for (String sig : arityCandidates) {
+                    if (countParams(sig) == aritySpec) {
+                        onlyMatch = cache.get(sig);
+                        matchCount++;
+                        if (matchCount > 1) break;
+                    }
+                }
+                if (matchCount == 1) return onlyMatch;
+            }
         }
 
         // Try method name only

@@ -1,0 +1,293 @@
+{
+  "className": "Range",
+  "packageName": "org.apache.commons.lang3",
+  "methodCount": 26,
+  "methods": [
+    {
+      "name": "between",
+      "signature": "public static Range\u003cT\u003e between(final T fromInclusive, final T toInclusive)",
+      "returnType": "Range\u003cT\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a range with the specified minimum and maximum values (both inclusive).\r\n *\r\n * \u003cp\u003eThe range uses the natural ordering of the elements to determine where\r\n * values lie in the range.\u003c/p\u003e\r\n *\r\n * \u003cp\u003eThe arguments may be passed in the order (min, max) or (max, min).\r\n * The getMinimum and getMaximum methods will return the correct values.\u003c/p\u003e\r\n *\r\n * @param \u003cT\u003e the type of the elements in this range.\r\n * @param fromInclusive  the first value that defines the edge of the range, inclusive.\r\n * @param toInclusive  the second value that defines the edge of the range, inclusive.\r\n * @return the range object, not null.\r\n * @throws NullPointerException when fromInclusive is null.\r\n * @throws NullPointerException when toInclusive is null.\r\n * @throws ClassCastException if the elements are not {@link Comparable}.\r\n * @deprecated Use {@link #of(Comparable, Comparable)}.\r\n */\r\n@Deprecated\r\npublic static \u003cT extends Comparable\u003c? super T\u003e\u003e Range\u003cT\u003e between(final T fromInclusive, final T toInclusive) {\r\n    return of(fromInclusive, toInclusive, null);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Range\u003cT\u003e between(final T fromInclusive, final T toInclusive)"
+    },
+    {
+      "name": "between",
+      "signature": "public static Range\u003cT\u003e between(final T fromInclusive, final T toInclusive, final Comparator\u003cT\u003e comparator)",
+      "returnType": "Range\u003cT\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a range with the specified minimum and maximum values (both inclusive).\r\n *\r\n * \u003cp\u003eThe range uses the specified {@link Comparator} to determine where\r\n * values lie in the range.\u003c/p\u003e\r\n *\r\n * \u003cp\u003eThe arguments may be passed in the order (min, max) or (max, min).\r\n * The getMinimum and getMaximum methods will return the correct values.\u003c/p\u003e\r\n *\r\n * @param \u003cT\u003e the type of the elements in this range.\r\n * @param fromInclusive  the first value that defines the edge of the range, inclusive.\r\n * @param toInclusive  the second value that defines the edge of the range, inclusive.\r\n * @param comparator  the comparator to be used, null for natural ordering.\r\n * @return the range object, not null.\r\n * @throws NullPointerException when fromInclusive is null.\r\n * @throws NullPointerException when toInclusive is null.\r\n * @throws ClassCastException if using natural ordering and the elements are not {@link Comparable}.\r\n * @deprecated Use {@link #of(Object, Object, Comparator)}.\r\n */\r\n@Deprecated\r\npublic static \u003cT\u003e Range\u003cT\u003e between(final T fromInclusive, final T toInclusive, final Comparator\u003cT\u003e comparator) {\r\n    return new Range\u003c\u003e(fromInclusive, toInclusive, comparator);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Range\u003cT\u003e between(final T fromInclusive, final T toInclusive, final Comparator\u003cT\u003e comparator)"
+    },
+    {
+      "name": "is",
+      "signature": "public static Range\u003cT\u003e is(final T element)",
+      "returnType": "Range\u003cT\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a range using the specified element as both the minimum\r\n * and maximum in this range.\r\n *\r\n * \u003cp\u003eThe range uses the natural ordering of the elements to determine where\r\n * values lie in the range.\u003c/p\u003e\r\n *\r\n * @param \u003cT\u003e the type of the elements in this range.\r\n * @param element  the value to use for this range, not null.\r\n * @return the range object, not null.\r\n * @throws NullPointerException if the element is null.\r\n * @throws ClassCastException if the element is not {@link Comparable}.\r\n */\r\npublic static \u003cT extends Comparable\u003c? super T\u003e\u003e Range\u003cT\u003e is(final T element) {\r\n    return of(element, element, null);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Range\u003cT\u003e is(final T element)"
+    },
+    {
+      "name": "is",
+      "signature": "public static Range\u003cT\u003e is(final T element, final Comparator\u003cT\u003e comparator)",
+      "returnType": "Range\u003cT\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a range using the specified element as both the minimum\r\n * and maximum in this range.\r\n *\r\n * \u003cp\u003eThe range uses the specified {@link Comparator} to determine where\r\n * values lie in the range.\u003c/p\u003e\r\n *\r\n * @param \u003cT\u003e the type of the elements in this range.\r\n * @param element  the value to use for this range, must not be {@code null}.\r\n * @param comparator  the comparator to be used, null for natural ordering.\r\n * @return the range object, not null.\r\n * @throws NullPointerException if the element is null.\r\n * @throws ClassCastException if using natural ordering and the elements are not {@link Comparable}.\r\n */\r\npublic static \u003cT\u003e Range\u003cT\u003e is(final T element, final Comparator\u003cT\u003e comparator) {\r\n    return of(element, element, comparator);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Range\u003cT\u003e is(final T element, final Comparator\u003cT\u003e comparator)"
+    },
+    {
+      "name": "of",
+      "signature": "public static Range\u003cT\u003e of(final T fromInclusive, final T toInclusive)",
+      "returnType": "Range\u003cT\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a range with the specified minimum and maximum values (both inclusive).\r\n *\r\n * \u003cp\u003eThe range uses the natural ordering of the elements to determine where\r\n * values lie in the range.\u003c/p\u003e\r\n *\r\n * \u003cp\u003eThe arguments may be passed in the order (min, max) or (max, min).\r\n * The getMinimum and getMaximum methods will return the correct values.\u003c/p\u003e\r\n *\r\n * @param \u003cT\u003e the type of the elements in this range.\r\n * @param fromInclusive  the first value that defines the edge of the range, inclusive.\r\n * @param toInclusive  the second value that defines the edge of the range, inclusive.\r\n * @return the range object, not null.\r\n * @throws NullPointerException if either element is null.\r\n * @throws ClassCastException if the elements are not {@link Comparable}.\r\n * @since 3.13.0\r\n */\r\npublic static \u003cT extends Comparable\u003c? super T\u003e\u003e Range\u003cT\u003e of(final T fromInclusive, final T toInclusive) {\r\n    return of(fromInclusive, toInclusive, null);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Range\u003cT\u003e of(final T fromInclusive, final T toInclusive)"
+    },
+    {
+      "name": "of",
+      "signature": "public static Range\u003cT\u003e of(final T fromInclusive, final T toInclusive, final Comparator\u003cT\u003e comparator)",
+      "returnType": "Range\u003cT\u003e",
+      "isStatic": true,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Creates a range with the specified minimum and maximum values (both inclusive).\r\n *\r\n * \u003cp\u003eThe range uses the specified {@link Comparator} to determine where\r\n * values lie in the range.\u003c/p\u003e\r\n *\r\n * \u003cp\u003eThe arguments may be passed in the order (min, max) or (max, min).\r\n * The getMinimum and getMaximum methods will return the correct values.\u003c/p\u003e\r\n *\r\n * @param \u003cT\u003e the type of the elements in this range.\r\n * @param fromInclusive  the first value that defines the edge of the range, inclusive.\r\n * @param toInclusive  the second value that defines the edge of the range, inclusive.\r\n * @param comparator  the comparator to be used, null for natural ordering.\r\n * @return the range object, not null.\r\n * @throws NullPointerException when fromInclusive is null.\r\n * @throws NullPointerException when toInclusive is null.\r\n * @throws ClassCastException if using natural ordering and the elements are not {@link Comparable}.\r\n * @since 3.13.0\r\n */\r\npublic static \u003cT\u003e Range\u003cT\u003e of(final T fromInclusive, final T toInclusive, final Comparator\u003cT\u003e comparator) {\r\n    return new Range\u003c\u003e(fromInclusive, toInclusive, comparator);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public static Range\u003cT\u003e of(final T fromInclusive, final T toInclusive, final Comparator\u003cT\u003e comparator)"
+    },
+    {
+      "name": "contains",
+      "signature": "public boolean contains(final T element)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Checks whether the specified element occurs within this range.\r\n *\r\n * @param element  the element to check for, null returns false.\r\n * @return true if the specified element occurs within this range.\r\n */\r\npublic boolean contains(final T element) {\r\n    if (element \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return comparator.compare(element, minimum) \u003e -1 \u0026\u0026 comparator.compare(element, maximum) \u003c 1;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean contains(final T element)"
+    },
+    {
+      "name": "containsRange",
+      "signature": "public boolean containsRange(final Range\u003cT\u003e otherRange)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Checks whether this range contains all the elements of the specified range.\r\n *\r\n * \u003cp\u003eThis method may fail if the ranges have two different comparators or element types.\u003c/p\u003e\r\n *\r\n * @param otherRange  the range to check, null returns false.\r\n * @return true if this range contains the specified range.\r\n * @throws RuntimeException if ranges cannot be compared.\r\n */\r\npublic boolean containsRange(final Range\u003cT\u003e otherRange) {\r\n    if (otherRange \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return contains(otherRange.minimum) \u0026\u0026 contains(otherRange.maximum);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean containsRange(final Range\u003cT\u003e otherRange)"
+    },
+    {
+      "name": "elementCompareTo",
+      "signature": "public int elementCompareTo(final T element)",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Checks where the specified element occurs relative to this range.\r\n *\r\n * \u003cp\u003eThe API is reminiscent of the Comparable interface returning {@code -1} if\r\n * the element is before the range, {@code 0} if contained within the range and\r\n * {@code 1} if the element is after the range.\u003c/p\u003e\r\n *\r\n * @param element  the element to check for, not null.\r\n * @return -1, 0 or +1 depending on the element\u0027s location relative to the range.\r\n * @throws NullPointerException if {@code element} is {@code null}.\r\n */\r\npublic int elementCompareTo(final T element) {\r\n    // Comparable API says throw NPE on null\r\n    Objects.requireNonNull(element, \"element\");\r\n    if (isAfter(element)) {\r\n        return -1;\r\n    }\r\n    if (isBefore(element)) {\r\n        return 1;\r\n    }\r\n    return 0;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int elementCompareTo(final T element)"
+    },
+    {
+      "name": "equals",
+      "signature": "public boolean equals(final Object obj)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Compares this range to another object to test if they are equal.\r\n *\r\n * \u003cp\u003eTo be equal, the minimum and maximum values must be equal, which\r\n * ignores any differences in the comparator.\u003c/p\u003e\r\n *\r\n * @param obj the reference object with which to compare.\r\n * @return true if this object is equal.\r\n */\r\n@Override\r\npublic boolean equals(final Object obj) {\r\n    if (obj \u003d\u003d this) {\r\n        return true;\r\n    }\r\n    if (obj \u003d\u003d null || obj.getClass() !\u003d getClass()) {\r\n        return false;\r\n    }\r\n    // OK because we checked the class above\r\n    @SuppressWarnings(\"unchecked\")\r\n    final Range\u003cT\u003e range \u003d (Range\u003cT\u003e) obj;\r\n    return minimum.equals(range.minimum) \u0026\u0026 maximum.equals(range.maximum);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean equals(final Object obj)"
+    },
+    {
+      "name": "fit",
+      "signature": "public T fit(final T element)",
+      "returnType": "T",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Fits the given element into this range by returning the given element or, if out of bounds, the range minimum if\r\n * below, or the range maximum if above.\r\n *\r\n * \u003cpre\u003e{@code\r\n * Range\u003cInteger\u003e range \u003d Range.between(16, 64);\r\n * range.fit(-9) --\u003e  16\r\n * range.fit(0)  --\u003e  16\r\n * range.fit(15) --\u003e  16\r\n * range.fit(16) --\u003e  16\r\n * range.fit(17) --\u003e  17\r\n * ...\r\n * range.fit(63) --\u003e  63\r\n * range.fit(64) --\u003e  64\r\n * range.fit(99) --\u003e  64\r\n * }\u003c/pre\u003e\r\n *\r\n * @param element the element to check for, not null.\r\n * @return the minimum, the element, or the maximum depending on the element\u0027s location relative to the range.\r\n * @throws NullPointerException if {@code element} is {@code null}.\r\n * @since 3.10\r\n */\r\npublic T fit(final T element) {\r\n    // Comparable API says throw NPE on null\r\n    Objects.requireNonNull(element, \"element\");\r\n    if (isAfter(element)) {\r\n        return minimum;\r\n    }\r\n    if (isBefore(element)) {\r\n        return maximum;\r\n    }\r\n    return element;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public T fit(final T element)"
+    },
+    {
+      "name": "getComparator",
+      "signature": "public Comparator\u003cT\u003e getComparator()",
+      "returnType": "Comparator\u003cT\u003e",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets the comparator being used to determine if objects are within the range.\r\n *\r\n * \u003cp\u003eNatural ordering uses an internal comparator implementation, thus this\r\n * method never returns null. See {@link #isNaturalOrdering()}.\u003c/p\u003e\r\n *\r\n * @return the comparator being used, not null.\r\n */\r\npublic Comparator\u003cT\u003e getComparator() {\r\n    return comparator;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public Comparator\u003cT\u003e getComparator()"
+    },
+    {
+      "name": "getMaximum",
+      "signature": "public T getMaximum()",
+      "returnType": "T",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets the maximum value in this range.\r\n *\r\n * @return the maximum value in this range, not null.\r\n */\r\npublic T getMaximum() {\r\n    return maximum;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public T getMaximum()"
+    },
+    {
+      "name": "getMinimum",
+      "signature": "public T getMinimum()",
+      "returnType": "T",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets the minimum value in this range.\r\n *\r\n * @return the minimum value in this range, not null.\r\n */\r\npublic T getMinimum() {\r\n    return minimum;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public T getMinimum()"
+    },
+    {
+      "name": "hashCode",
+      "signature": "public int hashCode()",
+      "returnType": "int",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets a suitable hash code for the range.\r\n *\r\n * @return a hash code value for this object.\r\n */\r\n@Override\r\npublic int hashCode() {\r\n    return hashCode;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public int hashCode()"
+    },
+    {
+      "name": "intersectionWith",
+      "signature": "public Range\u003cT\u003e intersectionWith(final Range\u003cT\u003e other)",
+      "returnType": "Range\u003cT\u003e",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Calculate the intersection of {@code this} and an overlapping Range.\r\n *\r\n * @param other overlapping Range.\r\n * @return range representing the intersection of {@code this} and {@code other} ({@code this} if equal).\r\n * @throws IllegalArgumentException if {@code other} does not overlap {@code this}.\r\n * @since 3.0.1\r\n */\r\npublic Range\u003cT\u003e intersectionWith(final Range\u003cT\u003e other) {\r\n    if (!this.isOverlappedBy(other)) {\r\n        throw new IllegalArgumentException(String.format(\"Cannot calculate intersection with non-overlapping range %s\", other));\r\n    }\r\n    if (this.equals(other)) {\r\n        return this;\r\n    }\r\n    final T min \u003d getComparator().compare(minimum, other.minimum) \u003c 0 ? other.minimum : minimum;\r\n    final T max \u003d getComparator().compare(maximum, other.maximum) \u003c 0 ? maximum : other.maximum;\r\n    return of(min, max, getComparator());\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public Range\u003cT\u003e intersectionWith(final Range\u003cT\u003e other)"
+    },
+    {
+      "name": "isAfter",
+      "signature": "public boolean isAfter(final T element)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Checks whether this range is after the specified element.\r\n *\r\n * @param element  the element to check for, null returns false.\r\n * @return true if this range is entirely after the specified element.\r\n */\r\npublic boolean isAfter(final T element) {\r\n    if (element \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return comparator.compare(element, minimum) \u003c 0;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean isAfter(final T element)"
+    },
+    {
+      "name": "isAfterRange",
+      "signature": "public boolean isAfterRange(final Range\u003cT\u003e otherRange)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Checks whether this range is completely after the specified range.\r\n *\r\n * \u003cp\u003eThis method may fail if the ranges have two different comparators or element types.\u003c/p\u003e\r\n *\r\n * @param otherRange  the range to check, null returns false.\r\n * @return true if this range is completely after the specified range.\r\n * @throws RuntimeException if ranges cannot be compared.\r\n */\r\npublic boolean isAfterRange(final Range\u003cT\u003e otherRange) {\r\n    if (otherRange \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return isAfter(otherRange.maximum);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean isAfterRange(final Range\u003cT\u003e otherRange)"
+    },
+    {
+      "name": "isBefore",
+      "signature": "public boolean isBefore(final T element)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Checks whether this range is before the specified element.\r\n *\r\n * @param element  the element to check for, null returns false.\r\n * @return true if this range is entirely before the specified element.\r\n */\r\npublic boolean isBefore(final T element) {\r\n    if (element \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return comparator.compare(element, maximum) \u003e 0;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean isBefore(final T element)"
+    },
+    {
+      "name": "isBeforeRange",
+      "signature": "public boolean isBeforeRange(final Range\u003cT\u003e otherRange)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Checks whether this range is completely before the specified range.\r\n *\r\n * \u003cp\u003eThis method may fail if the ranges have two different comparators or element types.\u003c/p\u003e\r\n *\r\n * @param otherRange  the range to check, null returns false.\r\n * @return true if this range is completely before the specified range.\r\n * @throws RuntimeException if ranges cannot be compared.\r\n */\r\npublic boolean isBeforeRange(final Range\u003cT\u003e otherRange) {\r\n    if (otherRange \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return isBefore(otherRange.minimum);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean isBeforeRange(final Range\u003cT\u003e otherRange)"
+    },
+    {
+      "name": "isEndedBy",
+      "signature": "public boolean isEndedBy(final T element)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Checks whether this range ends with the specified element.\r\n *\r\n * @param element  the element to check for, null returns false.\r\n * @return true if the specified element occurs within this range.\r\n */\r\npublic boolean isEndedBy(final T element) {\r\n    if (element \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return comparator.compare(element, maximum) \u003d\u003d 0;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean isEndedBy(final T element)"
+    },
+    {
+      "name": "isNaturalOrdering",
+      "signature": "public boolean isNaturalOrdering()",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether or not the Range is using the natural ordering of the elements.\r\n *\r\n * \u003cp\u003eNatural ordering uses an internal comparator implementation, thus this\r\n * method is the only way to check if a null comparator was specified.\u003c/p\u003e\r\n *\r\n * @return true if using natural ordering.\r\n */\r\npublic boolean isNaturalOrdering() {\r\n    return comparator \u003d\u003d ComparableComparator.INSTANCE;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean isNaturalOrdering()"
+    },
+    {
+      "name": "isOverlappedBy",
+      "signature": "public boolean isOverlappedBy(final Range\u003cT\u003e otherRange)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether this range is overlapped by the specified range.\r\n *\r\n * \u003cp\u003eTwo ranges overlap if there is at least one element in common.\u003c/p\u003e\r\n *\r\n * \u003cp\u003eThis method may fail if the ranges have two different comparators or element types.\u003c/p\u003e\r\n *\r\n * @param otherRange  the range to test, null returns false.\r\n * @return true if the specified range overlaps with this\r\n *  range; otherwise, {@code false}.\r\n * @throws RuntimeException if ranges cannot be compared.\r\n */\r\npublic boolean isOverlappedBy(final Range\u003cT\u003e otherRange) {\r\n    if (otherRange \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return otherRange.contains(minimum) || otherRange.contains(maximum) || contains(otherRange.minimum);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean isOverlappedBy(final Range\u003cT\u003e otherRange)"
+    },
+    {
+      "name": "isStartedBy",
+      "signature": "public boolean isStartedBy(final T element)",
+      "returnType": "boolean",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Tests whether this range starts with the specified element.\r\n *\r\n * @param element  the element to check for, null returns false.\r\n * @return true if the specified element occurs within this range.\r\n */\r\npublic boolean isStartedBy(final T element) {\r\n    if (element \u003d\u003d null) {\r\n        return false;\r\n    }\r\n    return comparator.compare(element, minimum) \u003d\u003d 0;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public boolean isStartedBy(final T element)"
+    },
+    {
+      "name": "toString",
+      "signature": "public String toString()",
+      "returnType": "String",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets the range as a {@link String}.\r\n *\r\n * \u003cp\u003eThe format of the String is \u0027[\u003cem\u003emin\u003c/em\u003e..\u003cem\u003emax\u003c/em\u003e]\u0027.\u003c/p\u003e\r\n *\r\n * @return the {@link String} representation of this range.\r\n */\r\n@Override\r\npublic String toString() {\r\n    if (toString \u003d\u003d null) {\r\n        toString \u003d \"[\" + minimum + \"..\" + maximum + \"]\";\r\n    }\r\n    return toString;\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public String toString()"
+    },
+    {
+      "name": "toString",
+      "signature": "public String toString(final String format)",
+      "returnType": "String",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Formats the receiver using the given format.\r\n *\r\n * \u003cp\u003eThis uses {@link java.util.Formattable} to perform the formatting. Three variables may\r\n * be used to embed the minimum, maximum and comparator.\r\n * Use {@code %1$s} for the minimum element, {@code %2$s} for the maximum element\r\n * and {@code %3$s} for the comparator.\r\n * The default format used by {@code toString()} is {@code [%1$s..%2$s]}.\u003c/p\u003e\r\n *\r\n * @param format  the format string, optionally containing {@code %1$s}, {@code %2$s} and  {@code %3$s}, not null.\r\n * @return the formatted string, not null.\r\n */\r\npublic String toString(final String format) {\r\n    return String.format(format, minimum, maximum, comparator);\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": "public String toString(final String format)"
+    }
+  ]
+}

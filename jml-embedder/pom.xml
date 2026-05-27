@@ -53,6 +53,15 @@
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Optional test-only: swagger-parser to validate that x-jml-*
+             extensions survive the canonical OpenAPI parser unchanged. -->
+        <dependency>
+            <groupId>io.swagger.parser.v3</groupId>
+            <artifactId>swagger-parser</artifactId>
+            <version>2.1.22</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

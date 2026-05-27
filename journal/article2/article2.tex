@@ -15,6 +15,9 @@
             breaklinks=true]{hyperref}
 \usepackage{cleveref}
 \usepackage{textcomp}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,calc}
 
 % --- Listings (Java code) ----------------------------------------------------
 \definecolor{codeblue}{rgb}{0.0,0.0,0.6}
@@ -41,64 +44,49 @@
 \lstset{style=code}
 
 % Tighter inter-paragraph spacing for conference page budget
-\setlength{\parskip}{0.25em}
+\setlength{\parskip}{0.15em}
 
 \begin{document}
 
 % --- Title block (IEEEtran conference style) --------------------------------
 \title{Embedding Inferred JML Contracts in Java Bytecode\\
-       and OpenAPI Specifications}
+       and OpenAPI Specifications%
+\thanks{Replication package (embedder/extractor source, JSON Schema, measurement logs, reproduction scripts): \url{https://anonymous.4open.science/r/jml-inferrer-anon} during review; non-anonymous DOI-archived release in the camera-ready version.}}
 
+% Double-anonymous submission. Non-anonymous author block restored on acceptance.
 \author{%
-\IEEEauthorblockN{Brendan Edmonds, Mark Utting}
-\IEEEauthorblockA{%
-  UQ Cyber, School of Electrical Engineering and Computer Science\\
-  The University of Queensland, St Lucia QLD 4067, Australia\\
-  \{b.edmonds, m.utting\}@uq.edu.au}
+\IEEEauthorblockN{Anonymous Authors}
+\IEEEauthorblockA{Affiliation withheld for double-anonymous review}
 }
 
 \maketitle
 
 \begin{abstract}
-Consumers of compiled Java libraries and remote REST services rarely have
-the source code that produced them. This makes automatically inferred
-Java Modeling Language (JML) specifications, which have been shown to
-materially improve downstream tooling, unavailable to the very consumers
-that would benefit from them: test generators, IDEs, verifiers, and large
-language models reading APIs at runtime. Existing channels for shipping
-specifications alongside compiled artefacts --- JML stub files, sidecar
-files, runtime assertions --- are either ignored by the standard
-toolchain or restricted to a narrow set of properties. We propose a
-uniform mechanism for distributing inferred JML contracts in both
-settings: a runtime-retained Java annotation, \texttt{@JmlSpecs}, written
-into class-file attributes by an ASM-based embedder, and a parallel
-OpenAPI~3.x extension family (\texttt{x-jml-*}) for service boundaries.
-We evaluate the embedder on three real-world Java libraries (Apache
-Commons Lang, Apache Commons IO, and Guava) totalling 20{,}546 methods
-with synthetic specifications that isolate the embedding mechanism, and
-on a real-inferred-specs corpus of 10{,}332 distinct specs produced by
-running our inferrer over the source trees of all three libraries
-(supplemented by a 73-method self-test on the inferrer's own code) that
-exercises the full inference\,$\to$\,embedding pipeline including
-quantifiers, \texttt{\textbackslash old} references, and branch-conditional
-implications. We measure 100.0\% roundtrip
-lossless roundtrip across all four corpora; bytecode-size overhead of
-5.27--6.97\% on the synthetic-spec runs and 4.63--10.20\% on the
-real-inference runs (real specs are richer than the synthetic worst
-case on the smaller libraries; Guava's larger denominator means its
-real-inference overhead is in fact lower than its synthetic figure);
-embedding throughput in the 12{,}000--22{,}000 methods/second range;
-and reading throughput in the 119{,}000--328{,}000 methods/second
-range. A format optimisation step (single packed annotation per
-method, default-omission for \texttt{assignable \textbackslash nothing},
-and a twelve-token dictionary for common JML constructs) reduced byte
-overhead by 31\% on real inference and 48--55\% on the synthetic
-corpora compared with the initial per-clause-annotation format. A negative test confirms that classes embedded with
-\texttt{@JmlSpecs} load correctly in Java Virtual Machines (JVMs) that
-have no awareness of the annotation type. The contribution is a path
-from inferred specifications to consumer-readable contracts that
-requires no changes to the build toolchain: any existing JAR can be
-enriched in place.
+Consumers of compiled Java libraries and remote REST services rarely
+have the source code, which makes automatically inferred Java
+Modeling Language (JML) specifications unavailable to the consumers
+that would benefit from them: test generators, IDEs, verifiers, and
+large language models reading APIs at runtime. We propose a uniform
+mechanism for distributing inferred JML contracts: a runtime-retained
+annotation, \texttt{@JmlSpecs}, written into class-file attributes by
+an ASM-based embedder, plus a parallel OpenAPI~3.x extension family
+(\texttt{x-jml-*}) for service boundaries. We evaluate the embedder
+on six real-world Java libraries (Commons Lang, IO, and Math, Guava,
+jOOL, and Vavr; 39{,}268 methods) with synthetic specifications and
+on a real-inferred-specs corpus of 22{,}881 specs across the same
+six libraries' source trees. The OpenAPI extension is exercised
+against the reference parser \texttt{swagger-parser}~2.1.x. We
+measure 100.0\% lossless roundtrip across all thirteen
+library-regime runs; 4.80--6.97\% bytecode-size overhead on
+synthetic specs and 4.63--10.20\% on real inferred specs; embedding
+throughput 6{,}000--34{,}000 methods/second and reading throughput
+68{,}000--334{,}000 methods/second. A format-optimisation step
+(single packed annotation per method, default-omission, and a
+twelve-token dictionary) reduces byte overhead by 31\% on real
+inference and 48--55\% on synthetic specs over a per-clause baseline.
+A negative test confirms that embedded classes load correctly in
+JVMs that have no awareness of the annotation type. Any existing JAR
+can be enriched in place, with no build-toolchain changes.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -116,11 +104,7 @@ annotations, software contracts
 \input{sections/related_work}
 \input{sections/conclusion}
 
-\section*{Data Availability}
-A replication package containing the embedder/extractor source, the
-OpenAPI extension JSON Schema, raw measurement logs, and reproduction
-scripts is available at \url{https://github.com/[anonymized]/jml-inferrer}.
-
+\newpage
 \bibliographystyle{IEEEtran}
 \bibliography{../article1/references}
 

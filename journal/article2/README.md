@@ -1,43 +1,43 @@
-# Article 2: Specification-Guided LLM Test Generation for Service-Boundary Code
+# Article 2: Embedding Inferred JML Contracts in Java Bytecode and OpenAPI Specifications
 
-**Status:** planned follow-up study. Not yet started.
+**Status:** drafted, currently being prepared for the SANER research track. Anonymised for double-anonymous review.
 
 ## Premise
 
-Article 1 (`../article1/`) demonstrates that inferred JML specifications materially improve LLM-generated unit tests on a general-purpose Java corpus (Apache Commons Lang). This follow-up tests whether the same claim holds, or compounds, on **service-boundary code**: methods that call REST endpoints or RPC stubs.
+Automatically inferred JML specifications materially improve downstream tooling — test generators, IDEs, verifiers, LLMs reading APIs at inference time — but only when the consumer has the source tree. Compiled Java libraries and remote REST services do not carry that channel. This paper proposes and evaluates a uniform mechanism for distributing inferred JML contracts to consumers of compiled Java artefacts and OpenAPI service descriptions.
 
-The hypothesis is that the gain reported in Article 1 is *larger* in this setting because:
+## Contributions
 
-1. The oracle problem is most acute at service boundaries — signatures convey nothing about status codes, retry semantics, idempotency, or failure modes.
-2. Signature-only LLM test generation collapses into mock-the-call assertions that test the wrapper, not the contract.
-3. Inferred specifications can capture status-code preconditions, exception hierarchies, retry assumptions, and timeout behaviour that are otherwise invisible to the model.
+1. **`@JmlSpecs` annotation type** — runtime-retained, repeatable per clause, written into class-file `RuntimeVisibleAnnotations` by an ASM-based embedder.
+2. **OpenAPI 3.x extension family** (`x-jml-requires`, `x-jml-ensures`, `x-jml-assignable`, `x-jml-signals`, `x-jml-invariant`) preserved by standard parsers without modification.
+3. **Maven classifier sidecar** for cases where in-bytecode embedding is unsuitable (signed JARs; over-budget specs).
+4. **Empirical evaluation** across 20,546 methods of three real-world libraries (Apache Commons Lang, Apache Commons IO, Guava) plus a 10,332-spec real-inference corpus.
+5. **Format-optimisation step** (single packed annotation per method; default-omission for `assignable \nothing`; twelve-token dictionary) — measured against a more verbose v1 baseline.
+6. **Negative test** confirming consumer tolerance (classes load in JVMs that lack the annotation type).
 
-## Required Prerequisites
+## Headline Results
 
-This article cannot be written until the following are in place:
+- 100.0% lossless roundtrip on every measurement run (synthetic and real-inference).
+- Bytecode-size overhead: 5.27–6.97% under synthetic specs, 4.63–10.20% under real inferred specs.
+- Embedding throughput 6,000–22,000 methods/second; reading 74,000–328,000 methods/second.
+- Format-optimisation reduction: 48–55% on synthetic, 31% on real-inference.
 
-1. **A distributed-systems subject corpus.** Candidates: a Spring Boot REST client library, an OpenFeign-based client, a gRPC-Java sample service, or an Apache Dubbo client. Selection criteria: real service-call code, not toy examples; sufficient method count for statistical analysis; permissive licence; existing test suite for baseline comparison.
+## Files
 
-2. **Engine extensions to JML-Inferrer** for service-boundary patterns:
-   - HTTP status-code preconditions (`@RequestMapping`, `@GetMapping`, `ResponseEntity`)
-   - JAX-RS / Spring MVC parameter constraints (`@PathVariable`, `@RequestParam`, `@RequestBody`)
-   - Exception hierarchies (`RestClientException`, `TimeoutException`, gRPC `StatusRuntimeException`)
-   - Idempotency markers and retry assumptions
-   - Mock-friendly postconditions for service stubs
-
-3. **A re-run of the P1--P4 evaluation** on the new corpus, with mutation operators that include service-relevant mutations (status-code substitution, retry-count alteration, exception-type swapping).
-
-## Open Questions for the Study
-
-- Does the P1 baseline collapse further on service-call code (i.e.\ does the relative gain grow)?
-- Are domain-specific specifications (status codes, retry policies) more valuable than general specifications, or do they add comparable lift?
-- How does the LLM handle mocked vs.\ real service calls when given specifications?
-- Does the OpenJML validation layer transfer cleanly, or do service-call patterns break it?
-
-## Estimated Effort
-
-Roughly 2--4 months from corpus selection to a draftable manuscript, contingent on the engine extensions in (2) being non-trivial.
+- `article2.tex` — main IEEEtran conference document.
+- `sections/` — body sections (introduction, background, format_design, implementation, empirical_validation, discussion, threats, related_work, conclusion).
+- `cover_letter.md` — submission cover letter (kept outside the PDF; paste content into the venue's submission form).
+- `red_team_report.md` — internal reviewer-red-team report (Pass 6 of the quality gates); not part of the submission package.
+- `article2.pdf` — built artefact.
 
 ## Relationship to Article 1
 
-Article 1 establishes the general claim and the methodology (P1--P4 design, mutation testing, Cohen's $d$ analysis); Article 2 inherits both and applies them to the service-boundary setting. Article 1 should be submitted, and ideally accepted, before Article 2 is started --- the second paper's contribution is sharper if it can cite a published version of the first.
+Article 1 (`../article1/`) reports on what specifications do for LLM-generated tests. Article 2 makes those specifications transportable to consumers without source. The two papers are non-overlapping: Article 1's claim is about test quality given specifications; Article 2's claim is about the mechanism by which specifications travel to a consumer that lacks source. Article 2 should cite Article 1 once it is publicly available; if Article 1 is still under review at submission time the citation is to the preprint or working manuscript.
+
+## Build
+
+```
+pdflatex article2 && bibtex article2 && pdflatex article2 && pdflatex article2
+```
+
+Produces `article2.pdf` (10 pages at SANER's IEEEtran conference format).

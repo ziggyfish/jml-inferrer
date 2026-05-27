@@ -6,27 +6,9 @@ a set of Java Modeling Language (JML) clauses inferred from local
 syntactic evidence: a null-dereference of a parameter inside the body
 becomes a \texttt{requires \textbackslash p != null} clause; an array
 read at index \texttt{i} becomes \texttt{requires 0 <= i \&\& i < a.length};
-and so on. Recent work has shown that such specifications, even when
-heuristically produced, materially improve downstream test
-generation~\cite{edmonds2026inference} and can be embedded in compiled
-artefacts with full lossless roundtrip~\cite{edmonds2026embedding}.
-Both of those results depend on the spec set being \emph{rich enough}
-to constrain downstream tools.
+and so on. Recent work has shown that such specifications, even when heuristically produced, materially improve downstream test generation~\cite{edmonds2026inference} and can be embedded in compiled artefacts with full lossless roundtrip~\cite{edmonds2026embedding}. Both of those results depend on the spec set being \emph{rich enough} to constrain downstream tools --- the same dependency motivates work on large-language-model (LLM) driven test oracle generation~\cite{schafer2023adaptive,lemieux2023codamosa,molinelli2025oracles,hossain2024togll}, LLM-driven contract synthesis~\cite{endres2024can,richter2025beyondpostconditions,ma2024specgen,konstantinou2024oracles}, and dynamic-trace invariant detectors such as Daikon~\cite{ernst2007daikon}.
 
-The dominant strategy for incorporating cross-method information in
-such an inferrer is \emph{single-pass propagation}: while inferring
-method \texttt{m}, the analyser looks up each callee's cached
-specification, substitutes the actual arguments at the call site, and
-appends the substituted callee preconditions to \texttt{m}'s
-precondition set. This is fast and order-independent (provided the
-callee is inferred first), and it is what the inferrer of
-~\cite{edmonds2026inference} already does via its
-\texttt{InterproceduralAnalyzer}. A natural question is whether this
-single pass captures everything a \emph{genuinely compositional}
-analysis would: that is, whether a second, top-down weakest-precondition
-(WP) refinement pass, walking each method's body with the callee
-specifications substituted at each call site, would discover any
-additional clauses that the single pass missed.
+The dominant strategy for incorporating cross-method information in such an inferrer is \emph{single-pass propagation}: while inferring method \texttt{m}, the analyser looks up each callee's cached specification, substitutes the actual arguments at the call site, and appends the substituted callee preconditions to \texttt{m}'s precondition set. This is fast and order-independent (provided the callee is inferred first), and it is what the inferrer of~\cite{edmonds2026inference} already does via its \texttt{InterproceduralAnalyzer}. A natural question is whether this single pass captures everything a \emph{genuinely compositional} analysis would: that is, whether a second, top-down weakest-precondition (WP) refinement pass~\cite{dijkstra_guarded_1975,dijkstra1976discipline,hoare1969axiomatic}, walking each method's body with the callee specifications substituted at each call site, would discover any additional clauses that the single pass missed. Compositional procedure summaries are foundational in static analysis~\cite{cousot1977abstract,cousot2011contract} and underpin frameworks such as Infer~\cite{calcagno2015infer} and Houdini~\cite{flanagan2001houdini}, but those frameworks operate on different intermediate representations and do not produce JML clauses directly.
 
 The question matters operationally. If the answer is no, the
 second-pass refactoring (and the associated implementation, testing,
@@ -65,8 +47,8 @@ source files. Lang and IO are the same libraries used by the
 predecessor work~\cite{edmonds2026inference, edmonds2026embedding}.
 The principal findings are summarised in Table~\ref{tab:headline}
 and analysed in Section~\ref{sec:empirical}; in short, the second
-pass refines 24--44\% of methods in each library's cache (median
-36.33\%) and adds 42{,}370 new precondition clauses overall, with
+pass refines 23--43\% of methods in each library's cache (median
+35.53\%) and adds 45{,}740 new precondition clauses overall, with
 branch-conditional implications (\texttt{guard ==> obligation}) the
 dominant shape on four libraries out of five and disjunctive
 clauses (the polymorphic-dispatch signal) present on every library.
@@ -84,15 +66,15 @@ contributions:
   \item An empirical measurement on five real-world Java libraries
         spanning four idiom families
         (21{,}052 inferred methods in total) showing that the second
-        pass refines 24--44\% of methods in each library's cache and
-        adds 42{,}370 new precondition clauses overall; the
+        pass refines 23--43\% of methods in each library's cache and
+        adds 45{,}740 new precondition clauses overall; the
         single-pass strategy is \emph{not} subsuming on any library.
   \item A shape-categorisation of the newly-added preconditions
         showing that branch-conditional implications
         (\texttt{guard ==> obligation}) dominate on four of five
-        libraries (34--64\% of new clauses), with disjunctive shapes
+        libraries (46--67\% of new clauses), with disjunctive shapes
         from polymorphic dispatch present on every library
-        (1.8--9.7\%). Both shapes are structurally outside the
+        (1.8--9.8\%). Both shapes are structurally outside the
         single-pass strategy's reach, because the single pass lacks
         the control-flow and class-hierarchy contexts the WP walk
         supplies.

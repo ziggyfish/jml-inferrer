@@ -2,9 +2,7 @@
 \label{sec:threats}
 
 \paragraph{Internal validity.}
-The measurement reports per-method clause-count diffs. These are
-deterministic given the inputs: rerunning the harness produces
-byte-identical metric output (we verified across five libraries).
+Our measurement reports per-method clause-count diffs. These are deterministic given the inputs: rerunning the harness produces byte-identical metric output (we verified across five libraries). We followed Wohlin et al.'s guidance~\cite{wohlin2012experimentation} on reporting effect-size deltas rather than null-hypothesis statistical tests, because the deterministic regime makes statistical inference inapplicable. The runtime measurements (Table~\ref{tab:runtime}) were collected on a single platform (OpenJDK~21 with default G1GC on a Windows~11 workstation, no concurrent load) using JavaParser at the version pinned in the replication artefact; clause-count diffs are platform-independent, but the absolute wall-clock seconds are not, and we do not claim that the 44-second total transfers to other JVMs or hardware.
 The new-precondition counts in Table~\ref{tab:headline} are
 therefore exact for the inputs reported. The shape categorisation
 uses a simple regex-based bucketing; we documented its
@@ -15,12 +13,12 @@ regex does not match (e.g.\ \texttt{abs(x) <= K}); their existence
 does not affect the headline result.
 
 \paragraph{External validity.}
-The measurement is on five libraries (Commons Lang, Commons IO,
+We measure on five libraries (Commons Lang, Commons IO,
 Commons Math, jOOL, Vavr) spanning four idiom families. We
 deliberately included generics-heavy libraries (jOOL, Vavr) and a
 numerical-algorithms library (Math) to address concerns that the
 result might be specific to utility-class idiom. The result holds
-across all five (24--44\% of methods refined; branch-conditional
+across all five (23--43\% of methods refined; branch-conditional
 shape present and substantial on each). Guava, included in the
 predecessor work~\cite{edmonds2026inference}, is excluded from the
 present run after fixing a stack overflow in the call-graph
@@ -68,7 +66,7 @@ true compositional gain on every library.
 \paragraph{Conclusion validity.}
 The empirical claims here are exact measurements, not statistical
 inferences; no significance test is meaningful. The conclusions
-(``the second pass refines 43.85\% of methods on Commons Lang'',
+(``the second pass refines 43.30\% of methods on Commons Lang'',
 ``branch-conditional implications dominate the additions'') hold for
 the specific corpora reported and for the specific
 \texttt{CompositionalAnalyzer} implementation in the artefact. We do

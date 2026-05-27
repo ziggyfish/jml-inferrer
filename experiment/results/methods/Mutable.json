@@ -1,0 +1,40 @@
+{
+  "className": "Mutable",
+  "packageName": "org.apache.commons.lang3.mutable",
+  "methodCount": 3,
+  "methods": [
+    {
+      "name": "get",
+      "signature": " T get()",
+      "returnType": "T",
+      "isStatic": false,
+      "isAbstract": false,
+      "sourceCode": "/**\r\n * Gets the value of this mutable.\r\n *\r\n * @return the stored value.\r\n * @since 3.18.0\r\n */\r\n@Override\r\ndefault T get() {\r\n    return getValue();\r\n}",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": " T get()"
+    },
+    {
+      "name": "getValue",
+      "signature": " abstract T getValue()",
+      "returnType": "T",
+      "isStatic": false,
+      "isAbstract": true,
+      "sourceCode": "/**\r\n * Gets the value of this mutable.\r\n *\r\n * @return the stored value.\r\n * @deprecated Use {@link #get()}.\r\n */\r\n@Deprecated\r\nT getValue();",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": " abstract T getValue()"
+    },
+    {
+      "name": "setValue",
+      "signature": " abstract void setValue(T value)",
+      "returnType": "void",
+      "isStatic": false,
+      "isAbstract": true,
+      "sourceCode": "/**\r\n * Sets the value of this mutable.\r\n *\r\n * @param value the value to store.\r\n * @throws NullPointerException if the object is null and null is invalid.\r\n * @throws ClassCastException   if the type is invalid.\r\n */\r\nvoid setValue(T value);",
+      "jmlAnnotations": "",
+      "jmlAnnotationsCompositional": "",
+      "annotatedSignature": " abstract void setValue(T value)"
+    }
+  ]
+}

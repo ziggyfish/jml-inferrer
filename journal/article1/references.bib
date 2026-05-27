@@ -1,15 +1,15 @@
 @unpublished{edmonds2026inference,
-  author = {Brendan Edmonds and Mark Utting},
+  author = {Anonymous},
   title  = {Do Specifications Help {LLM}s Write Better Unit Tests? An Empirical Study of Specification-Guided Test Generation with Heuristically Inferred {JML}},
   year   = {2026},
-  note   = {Manuscript under review at the Journal of Software: Evolution and Process. Replication package: \url{https://github.com/ziggyfish/jml-inferrer}}
+  note   = {Manuscript under review; replication package available from an anonymous archive during the review period.}
 }
 
 @unpublished{edmonds2026embedding,
-  author = {Brendan Edmonds and Mark Utting},
+  author = {Anonymous},
   title  = {Embedding Inferred {JML} Contracts in {Java} Bytecode and {OpenAPI} Specifications},
   year   = {2026},
-  note   = {Manuscript under submission to SANER 2027. Replication package: \url{https://github.com/ziggyfish/jml-inferrer}}
+  note   = {Manuscript under submission; replication package available from an anonymous archive during the review period.}
 }
 
 @misc{asm,
@@ -28,12 +28,11 @@
   note         = {Accessed: 2026-05-19}
 }
 
-@inproceedings{Lercher2024-AutoOAS,
-  author    = {Alexander Lercher and Christian Macho and Clemens Bauer and Martin Pinzger},
-  title     = {Generating Accurate {OpenAPI} Descriptions from {Java} Source Code},
-  booktitle = {Proceedings of the 32nd IEEE International Conference on Software Analysis, Evolution and Reengineering (SANER)},
-  year      = {2025},
-  note      = {arXiv preprint: \url{https://arxiv.org/abs/2410.23873}}
+@article{Lercher2024-AutoOAS,
+  author  = {Alexander Lercher and Christian Macho and Clemens Bauer and Martin Pinzger},
+  title   = {Generating Accurate {OpenAPI} Descriptions from {Java} Source Code},
+  journal = {arXiv preprint arXiv:2410.23873},
+  year    = {2024}
 }
 
 @inproceedings{andronick_large-scale_2012,
@@ -548,7 +547,7 @@
 @inproceedings{teuber2025nextsteps,
   author    = {Samuel Teuber and Bernhard Beckert},
   title     = {Next Steps in {LLM}-Supported {Java} Verification},
-  booktitle = {IEEE/ACM International Workshop on Neuro-Symbolic Software Engineering (NSE), ICSE Workshops},
+  booktitle = {ICSE Workshop on Neuro-Symbolic SE (NSE)},
   year      = {2025}
 }
 
@@ -594,5 +593,82 @@
   title   = {Unit Test Case Generation with Transformers and Focal Context},
   journal = {arXiv preprint arXiv:2009.05617},
   year    = {2020}
+}
+
+% Bytecode-rewriting / aspect-oriented programming frameworks
+@inproceedings{kiczales1997aspectj,
+  author    = {Gregor Kiczales and John Lamping and Anurag Mendhekar and Chris Maeda and Cristina Lopes and Jean-Marc Loingtier and John Irwin},
+  title     = {Aspect-Oriented Programming},
+  booktitle = {European Conference on Object-Oriented Programming (ECOOP)},
+  series    = {LNCS},
+  volume    = {1241},
+  pages     = {220--242},
+  year      = {1997},
+  publisher = {Springer},
+  doi       = {10.1007/BFb0053381}
+}
+
+@inproceedings{vallee1999soot,
+  author    = {Raja Vall{\'e}e-Rai and Phong Co and Etienne Gagnon and Laurie Hendren and Patrick Lam and Vijay Sundaresan},
+  title     = {Soot --- a {Java} Bytecode Optimization Framework},
+  booktitle = {Conference of the Centre for Advanced Studies on Collaborative Research (CASCON)},
+  year      = {1999},
+  pages     = {125--135},
+  publisher = {IBM Press}
+}
+
+@inproceedings{chiba2000javassist,
+  author    = {Shigeru Chiba},
+  title     = {Load-Time Structural Reflection in {Java}},
+  booktitle = {European Conference on Object-Oriented Programming (ECOOP)},
+  series    = {LNCS},
+  volume    = {1850},
+  pages     = {313--336},
+  year      = {2000},
+  publisher = {Springer},
+  doi       = {10.1007/3-540-45102-1_16}
+}
+
+@misc{bytebuddy,
+  author       = {Rafael Winterhalter},
+  title        = {{Byte Buddy}: Runtime Code Generation for the {Java} Virtual Machine},
+  year         = {2024},
+  howpublished = {\url{https://bytebuddy.net/}},
+  note         = {Accessed: 2026-05-25}
+}
+
+% JVM annotation precedents
+@inproceedings{papi2008practical,
+  author    = {Matthew M. Papi and Mahmood Ali and Telmo Luis Correa Jr. and Jeff H. Perkins and Michael D. Ernst},
+  title     = {Practical Pluggable Types for {Java}},
+  booktitle = {International Symposium on Software Testing and Analysis (ISSTA)},
+  year      = {2008},
+  pages     = {201--212},
+  doi       = {10.1145/1390630.1390656}
+}
+
+@inproceedings{ernst2017checker,
+  author    = {Michael D. Ernst},
+  title     = {Type Annotations Specification ({JSR} 308)},
+  booktitle = {(Specification)},
+  year      = {2017},
+  howpublished = {\url{https://checkerframework.org/jsr308/}}
+}
+
+% OpenAPI / service descriptions
+@misc{openapi3,
+  author       = {{OpenAPI Initiative}},
+  title        = {{OpenAPI} Specification, version 3.1.0},
+  year         = {2024},
+  howpublished = {\url{https://spec.openapis.org/oas/v3.1.0}},
+  note         = {Accessed: 2026-05-25}
+}
+
+@misc{swaggerparser,
+  author       = {{Swagger Codegen Project}},
+  title        = {{swagger-parser}: A parser for {OpenAPI} definitions in {Java}},
+  year         = {2024},
+  howpublished = {\url{https://github.com/swagger-api/swagger-parser}},
+  note         = {Accessed: 2026-05-25}
 }
 

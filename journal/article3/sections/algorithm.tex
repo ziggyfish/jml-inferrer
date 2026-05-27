@@ -1,15 +1,50 @@
 \section{The Compositional Refinement Pass}
 \label{sec:algorithm}
 
-The pass takes as input a populated \texttt{SpecificationCache}, a
-call graph over the same methods, and a map from method signature to
-\texttt{MethodDeclaration} (the AST). It mutates the cache in place.
+Our pass takes as input a populated \texttt{SpecificationCache}, a call graph over the same methods, and a map from method signature to the abstract syntax tree (AST) of each \texttt{MethodDeclaration}. We mutate the cache in place.
+Figure~\ref{fig:pipeline} sketches the data flow.
+
+\begin{figure}[!t]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize\sffamily,
+  node distance=3mm and 5mm,
+  artefact/.style={
+    rectangle, rounded corners=1.5pt, draw=black!55, fill=black!4,
+    minimum height=4.5mm, minimum width=18mm, inner sep=2pt, align=center
+  },
+  pass/.style={
+    rectangle, draw=black!80, fill=blue!8,
+    minimum height=4.5mm, minimum width=22mm, inner sep=2pt, align=center
+  },
+  predecessor/.style={
+    rectangle, draw=black!60, dashed, fill=gray!6,
+    minimum height=4.5mm, minimum width=22mm, inner sep=2pt, align=center
+  },
+  >={Stealth[length=1.5mm,width=1.3mm]},
+]
+  % Row 1: single-pass predecessor
+  \node[artefact] (src) {Source jar};
+  \node[predecessor, right=of src] (inferrer) {Single-pass\\inferrer (predecessor)};
+  \node[artefact, right=of inferrer] (cache) {\texttt{SpecCache}};
+  % Row 2: this paper
+  \node[pass, below=4mm of inferrer] (driver) {\texttt{CompositionalAnalyzer}\\\scriptsize SCC driver};
+  \node[pass, below=of driver] (perMethod) {Per-method WP walk};
+  \node[artefact, right=of perMethod] (refined) {Refined\\\texttt{SpecCache}};
+  \draw[->] (src) -- (inferrer);
+  \draw[->] (inferrer) -- (cache);
+  \draw[->] (cache.south) |- (driver.east);
+  \draw[->] (driver) -- (perMethod);
+  \draw[->] (perMethod) -- (refined);
+  \draw[->, dotted] (perMethod.west) .. controls +(left:6mm) and +(left:6mm) .. (driver.west) node[midway, left=1pt, font=\tiny, align=center] {callee\\specs};
+\end{tikzpicture}
+\caption{The compositional refinement pass. The single-pass predecessor (dashed) populates a per-method \texttt{SpecCache}; \texttt{CompositionalAnalyzer} iterates strongly-connected components of the call graph in reverse topological order, and for each method walks the body backwards (WP) refining the cached spec against the now-refined callee preconditions. The cache is mutated in place.}
+\label{fig:pipeline}
+\end{figure}
 
 \subsection{Driver}
 
-The driver iterates strongly-connected components (SCCs) of the call
-graph in reverse topological order, so callees are refined before
-callers. For each SCC:
+Our driver iterates strongly-connected components (SCCs) of the call graph in reverse topological order, so callees are refined before callers. For each SCC:
 
 \begin{itemize}\setlength\itemsep{0.2em}
   \item \emph{Singleton SCC (no recursion):} refine the single method
@@ -25,7 +60,48 @@ callers. For each SCC:
 
 For each method \texttt{m}, the refiner walks every
 \texttt{MethodCallExpr} in \texttt{m}'s body and, for each call site,
-performs the following sequence:
+performs the following sequence (Algorithm~\ref{alg:refine}):
+
+\begin{algorithm}[t]
+\caption{Compositional refinement.}
+\label{alg:refine}
+\small
+\begin{algorithmic}[1]
+\Require populated cache $C$, call graph $G$, declaration map $D$
+\Ensure $C$ refined in place
+\State $\textit{scc} \gets$ \Call{ReverseTopologicalSCCs}{$G$}
+\ForAll{$S \in \textit{scc}$}
+  \Repeat
+    \State $\textit{changed} \gets \mathbf{false}$
+    \ForAll{$m \in S$}
+      \State $\textit{spec} \gets C(m)$
+      \ForAll{$\textit{call} \in $ \Call{CallSites}{$D(m)$}}
+        \State $g \gets$ \Call{EnclosingGuards}{$D(m), \textit{call}$}
+        \If{\Call{SideEffecting}{$g$} \textbf{or} \Call{SideEffecting}{$\textit{call}.\text{args}$}}
+          \State \textbf{continue} \Comment{reject unsound substitutions}
+        \EndIf
+        \State $\textit{candidates} \gets$ \Call{ResolvePolymorphic}{$\textit{call}, G$}
+        \State $\textit{lifted} \gets \emptyset$
+        \ForAll{$c \in \textit{candidates}$}
+          \State $\sigma \gets$ \Call{SubstituteArgs}{$C(c).\text{pre}, \textit{call}.\text{args}$}
+          \State $\textit{lifted} \gets \textit{lifted} \cup \{ g \Rightarrow \sigma \}$
+        \EndFor
+        \If{$|\textit{candidates}| > 1$}
+          \State $\textit{spec}.\text{pre} \gets \textit{spec}.\text{pre} \cup \{\bigvee \textit{lifted}\}$
+        \Else
+          \State $\textit{spec}.\text{pre} \gets \textit{spec}.\text{pre} \cup \textit{lifted}$
+        \EndIf
+        \If{\Call{Terminates}{$C(c)$}}
+          \State $\textit{spec}.\text{post} \gets \textit{spec}.\text{post} \cup \text{(lifted postconditions)}$
+        \EndIf
+      \EndFor
+      \If{$\textit{spec} \ne C(m)$} $C(m) \gets \textit{spec}$; $\textit{changed} \gets \mathbf{true}$
+      \EndIf
+    \EndFor
+  \Until{$\neg \textit{changed}$ \textbf{or} cap reached}
+\EndFor
+\end{algorithmic}
+\end{algorithm}
 
 \begin{enumerate}\setlength\itemsep{0.2em}
   \item \textbf{Resolve the callee.} Match the call's simple name
@@ -81,7 +157,7 @@ result, not a complete WP transformer. It does not:
   \item handle aliasing (the inferrer's substitution is syntactic);
   \item lift through loops (the inferrer's loop-invariant heuristic
         handles this in the isolated pass);
-  \item discharge clauses against an SMT solver (the inferrer's
+  \item discharge clauses against a satisfiability-modulo-theories (SMT) solver (the inferrer's
         downstream OpenJML pipeline handles this).
 \end{itemize}
 

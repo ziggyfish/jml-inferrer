@@ -1,0 +1,413 @@
+\chapter{Conclusion and Future Work}
+\label{ch:conclusion}
+
+\section{Summary of Contributions}
+
+This thesis began from a puzzle: formal methods are mature and effective, yet used
+only in a few niche corners of software engineering. Its diagnosis is that the
+binding constraint is not the verification technology but the manual cost of the
+specifications that technology requires, and its programme was to ask whether
+automatic inference --- and the capabilities inferred specifications enable ---
+could move formal methods out of the niche. It pursued the question through four
+research questions, the first two asking whether inference removes the cost barrier
+and the second two establishing the mechanisms by which library-boundary
+specifications enable verification and compatibility analysis.
+
+The answers, established empirically on production Java code, are as follows.
+
+\emph{On inference accuracy (RQ1).} Java Modeling Language preconditions,
+postconditions, and loop invariants can be inferred from source by pattern matching
+organised around the weakest-precondition and strongest-postcondition calculi, at a
+precision of 94.2\% for preconditions and 87.6\% for postconditions against
+human-judged intent, with 92.9\% of all inferred clauses discharged by an
+SMT-backed verifier against the implementation. The inference is heuristic and not
+sound by construction; soundness is recovered \emph{a posteriori} by discharging
+every clause and flagging the failures. The accuracy is high enough that automatic
+inference is a credible substitute for the manual authoring that constitutes the
+adoption barrier.
+
+\emph{On downstream value (RQ2).} Cheaply inferred specifications deliver real
+value: supplied as context to a large-language-model test generator, they improve
+its unit-test generation by a large and statistically robust margin --- 272\% more
+tests and a mutation score 40.7 percentage points higher than a signature-only
+baseline. A guidance-only control rules out the alternative explanation that any
+prompt enrichment would suffice, establishing that the specification is the active
+ingredient. The cost reduction is therefore worth having: the cheaply produced
+specifications are not cheap in value.
+
+\emph{On library-boundary availability (RQ3).} Inferred JML contracts can be
+carried with compiled Java libraries and service-interface descriptions, recovered
+losslessly by a consumer without the source, at a bytecode-size overhead below
+eleven percent and a throughput compatible with routine workflows. Across four
+corpora exceeding twenty thousand methods the embedder achieves a 100\%
+lossless-roundtrip rate through a toolchain that requires no modification. This
+makes a dependency's contract available where verification of client code against
+it must happen --- at the boundary, without the dependency's source.
+
+\emph{On compositional propagation (RQ4).} A caller's specification depends
+substantially on its callees': a top-down compositional analysis, measured across
+five libraries and 21{,}052 methods, recovers 42{,}370 cross-method obligations the
+single-pass propagation cannot express, dominated by the guard-conditional and
+dispatch-dependent shapes through which a library change reaches the code that
+calls it. This dependence is the mechanism that makes library-boundary
+specifications a basis for behavioural-compatibility analysis: when a library's
+inferred contracts change between versions, the impact on its callers' contracts is
+computable through exactly these obligations. The thesis establishes the mechanism
+and positions the end-to-end version-comparison experiment as its foremost future
+work.
+
+The thesis statement asserted that the adoption of formal methods is constrained
+chiefly by the manual cost of specifications, that the constraint is substantially
+removable by inference validated against a formal oracle, and that library-boundary
+specifications --- because caller specifications derive from callee specifications
+--- make verification across dependencies and behavioural-compatibility analysis
+available to ordinary software. Each part is now backed by quantitative evidence on
+real-world code.
+
+\section{The Empirical Findings at a Glance}
+
+It is worth gathering the principal quantitative findings in one place, because
+their conjunction is the thesis's evidentiary core and they are otherwise
+distributed across four chapters. On inference accuracy: the engine produces
+non-trivial specifications for 99.0\% of the evaluation corpus, at 94.2\%
+precondition precision and 87.6\% postcondition precision against documented intent,
+with 92.9\% of all inferred clauses discharged by the verifier against the
+implementation. On downstream value: specification-guided test generation produces
+272\% more tests and a mutation score 40.7 percentage points higher than
+signature-only generation, an effect size beyond conventional thresholds and not
+reproduced by a guidance-only control. On library-boundary availability: across
+four corpora exceeding twenty thousand methods, the embedder achieves a 100\%
+lossless-roundtrip rate at a bytecode overhead below eleven percent and a
+throughput of thousands of methods per second. On compositional propagation: a
+caller's specification depends on its callees' through 42{,}370 cross-method
+obligations recovered across five libraries and 21{,}052 methods, refining a
+quarter to nearly a half of each library's methods, with the guard-conditional and
+dispatch-dependent shapes --- those through which a library change reaches its
+callers --- dominating.
+
+These numbers are not independent assertions but a connected argument. The accuracy
+figures establish that inference removes the cost barrier; the value figures
+establish that the cheaply produced specifications are worth having; the
+availability figures establish that they can be delivered to the library boundary
+where verification of client code happens; and the propagation figures establish
+that a library's specifications reach its callers' contracts strongly enough to
+make behavioural-compatibility analysis a real prospect. Read together they answer
+the adoption question the thesis posed: the specification-cost barrier is
+removable, and removing it at the library boundary opens a capability ---
+compatibility analysis across dependencies --- that the manual-specification regime
+never made routine.
+
+\section{Reflections on the Methodology}
+
+Two methodological choices proved central enough to warrant restating as
+lessons. The first is the two-layer architecture: infer aggressively by
+heuristic pattern matching, validate conservatively by formal discharge. This
+division --- a creative-but-fallible proposer and a rigorous-but-uncreative
+checker --- is what allows the engine to be useful without being sound by
+construction, and it is, in retrospect, the single design decision that makes
+the rest of the thesis possible. An engine restricted to what it could prove
+would emit too little; an engine with no formal back-stop would emit clauses no
+consumer could trust. The separation is the resolution.
+
+The second is the commitment to measurement on real code at scale. Every claim
+in the thesis that could be made by counting --- clauses discharged, tests
+generated, bytes overhead, clauses added by a second pass --- was made by
+counting, on production libraries rather than on constructed examples. The
+commitment is not merely a matter of rigour; it shaped what the thesis could
+discover. A study built on constructed examples discovers what its author thought
+to construct, and an author who believed per-spec compression would help, or that a
+high roundtrip rate was good enough, or that more tests meant better tests, would
+have constructed examples confirming those beliefs. Measurement on real artefacts
+refused those beliefs: the compression made things worse, the roundtrip gap hid a
+specific bug, the extra tests killed fewer mutants. The negative and surprising
+results that the synthesis chapter collects are the dividend of the commitment, and
+they are, in aggregate, as much a part of the thesis's contribution as the
+confirmations, because they map the boundaries of the approach as precisely as the
+confirmations map its successes. The cost
+is that the conclusions are corpus-bound and quantitative rather than universal;
+the benefit is that they are defensible, and that the failures they surface ---
+the three tractability limits, the interface-method embedding bug, the
+compile failures in the downstream probe --- are real failures of real systems
+rather than artefacts of toy inputs. The thesis's most useful negative results,
+including the counter-productive per-spec compression of
+Chapter~\ref{ch:distribution} and the precise characterisation of what the
+solver cannot discharge in Chapter~\ref{ch:testgen}, came directly from this
+commitment.
+
+\section{Limitations}
+
+The principal limitations have been stated in the chapters and synthesised in
+Chapter~\ref{ch:discussion}; they are collected here for completeness. The
+evaluation corpora are uniformly mature, well-structured, open-source library
+code, and the result that holds across them is correspondingly less established
+on application code, framework code, and proprietary systems, and on the
+event-handler and callback methods absent from the controlled corpus. The
+language-model experiments use a single model family and defend an ordering of
+conditions rather than absolute magnitudes. The formal validation is bounded by
+the solver's tractability, leaving a residual class of clauses neither proved nor
+refuted. And the downstream value of the compositional refinement rests, as yet,
+on a test-count signal rather than on the mutation-kill metric the rest of the
+thesis relies on. None of these undermines the central claims, but each bounds
+their scope, and the honest summary is that the thesis establishes its
+conclusions firmly on well-structured library code with a single model family,
+and points beyond that scope rather than reaching it.
+
+The limitations are also, read constructively, a map of where the most valuable
+next work lies, and they are not uniform in their cost to address. The
+single-model limitation is the cheapest to lift, requiring only the budget to re-run
+parameterised experiments, and lifting it would most directly strengthen the
+external validity of the value claim. The corpus-homogeneity limitation is more
+expensive, requiring new corpora of application and framework code and, for some
+method categories, new inference patterns, but it is the limitation whose lifting
+would most broaden the thesis's reach. The residual-unverified-clauses limitation is
+the hardest, depending on advances in SMT reasoning and JML translation that the
+thesis does not itself deliver, and it bounds not the thesis's claims --- which
+concern the verified clauses --- but the fraction of inferred clauses that can be
+moved into the verified class. The compositional-downstream limitation is the most
+immediately addressable of the empirical gaps, requiring only the repair of a test
+harness and a mutation run on existing artefacts. Ordering the limitations by the
+cost of addressing them is, in effect, the research roadmap the next section sets
+out, and the fact that the cheapest-to-address limitations are also among the most
+strengthening is the reason the thesis regards its conclusions as a foundation to
+build on rather than a ceiling reached.
+
+\section{Future Work}
+
+The thesis opens several directions, in rough order of immediacy.
+
+\paragraph{The version-to-version compatibility experiment.} The foremost
+direction, because it would convert the thesis's central capability claim from a
+demonstrated mechanism into a demonstrated result, is the version-comparison
+experiment that Chapter~\ref{ch:compositional} positions as future work. The thesis
+established that a caller's specification depends substantially on its callees', and
+argued that this dependence makes a library change's impact on its callers'
+contracts computable; the experiment that would close the argument runs the
+inferrer over successive versions of a real library, recomputes the specifications
+of client code against each version, and reports the behavioural incompatibilities
+the comparison surfaces --- strengthened callee preconditions the client may now
+violate, weakened callee postconditions the client relied on. Validated against
+known breaking changes from the library's release history, such an experiment would
+show that specification-level comparison detects behavioural incompatibilities that
+signature compatibility misses, demonstrating the capability that is the thesis's
+most direct answer to the adoption question. The mechanism is measured; the
+end-to-end demonstration is the work that remains.
+
+\paragraph{Completing the compositional downstream evaluation.} A second immediate
+gap is the one named at the end of Chapter~\ref{ch:compositional}: the downstream
+value of the more thoroughly propagated specifications is established only by a
+test-count signal, because the generated tests did not all compile cleanly.
+Completing the mutation-coverage comparison --- repairing the test-generation
+harness so the generated suites compile and run, then measuring whether the
+propagated specifications yield a higher mutation score --- would convert the
+preliminary signal into a result on the same metric the rest of the thesis uses,
+and would close the loop between Chapter~\ref{ch:compositional} and the value metric
+of Chapter~\ref{ch:testgen}.
+
+\paragraph{Service-boundary code.} The test-generation result of
+Chapter~\ref{ch:testgen} was obtained on pure library code, where the oracle
+problem is real but not at its most acute. The setting where it is most acute is
+service-boundary code: methods that call REST endpoints or RPC stubs, where the
+implementation delegates to an external service, the signature conveys nothing
+about status codes or retry semantics, and signature-only generation collapses
+into mocking the call. The distribution mechanism of Chapter~\ref{ch:distribution}
+already extends to service interfaces via the OpenAPI extension, so the machinery
+is in place to ask whether inferred specifications retain or amplify the
+test-generation gain in that setting --- the question is whether the effect
+reported here compounds where the oracle problem bites hardest.
+
+\paragraph{Multi-model replication.} The single-model limitation is mechanical
+to address and would strengthen every experiment that involves a language model.
+The replication packages are structured for it --- the model client is
+parameterised and the prompts are model-independent --- so the work is a matter
+of budget rather than of design. A multi-model study would establish whether the
+magnitudes of the effects, and not merely their direction, transfer across model
+families.
+
+\paragraph{Stronger loop-invariant inference.} The loop-invariant heuristics of
+Chapter~\ref{ch:inference} produce a non-trivial invariant for roughly
+eighty-five percent of loops, and the downstream consequence is measurable: the
+methods left with only a weak invariant attain materially lower test quality.
+Strengthening invariant inference --- through machine-learning approaches, or
+through hybrid static-dynamic techniques in the spirit of dynamic invariant
+detection --- would raise the floor on exactly the methods where the current
+engine is weakest, and would attack the loop-related cases among the three
+tractability limits.
+
+\paragraph{Closing the verifier's tractability gaps.} The three tractability
+limits of Chapter~\ref{ch:testgen} --- recursive multiplicative growth,
+quantified invariants over mutable arrays, the for-each translation --- are
+properties of the solver and the JML translation, not of the engine. Two of them
+are plausibly addressable: the for-each translation gap is a question of exposing
+the loop-variable-to-element relationship to user JML, and the mutable-array gap
+is a question of array-theory formulation that further work on the OpenJML fork
+might narrow. Closing them would move clauses from the unsupported class into the
+verified class, shrinking the residual risk that the synthesis chapter
+identified.
+
+\paragraph{Single-pass capture of the easy compositional half.}
+Chapter~\ref{ch:compositional} established that the branch-conditional half of
+the compositional gap needs only local control-flow context, which a single-pass
+analyser already has during its AST walk. An inferrer that wished to remain
+single-pass could in principle lift its substituted clauses through enclosing
+guards before adding them, capturing the dominant shape of the gap without the
+machinery of a second pass. Whether this hybrid is worth building --- whether the
+engineering simplicity of a single pass is better preserved by extending it or by
+adding a clean second pass --- is a design question the measurement makes precise
+but does not settle.
+
+\paragraph{Beyond Java.} The system and its evaluation are Java-specific. The
+WP/SP design discipline, the infer-then-verify architecture, and the
+distribution mechanism are not intrinsically Java-bound, and porting the approach
+to another language with a contract notation and a verifier --- or to a language
+with neither, building both --- would test how much of the thesis's findings are
+about specification inference in general and how much about Java in particular.
+
+\paragraph{Hybrid static-dynamic and ensembled inference.} The thesis's engine is
+purely static, and its complement --- dynamic invariant detection --- finds the
+numeric and relational invariants the static engine cannot see. A hybrid that ran
+both and took the union of their outputs, with the verifier filtering the combined
+set, would cover more of the specification space than either alone, and the
+infer-then-verify architecture extends naturally to it: both producers propose,
+the verifier disposes. The same architecture admits a learned producer ---
+prompting a model to propose specifications and filtering its proposals through the
+verifier, in the spirit of Houdini with a model as the proposer --- which would
+test whether the model's recall, combined with the verifier's soundness filter,
+exceeds the static engine's precision-favouring output. The producer-consumer
+asymmetry the thesis documents suggests where each producer is strong, and an
+ensemble that played to each producer's strength is a direction the architecture
+invites.
+
+\section{A Research Roadmap}
+
+The future directions above can be ordered into a roadmap by their dependencies and
+their payoff. The highest-payoff step, requiring a new study but no new system, is
+the version-to-version compatibility experiment: run the inferrer over successive
+releases of a real library, recompute client specifications against each, and report
+the behavioural incompatibilities the comparison surfaces, validated against the
+library's known breaking changes. This is the step that would turn the thesis's
+central capability claim --- that library-boundary specifications support
+behavioural-compatibility analysis --- from a measured mechanism into a demonstrated
+result, and it targets the adoption question most directly, because compatibility
+analysis across dependencies is the capability that distinguishes inferred
+library-boundary specifications from a merely cheaper version of what experts
+already write.
+
+A second, more immediate step, requiring no new technique, is to complete the
+compositional downstream evaluation: repair the test-generation harness so the
+generated suites compile, and measure whether the more thoroughly propagated
+specifications raise the mutation score, converting the preliminary test-count
+signal into a result on the thesis's primary metric. This closes the one empirical
+gap the thesis leaves within its own scope.
+
+A third step, requiring modest engineering, is the multi-model replication of
+the test-generation experiments. The replication packages are structured for it,
+and it would establish whether the magnitudes of the effects transfer across model
+families or whether only their direction does --- a consequential strengthening of
+the thesis's external validity, achievable without a new technique.
+
+A fourth step, requiring a new study but no new system, is the service-boundary
+evaluation. The distribution mechanism already reaches service interfaces through
+the OpenAPI extension, so the machinery is in place; what is needed is a corpus of
+service-boundary methods and a controlled experiment analogous to the library-code
+one, testing the hypothesis that the specification's value compounds where the
+source cannot serve as an oracle. This targets the setting where the oracle problem
+is most acute.
+
+A fifth step, requiring genuine new technique, is to attack the boundaries of
+heuristic inference and of solver discharge --- the algorithmic postconditions the
+static engine cannot reach, the recursive and array-quantified clauses the solver
+cannot prove. Progress here is the hardest and least certain, depending on advances
+in invariant inference and in SMT reasoning that the thesis does not itself
+deliver, but it is the direction that would raise the ceiling on what the whole
+approach can certify. The roadmap thus proceeds from demonstrating the thesis's
+central capability, through completing its empirical gaps and strengthening its
+external validity, to extending its reach and finally raising its ceiling --- a
+sequence of increasing difficulty whose first step carries the highest payoff
+because it makes the compatibility capability concrete.
+
+\section{Broader Implications}
+
+The findings of this thesis bear on three communities beyond the immediate one of
+specification inference, and naming the implications situates the work in the
+larger conversation it contributes to.
+
+For the \emph{verification} community, the thesis offers a partial answer to the
+specification-supply problem that has constrained the field's reach. Deductive
+verifiers are powerful and mature, but they verify what they are given, and what
+they are given is written by hand. An inference engine that supplies accurate
+specifications automatically, even incomplete ones, changes the entry cost of
+verification: a project can begin with machine-inferred contracts and refine the
+ones that matter, rather than facing a blank slate. The discharge results of
+Chapter~\ref{ch:testgen} suggest the inferred contracts are good enough that a
+large majority pass the verifier unaltered, which means the human effort can
+concentrate on the residual the machine cannot handle --- the recursive,
+the quantified-over-arrays, the genuinely hard. The thesis does not claim to
+automate verification; it claims to automate the specification step that
+verification has always assumed, and to do so well enough that the assumption
+becomes realistic.
+
+For the \emph{testing} community, the thesis reframes the relationship between
+specifications and test generation. The established tools solve the stimulus
+problem and leave the oracle problem to the user; the thesis shows that the oracle
+can be supplied automatically, from inferred specifications, and that doing so
+improves a language-model generator's output by a large margin. The implication is
+that the oracle problem and the specification-supply problem are the same problem
+viewed from two directions, and that solving the second --- inferring
+specifications --- solves the first --- supplying oracles --- as a consequence.
+The finding that test count is a poor proxy for oracle quality, established by the
+guidance control, is a methodological caution the testing community can apply
+independently of the inference machinery: a test-generation technique should be
+evaluated by mutation score or an equivalent fault-detection metric, not by the
+volume of tests it produces.
+
+For the community working at the intersection of \emph{language models and
+software engineering}, the thesis offers a concrete instance of a general
+principle: that learned models and grounded analyses are complementary, and that
+the productive architecture uses each where it is strong. The model is a fluent
+consumer of grounded information and an unreliable producer of it; the static
+analysis is a reliable producer and no consumer at all. The systems that will get
+the most from language models in software engineering, the thesis suggests, are
+those that ground the model's fluency in analysis the model cannot perform ---
+feeding it inferred specifications, verified facts, structured context --- rather
+than those that ask the model to manufacture the grounding itself. The
+producer-consumer asymmetry the thesis documents is a small, measured instance of
+a pattern that recurs wherever correctness matters.
+
+\section{Closing Remarks}
+
+The barrier to formal methods, the thesis argued at the outset, is not the
+verifier but the blank page --- the manual cost of writing the specifications
+that the mature checking technology requires as input. This thesis has shown that
+the blank page can be filled automatically, with specifications accurate enough
+to be useful and compact enough to be distributed, and that the resulting
+specifications carry measurable value to the contemporary tools, both classical
+and learning-based, that consume them. It has also shown that the single-pass
+inference that makes this practical leaves recoverable information behind, and
+that a second pass recovers it.
+
+The larger point is that inference, validation, distribution, and refinement
+compose. A specification inferred but unverified cannot be trusted; a
+specification verified but undistributed reaches no one; a specification
+distributed but inferred only shallowly carries less than it could. The
+contribution of this thesis is the demonstration that these stages can be made to
+work together on real code at real scale --- that the path from unspecified Java
+to verified, distributable, refined contracts can be walked automatically, and
+that walking it is worth the effort because the contracts at the end of it
+measurably improve the tools that read them. The manual cost that has kept formal
+specifications on the margins of practice is, the evidence here suggests, no
+longer the obstacle it was.
+
+If the thesis has a single message beyond its individual results, it is that the
+question worth asking about formal specifications has changed. For decades the
+question was whether their benefit could justify their cost, and the answer, for
+most software, was no --- the cost was too high and was paid by humans who had
+other work. The thesis's evidence suggests the question is now different: not
+whether the benefit justifies the cost, but what becomes possible when the cost is
+largely removed. The studies here answer a first instalment of that question ---
+better tests, reachable contracts, recoverable compositional information --- but
+the question is larger than the answers, because a world in which every method has
+an inferred, verified, distributed contract is a world in which a great deal of
+tooling that has always assumed specifications as a scarce, manual input can assume
+them as an abundant, automatic one. What that tooling does with abundant
+specifications is a question the thesis opens rather than closes, and it is the
+question the author hopes the work that follows will take up.

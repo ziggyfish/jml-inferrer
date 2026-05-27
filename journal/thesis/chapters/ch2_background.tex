@@ -1,0 +1,1190 @@
+\chapter{Background and Related Work}
+\label{ch:background}
+
+This chapter establishes the conceptual and technical foundations on which
+the thesis builds, and situates its contributions within the existing
+literature. It is organised to follow the logical dependencies of the work
+rather than chronology. Section~\ref{sec:bg-reasoning} reviews the
+program-reasoning calculi --- Hoare logic and the weakest-precondition and
+strongest-postcondition transformers --- that supply the design discipline
+for the inference engine. Section~\ref{sec:bg-jml} introduces the Java
+Modeling Language, the concrete notation in which every specification in this
+thesis is expressed, and the verification tools that check it.
+Section~\ref{sec:bg-inference} surveys the landscape of specification
+inference. Section~\ref{sec:bg-llm} reviews language-model test generation and
+the oracle problem that motivates the central experiment.
+Section~\ref{sec:bg-mutation} discusses mutation testing as the evaluation
+methodology. Section~\ref{sec:bg-distribution} reviews the existing channels
+for distributing specifications alongside compiled code.
+Section~\ref{sec:bg-compositional} reviews compositional and interprocedural
+analysis. Section~\ref{sec:bg-positioning} draws the strands together and
+states precisely where this thesis sits.
+
+\section{Program Reasoning: Hoare Logic and Predicate Transformers}
+\label{sec:bg-reasoning}
+
+The formal study of program correctness begins with Floyd's assertions on
+flowcharts and Hoare's axiomatic basis for computer
+programming~\cite{hoare1969axiomatic}. Hoare's central object is the triple
+$\{P\}\,S\,\{Q\}$, read: if the predicate $P$ holds before the statement $S$
+executes, and $S$ terminates, then the predicate $Q$ holds afterward. $P$ is
+the precondition, $Q$ the postcondition, and the triple is the atom of
+program specification. The Hoare calculus supplies inference rules for
+composing triples --- a rule for sequential composition, a rule for
+conditionals, a rule for loops governed by an invariant, and a rule of
+consequence that allows preconditions to be strengthened and postconditions
+weakened. The loop rule is the one that matters most for the inference problem
+this thesis attacks, because it is the rule that requires an artefact no
+syntactic procedure can supply for free: the loop invariant, a predicate that
+holds before the loop, is preserved by each iteration, and combines with the
+loop's exit condition to establish the desired postcondition.
+
+\subsection{The Lineage of Program Proof}
+
+The triple is the culmination of a line of thought worth tracing, because it
+locates the inference problem within a long-standing programme. Turing had already
+observed, in the earliest days of stored-program computing, that one might attach
+assertions to points in a program and reason about their preservation. Floyd
+formalised this for flowcharts, attaching predicates to the edges of a program's
+control-flow graph and giving rules by which a predicate on one edge implies a
+predicate on the next, so that a proof of correctness becomes a consistent
+labelling of the graph. Hoare~\cite{hoare1969axiomatic} recast Floyd's
+edge-labelling into the syntactic, compositional form of the triple, replacing
+reasoning about a graph with reasoning about program text by structural rules ---
+a move that made proofs follow the program's syntax and so made them mechanisable.
+
+The significance of this lineage for the present work is that it establishes
+preconditions and postconditions not as ad hoc annotations but as the natural
+vocabulary of program correctness, the predicates that a correctness proof must
+manipulate. An engine that infers preconditions and postconditions is inferring
+exactly the objects that fifty years of verification theory have identified as the
+load-bearing ones, which is why the inferred specifications connect directly to the
+verification machinery: they are in the language the machinery already speaks. The
+inference engine does not invent a new kind of specification; it recovers, by
+pattern matching, the same pre- and postconditions that a Floyd-Hoare proof would
+require as input, which is what allows OpenJML --- a direct descendant of the
+Floyd-Hoare programme --- to consume them.
+
+\subsection{The Weakest Precondition}
+
+Dijkstra recast Hoare's calculus in a constructive form with the
+weakest-precondition (WP) predicate transformer~\cite{dijkstra_guarded_1975,
+dijkstra1976discipline}. For a statement $S$ and a postcondition $Q$, the
+predicate $\mathrm{WP}(S, Q)$ is the weakest condition on the entry state such
+that every terminating execution of $S$ establishes $Q$. ``Weakest'' is
+precise: $\mathrm{WP}(S, Q)$ is implied by every other precondition that would
+also guarantee $Q$, so it characterises exactly the set of starting states
+from which $S$ is guaranteed to achieve $Q$. The transformer is defined by
+structural recursion on the program: the weakest precondition of an
+assignment $x := e$ with respect to $Q$ is $Q$ with $e$ substituted for $x$;
+the weakest precondition of a sequence $S_1; S_2$ is
+$\mathrm{WP}(S_1, \mathrm{WP}(S_2, Q))$; the weakest precondition of a
+conditional distributes over its branches under the guard. The WP transformer
+is the engine of \emph{backward} reasoning: it pushes a desired postcondition
+backward through the program text to discover what must have held at entry.
+
+The practical significance of WP for this thesis is that it gives a precise
+account of where preconditions \emph{come from}. A method body that begins
+\texttt{if (x == null) throw \dots} has, as the weakest precondition of its
+normal-return path, a condition that includes \texttt{x != null} --- the
+throw is reachable exactly when the precondition is violated, and the weakest
+condition that avoids it is the negation of the guard. The guard-and-throw
+idiom, ubiquitous in defensive Java code, is a WP-derived precondition written
+in executable form. An inference engine that recognises the idiom and emits
+the negated guard as a \texttt{requires} clause is, in effect, computing one
+step of a weakest-precondition analysis by pattern recognition rather than by
+symbolic substitution.
+
+\subsection{The Transformer Rules, Concretely}
+
+The WP transformer is defined by structural recursion, and writing out the
+principal rules makes concrete both what a complete implementation would have to
+do and which steps the pattern-matching engine approximates. For an assignment,
+$\mathrm{WP}(x := e, Q) = Q[e/x]$: the weakest precondition is the postcondition
+with the assigned expression substituted for the variable. For sequential
+composition, $\mathrm{WP}(S_1; S_2, Q) = \mathrm{WP}(S_1, \mathrm{WP}(S_2, Q))$:
+one reasons backward through the second statement and then through the first.
+For a conditional,
+$\mathrm{WP}(\texttt{if } C \texttt{ then } S_1 \texttt{ else } S_2, Q) =
+(C \Rightarrow \mathrm{WP}(S_1, Q)) \wedge (\neg C \Rightarrow \mathrm{WP}(S_2, Q))$:
+each branch must establish $Q$ under its guard. For the abort statement that
+models a thrown exception, $\mathrm{WP}(\texttt{abort}, Q) = \mathit{false}$: no
+precondition makes an aborting statement establish a normal-return postcondition,
+which is exactly why a guarded throw imposes a precondition on the caller --- the
+weakest precondition of the path that avoids the throw is the negation of the
+guard.
+
+The loop rule is where the recursion does not bottom out syntactically. For
+$\mathrm{WP}(\texttt{while } C \texttt{ do } S, Q)$ one must exhibit a loop
+invariant $I$ such that $I$ holds on entry, $I \wedge C$ implies
+$\mathrm{WP}(S, I)$ (the invariant is preserved), and $I \wedge \neg C$ implies
+$Q$ (the invariant plus loop exit establishes the postcondition); and for total
+correctness one must additionally exhibit a variant that decreases on each
+iteration. No finite syntactic procedure produces $I$ in general, because
+invariant inference is undecidable. This single gap --- the loop invariant --- is
+the reason a complete WP transformer cannot be a pure syntactic rewrite, and it
+is the reason Chapter~\ref{ch:inference} devotes a battery of heuristics
+specifically to loops while handling the other constructs by direct pattern
+correspondence. The transformer rules above are precisely the steps the engine
+emulates by pattern matching: the assignment rule underlies postcondition
+inference from return statements, the conditional rule underlies branch-sensitive
+postconditions, and the abort rule underlies guard-derived preconditions.
+
+\subsection{The Strongest Postcondition}
+
+The dual transformer reasons forward. For a precondition $P$ and a statement
+$S$, the strongest postcondition $\mathrm{SP}(S, P)$ is the strongest
+predicate that holds on the exit state given that $P$ held on
+entry~\cite{cousot1977abstract}. Where WP transforms a postcondition backward,
+SP transforms a precondition forward, and ``strongest'' is again precise: SP
+characterises exactly the set of states reachable by executing $S$ from a
+state satisfying $P$. For an assignment $x := e$, the strongest postcondition
+introduces an existential over the prior value of $x$, capturing the
+convention that a postcondition about an assigned variable refers to its new
+value while other mentions refer to the old. This is the formal root of the
+\texttt{\textbackslash old} construct that appears throughout JML
+postconditions: a postcondition that says a counter has been incremented must
+refer both to the counter's new value and to its value in the pre-state, and
+SP makes the distinction explicit.
+
+For the inference engine, SP gives the account of where postconditions come
+from. A method whose body ends \texttt{return this.value} has, as a
+strongest-postcondition consequence, the clause
+\texttt{\textbackslash result == this.value}; a method that assigns
+\texttt{this.count = this.count + 1} has the postcondition
+\texttt{this.count == \textbackslash old(this.count) + 1}. Branch structure
+complicates the forward rule: the textbook SP of a conditional combines the
+two branches by disjunction, but doing so discards the link between each
+return value and the path condition that reaches it. The inference engine
+described in Chapter~\ref{ch:inference} departs from the textbook rule
+deliberately at this point, recording per-path guarded postconditions
+$C \Rightarrow \mathrm{post}_1$ and $\neg C \Rightarrow \mathrm{post}_2$ rather
+than the collapsed disjunction, because the guarded form is both more
+informative to a downstream consumer and more readable.
+
+\subsection{Why a Complete Implementation Does Not Scale}
+
+A complete WP or SP analysis of arbitrary Java is not a practical target, and
+the reason is worth stating because it motivates the central design decision
+of this thesis. Computing $\mathrm{WP}(S, Q)$ symbolically requires a decision
+procedure for the assertion logic and a precise operational semantics for
+every language construct $S$ might contain: integer arithmetic with overflow,
+heap mutation with aliasing, dynamic dispatch, exceptions, reflection. The
+loop rule requires invariants that no purely syntactic procedure can derive in
+general --- invariant inference is itself undecidable. Tools that perform the
+full computation, such as the verification-condition generator
+Boogie~\cite{barnett2005weakest} and the deductive verifiers built on it, are
+engineering achievements of considerable depth, but they target
+\emph{verification} of human-supplied specifications and accept the
+attendant cost: they need the specifications, including loop invariants,
+written for them. An inference engine cannot assume that input, because
+producing it is precisely the problem.
+
+The resolution adopted in this thesis, developed in detail in
+Chapter~\ref{ch:inference}, is to treat the WP and SP calculi as a
+\emph{design discipline} rather than as algorithms to execute. The calculi
+determine which abstract-syntax-tree patterns the engine looks for, what JML
+clause each pattern yields, and how clauses propagate across method
+boundaries; they do not require the engine to compute a symbolic
+transformer. This trades formal completeness for scalability, a trade-off with
+ample precedent in industrial static analysis~\cite{calcagno2015infer}, and
+recovers soundness after the fact by discharging each emitted clause through a
+verifier.
+
+\subsection{Two Uses of a Specification: Verifying and Testing}
+
+A specification can be put to two distinct uses, and both matter to this thesis
+because the inferred specifications serve both. The first use is verification: a
+specification is the property a verifier proves the code satisfies, the obligation
+the code must discharge. The second use is testing: a specification is the oracle
+against which generated tests assert, the statement of intent that tells a test
+whether the observed behaviour is correct. The two uses make different demands on a
+specification. Verification demands soundness above all --- an unsound clause causes
+the verifier to prove a false property or report a spurious failure --- and
+tolerates incompleteness, since a partial specification simply proves a partial
+property. Testing demands relevance and richness --- a clause that distinguishes
+correct from incorrect behaviour --- and tolerates a degree of unsoundness, since a
+test generated from a slightly wrong oracle merely fails and is discarded rather
+than corrupting a proof.
+
+This difference in demands shapes how the thesis treats its inferred
+specifications for each consumer. For the verification consumer, the validation
+layer is essential: only discharged clauses are sound enough to verify against, and
+the flagged and unsupported clauses must be excluded or handled with care. For the
+testing consumer, the validation layer is helpful but not strictly necessary: the
+test-generation experiment of Chapter~\ref{ch:testgen} supplies the model even the
+unsupported clauses, because their content is useful oracle information whether or
+not the verifier can discharge them, and a test generated from an imperfect clause
+that happens to be wrong simply does not compile or fails and is filtered. The same
+inferred specification thus serves two consumers with different tolerances, and the
+thesis's two-layer architecture --- inference plus validation --- supplies what each
+needs: the validation gate for the consumer that requires soundness, the full
+inferred set for the consumer that benefits from richness and tolerates the
+occasional imperfection. Understanding that a specification has these two uses, with
+their different demands, is what justifies retaining the unsupported clauses rather
+than discarding them: they are useless to one consumer and useful to another, and
+the thesis serves both.
+
+\section{Abstract Interpretation and Sound Approximation}
+\label{sec:bg-absint}
+
+Between the exact predicate transformers of Section~\ref{sec:bg-reasoning} and
+the heuristic pattern matching of this thesis lies a body of theory that
+explains why a deliberately approximate analysis can still be principled:
+abstract interpretation~\cite{cousot1977abstract}. Abstract interpretation
+provides a general framework for sound, terminating approximation of a program's
+concrete semantics. The concrete semantics --- the exact set of states a program
+can reach --- is in general uncomputable, so an analysis works instead in an
+\emph{abstract domain}, a lattice of approximate descriptions related to the
+concrete states by a Galois connection. The analysis computes a fixpoint in the
+abstract domain, and the soundness theorem guarantees that the abstract result
+over-approximates the concrete one: every concrete behaviour is captured by the
+abstract description, though the abstract description may admit behaviours the
+concrete program does not exhibit.
+
+The framework matters to this thesis in two ways, one direct and one by
+contrast. The direct relevance is that any specification-inference pass can be
+located within it. A precondition is a description of the entry states under
+which a method behaves correctly; a postcondition is a description of the exit
+states it can reach. An analysis that infers these is computing an approximation
+of a fixpoint, and the single-pass interprocedural propagation of
+Chapter~\ref{ch:inference} is a particular, deliberately weak, approximation ---
+one that handles unconditional callee obligations soundly but approximates the
+guarded and polymorphic cases by omission. The compositional refinement of
+Chapter~\ref{ch:compositional} narrows the approximation, recovering obligations
+the weaker pass dropped, and it can be understood precisely as moving to a more
+precise point in the abstract domain --- trading analysis cost for tighter
+descriptions, the central trade-off abstract interpretation formalises.
+
+The relevance by contrast concerns soundness direction. Abstract interpretation
+is classically \emph{over}-approximate: it never misses a concrete behaviour, at
+the cost of admitting spurious ones, which is the right bias for verification
+(a sound verifier must never miss a bug). The heuristic engine of this thesis is
+deliberately \emph{not} sound in this sense: its pattern matching may both miss
+genuine clauses (under-approximation, costing recall) and emit clauses that do
+not hold (the unsoundness the validation layer catches). The engine is, in the
+abstract-interpretation vocabulary, neither a sound over-approximation nor a
+sound under-approximation but a heuristic estimate, and its principled status
+comes not from a soundness theorem but from the \emph{post-hoc} verification that
+filters its output. This is the precise sense in which the thesis departs from
+the abstract-interpretation tradition: it gives up the soundness-by-construction
+that the framework provides, in exchange for the scalability that exact or
+sound-approximate analysis of arbitrary Java cannot deliver, and it recovers a
+weaker but sufficient guarantee --- that every \emph{retained} clause has been
+checked --- by discharging through a verifier. Infer~\cite{calcagno2015infer}
+makes a comparable trade in the memory-safety setting, and the lineage of
+scalable-but-unsound industrial analysis is the practical tradition this thesis
+joins, with the verifier-backed filtering as its distinguishing safeguard.
+
+\section{The Java Modeling Language and Its Verifiers}
+\label{sec:bg-jml}
+
+The Java Modeling Language (JML)~\cite{jml, leavens2006design} is a
+behavioural interface specification language for Java. It expresses
+specifications as structured comments --- \texttt{//@} line comments or
+\texttt{/*@ \dots @*/} block comments --- that are invisible to the Java
+compiler but meaningful to JML-aware tools. The core constructs are
+\texttt{requires} (precondition), \texttt{ensures} (postcondition),
+\texttt{assignable} (the frame condition, listing the locations a method may
+modify), \texttt{signals} (exceptional postconditions), \texttt{invariant}
+(class invariants that hold in every visible state), and
+\texttt{loop\_invariant} (predicates attached to loops). Within clause
+expressions, JML extends Java with specification-only constructs:
+\texttt{\textbackslash result} for a method's return value,
+\texttt{\textbackslash old(e)} for the pre-state value of an expression, the
+quantifiers \texttt{\textbackslash forall} and \texttt{\textbackslash exists},
+the generalised quantifiers \texttt{\textbackslash sum},
+\texttt{\textbackslash product}, and \texttt{\textbackslash num\_of}, and the
+frame keywords \texttt{\textbackslash nothing} and
+\texttt{\textbackslash everything}.
+
+JML descends from the Design by Contract methodology of
+Eiffel~\cite{meyer1992design}, which made pre- and postconditions
+first-class language constructs and articulated the discipline of treating a
+method's contract as an obligation on both caller and implementer. JML adapts
+the methodology to Java and to a richer logic, supporting both runtime
+assertion checking and static verification. Its lineage as a research lingua
+franca is long: it has been the target notation for a generation of
+verification and testing tools, which is why it is the natural output format
+for an inference engine intended to feed those tools.
+
+\subsection{Semantics That Matter for Inference}
+
+Two semantic features of JML recur throughout this thesis and are worth
+isolating. First, reference equality versus value equality: the JML
+\texttt{==} operator is reference equality, exactly as in Java, so a
+postcondition relating two strings must use \texttt{.equals} rather than
+\texttt{==} to express value equality. An inference engine that emits
+\texttt{\textbackslash result == "false"} for a method returning a string
+literal produces a clause that is true only by the accident of string
+interning and false in general; the engine must instead emit a value-equality
+clause. Second, the treatment of integer arithmetic: JML can be configured to
+interpret specification arithmetic either with Java's bounded two's-complement
+semantics or with unbounded mathematical integers. A clause such as
+\texttt{\textbackslash result >= 0} for \texttt{x * x} is true under
+mathematical-integer semantics but false under two's-complement, because the
+product can overflow to a negative value. An inference engine that does not
+gate such clauses by return type emits unsound specifications; the engine in
+this thesis gates them.
+
+\subsection{A Complete Contract, Annotated}
+
+A short example fixes the notation and shows what an inferred specification
+looks like in the form a verifier checks. Consider a method that returns the
+larger of two integers:
+
+\begin{lstlisting}
+//@ requires true;
+//@ ensures \result >= a && \result >= b;
+//@ ensures \result == a || \result == b;
+//@ assignable \nothing;
+public static int max(int a, int b) {
+    return (a >= b) ? a : b;
+}
+\end{lstlisting}
+
+The contract has four clauses. The \texttt{requires true} states that the
+method imposes no precondition --- it is total, accepting all inputs. The two
+\texttt{ensures} clauses together pin down the result: it is at least as large
+as both arguments, and it is equal to one of them. Neither clause alone is a
+complete specification --- the first is satisfied by any sufficiently large
+value, the second by either argument regardless of size --- and it is their
+conjunction that captures ``the maximum''. This is a recurring feature of
+postcondition inference: a single returned relationship is often
+under-determined, and a faithful specification requires several clauses that
+jointly constrain the result, which is part of why postcondition inference is
+harder than precondition inference. The \texttt{assignable \textbackslash
+nothing} is the frame condition, stating that the method modifies no heap
+location; it is the default the engine emits for methods that appear pure, and
+its ubiquity is exploited by the distribution format of
+Chapter~\ref{ch:distribution}.
+
+A verifier checking this contract assumes the precondition, symbolically
+executes the body, and attempts to discharge each postcondition. For
+\texttt{max} the discharge is immediate: the ternary expression yields \texttt{a}
+when \texttt{a >= b} and \texttt{b} otherwise, and a case split on the guard
+establishes both \texttt{ensures} clauses under the operational integer
+semantics. The example is deliberately trivial; the point is that the inferred
+contract is a precise, machine-checkable object, and that the inference engine's
+job is to produce exactly such objects from the body alone, without the
+annotations being present in the source.
+
+\subsection{Verification Tools}
+
+The verifier used throughout this thesis as the formal oracle is
+OpenJML~\cite{openjml}, which implements both runtime assertion checking and,
+in its Extended Static Checker (ESC) mode, deductive verification by
+translation to the SMT-LIB logic and discharge through an SMT solver (Z3 by
+default in this work). OpenJML's ESC checks each method modularly: it assumes
+the method's precondition, symbolically executes the body using the contracts
+of called methods in place of their bodies, and asserts the postcondition,
+emitting a verification condition that the solver attempts to discharge. A
+clause that the solver proves is \emph{discharged}; a clause it refutes or
+cannot prove within a time budget is reported. This modular, contract-based
+checking is exactly the consumer that an inference engine should target,
+because it converts an inferred clause into a binary, machine-checkable
+verdict.
+
+The deductive-verification tradition includes the KeY system~\cite{key2016book},
+which verifies JML-annotated Java through an interactive theorem prover based
+on a dynamic logic for Java, and the broader family of verification-condition
+generators descending from ESC/Java~\cite{flanagan2002extended} and
+Boogie~\cite{barnett2005weakest}. These tools share a stance --- they
+\emph{consume} specifications and check them --- that stands in deliberate
+contrast to the stance of this thesis, which \emph{produces} the
+specifications they consume. The two are complementary halves of a pipeline:
+an inference engine that emits JML and a verifier that checks it together
+close the loop from unspecified code to verified contract without a human
+writing the contract in between.
+
+The KeY system~\cite{key2016book} illustrates the consumer end of this pipeline in
+its most demanding form. KeY verifies JML-annotated Java through an interactive
+theorem prover based on a dynamic logic for Java, and its interactivity is
+significant: for the hardest properties, a human guides the proof, supplying the
+insight the automated tactics lack. KeY's power exceeds OpenJML's automated
+discharge --- it can prove properties no SMT solver discharges automatically ---
+but at the cost of the human guidance that automation avoids. The relevance to this
+thesis is that an inference engine could supply KeY's input as readily as OpenJML's:
+the inferred JML is in the language both consume, and a workflow that inferred
+contracts and verified the hard ones interactively in KeY would lower the entry
+cost of even the most demanding verification. The thesis uses OpenJML's automated
+checker as its oracle because automation is what scales to twenty thousand methods,
+but the inferred specifications are not tied to that choice; they are JML, and any
+JML verifier --- automated or interactive --- can consume them. This independence
+of the inference from the particular verifier is part of why the thesis frames its
+contribution as supplying the specifications the verification ecosystem requires,
+rather than as a contribution to any one verifier.
+
+\section{Design by Contract and the Idea of an Obligation}
+\label{sec:bg-dbc}
+
+The notation of Section~\ref{sec:bg-jml} carries a methodology, and the
+methodology is worth stating because it shapes what a specification is
+\emph{for}. Design by Contract, introduced with the Eiffel
+language~\cite{meyer1992design}, frames a method's specification as a contract
+between two parties: the caller and the implementer. The precondition is the
+caller's obligation --- the caller must establish it before calling --- and in
+return the implementer guarantees the postcondition. The metaphor of mutual
+obligation has a precise consequence: a precondition is not a check the method
+performs but a promise the caller makes, and a method is entitled to assume its
+precondition holds rather than to defend against its violation. This is why a
+guard-and-throw idiom is a degenerate contract: a method that throws on null
+input is defending against a precondition violation, and the inferred
+\texttt{requires} clause makes explicit the obligation the defensive check
+implies.
+
+The contract metaphor also explains the asymmetry between precondition and
+postcondition strength that recurs in the inference results. Strengthening a
+precondition narrows the contract --- it demands more of the caller --- while
+strengthening a postcondition widens it, promising more to the caller. An
+inference engine biased toward precision should therefore be cautious about
+preconditions, since an over-strong precondition wrongly forbids valid calls, and
+cautious in a different direction about postconditions, since an over-strong
+postcondition wrongly claims behaviour the method does not guarantee. The
+engine's behaviour reflects this: it emits a precondition only from an explicit
+aborting guard, the strongest evidence that the caller really is obligated, and
+it emits postconditions from observed return and assignment structure, the
+strongest evidence of what the method really guarantees. The contract framing,
+inherited from Eiffel and carried into JML, is thus not merely notation but the
+conceptual basis for the engine's conservative inference policy.
+
+The methodology's relevance extends to the distribution problem of
+Chapter~\ref{ch:distribution}. A contract is an interface property --- it
+describes the boundary between caller and implementer --- and an interface
+property naturally belongs with the artefact that exposes the interface, not with
+the source that implements it. The intuition that a contract should travel with
+the compiled library, recoverable by any caller, is a direct consequence of the
+Design by Contract view that the contract is the caller's business as much as the
+implementer's. Embedding inferred contracts in bytecode is, in this light, the
+natural completion of the methodology: it puts the caller's half of the contract
+where the caller can see it.
+
+\section{Specification Inference}
+\label{sec:bg-inference}
+
+Automatically recovering specifications from code is a well-established
+problem with several distinct methodological traditions. This section reviews
+them in the order of their relationship to the present work.
+
+\subsection{Dynamic Invariant Detection}
+
+Daikon~\cite{ernst2007daikon} pioneered the dynamic detection of likely
+program invariants. Daikon instruments a program, runs its test suite, records
+the values of variables at procedure entry and exit, and reports the
+relationships --- equalities, inequalities, linear relationships, containment
+properties --- that held over every observed execution. The inferred
+invariants are ``likely'' rather than guaranteed: they are generalisations
+from observed traces, and their quality is bounded by the coverage of the test
+suite that drives them. An invariant Daikon reports may be an artefact of an
+incomplete suite, true of every test but false in general; conversely, a
+genuine invariant exercised by no test will not be reported. Daikon's
+strengths and limitations are both consequences of its dynamism: it can
+discover numeric relationships that no syntactic analysis would guess, but it
+requires an executable program with a test suite, and it offers no soundness
+guarantee. The contrast with the present work is sharp on both axes. The
+engine in this thesis is purely static --- it requires no test suite and no
+execution --- and it pursues soundness through \emph{post-hoc} verification
+rather than abandoning it; the cost is that heuristic pattern matching will
+miss the subtle numeric relationships that dynamic observation surfaces.
+
+\subsection{Why Static and Dynamic Inference Find Different Things}
+
+The contrast between Daikon's dynamic detection and the static inference of this
+thesis is not merely methodological; the two approaches find systematically
+different specifications, and understanding why clarifies what each is for. Dynamic
+detection generalises from observed values: it reports a relationship if it held
+on every execution the test suite drove. It therefore excels at numeric and
+relational invariants that are true but not syntactically apparent --- that one
+field is always twice another, that a list is always sorted, that a return value
+always falls in an observed range --- because these emerge from the values
+regardless of how the code is written. Its blind spot is the relationship that no
+test exercised: a precondition guarding a code path the suite never took will not
+appear, because no observation refutes its absence.
+
+Static structural inference has the complementary profile. It excels at
+specifications that are apparent in the code's structure --- the guard that yields
+a precondition, the return that yields a postcondition --- regardless of whether
+any test exercises them, because it reads the code rather than its executions. Its
+blind spot is the relationship that holds semantically but is not structurally
+apparent: the numeric invariant that emerges only from the values, the algorithmic
+postcondition that characterises what a loop computes rather than how. The two
+approaches are thus not competitors on a single axis but explorers of different
+regions of the specification space, and the recall figures of
+Chapter~\ref{ch:testgen} --- high for guard-derived preconditions, lower for
+complex postconditions --- trace exactly the boundary of the static region. A
+hybrid that ran both and took the union would cover more than either, which is a
+direction the thesis notes among its future work; the present engine is purely
+static because the static region contains the guard-and-return specifications that
+are both the most common and the most reliably inferred, and because static
+inference requires neither a test suite nor an execution, which broadens its
+applicability to any compilable code.
+
+\subsection{Verification-Driven Annotation Inference}
+
+Houdini~\cite{flanagan2001houdini} occupies a position between inference and
+verification. It conjectures a large set of candidate annotations from a fixed
+template vocabulary --- for each field, candidate clauses such as
+\texttt{f != null}, \texttt{f >= 0}, and so on --- and then repeatedly invokes
+ESC/Java to prune the candidates that cannot be verified, iterating until a
+mutually consistent set remains. Houdini is, in spirit, the closest precursor
+to the infer-then-verify architecture of this thesis: it too treats inference
+as proposal and verification as disposal. The difference is in the proposal
+step. Houdini guesses from templates and relies entirely on the verifier to
+filter; the present work replaces the template guess with WP/SP-organised
+structural pattern matching grounded in the code's actual control and data
+flow, and extends the verification oracle from ESC/Java to OpenJML with
+quantifier support. The structural grounding raises the precision of the
+proposals, so the verifier filters less and the surviving set is larger.
+
+The cost structure of the two approaches differs in a way that matters at scale.
+Houdini's reliance on the verifier to filter means it pays a verification cost
+proportional to the number of candidate annotations it conjectures, and its
+template vocabulary must be kept small to bound that cost --- a larger vocabulary
+conjectures more candidates, each requiring verifier calls to prune. The structural
+engine of this thesis inverts this: its pattern matching proposes a smaller, more
+precise set of candidates, so the verification cost is proportional to the
+emitted clauses rather than to a template-vocabulary-sized candidate space, and the
+verifier serves as a soundness filter on a population that is already mostly sound
+rather than as the primary pruning mechanism on a population that is mostly noise.
+The two architectures share the propose-then-verify shape but differ in where the
+intelligence sits: in Houdini it is in the verifier doing the pruning, in the
+present work it is in the pattern matcher doing the proposing, with the verifier
+demoted from primary filter to safety net. The demotion is what makes the approach
+scale to twenty thousand methods, because the verifier is the expensive component
+and the structural engine asks less of it.
+
+\subsection{Documentation-Based Extraction}
+
+A complementary tradition extracts specifications from natural-language
+documentation. Toradocu~\cite{toradocu2016} and its successor
+Jdoctor~\cite{jdoctor2018} apply natural-language processing to Javadoc
+comments to recover exception preconditions --- the conditions under which a
+method documents that it throws. Pandita et al.~\cite{pandita2012inferring}
+infer resource specifications from API documentation in a similar spirit.
+These approaches are effective exactly where documentation is thorough and
+silent where it is absent, which makes them complementary to code-structural
+inference: a method with a documented \texttt{@throws} clause but no defensive
+guard yields a specification to Jdoctor and nothing to a structural engine,
+while a method with a defensive guard but no documentation yields the reverse.
+Chapter~\ref{ch:testgen} quantifies this complementarity directly, reporting
+the clauses each approach captures that the other misses.
+
+The mechanism of documentation extraction is worth understanding because its
+strengths and failure modes follow from it. Jdoctor parses a Javadoc comment's
+prose, identifies the noun phrases and conditions it describes, and matches them
+against the method's parameters and types to construct a formal condition --- a
+documented ``throws \texttt{IllegalArgumentException} if \texttt{x} is negative''
+becomes the precondition \texttt{x >= 0} guarding the normal path. The matching is
+the hard part, because natural language is ambiguous and Javadoc prose is
+irregular, and the approach's precision depends on the documentation being both
+present and phrased in patterns the parser recognises. Where documentation is
+absent the approach yields nothing, which bounds its coverage to documented
+methods; where documentation is present but idiosyncratically phrased, the parser
+may extract the wrong condition, which bounds its precision. The structural engine
+of this thesis has the opposite profile --- it ignores documentation entirely and
+reads the code --- so the two fail on disjoint inputs, the documentation extractor
+on undocumented methods and the structural engine on behaviours not visible in the
+code's structure, which is the basis for the complementarity the later chapter
+measures.
+
+PreInfer~\cite{preinfer2017} occupies a middle ground between dynamic and
+documentation-based inference, using symbolic analysis of the path conditions
+collected from failing tests to infer preconditions for C\#. It requires an
+execution infrastructure, like dynamic detection, but reasons symbolically about
+the paths rather than generalising from concrete values, which lets it infer
+preconditions that distinguish failing from passing inputs. Its dependence on an
+execution infrastructure and a corpus of failing tests is the requirement the
+purely static engine of this thesis avoids, at the cost of the path-sensitive
+precision PreInfer's symbolic analysis achieves; the trade is the recurring one
+between the reach of dynamic or symbolic execution and the universality of static
+structural inference.
+
+\subsection{Language-Model-Based Inference}
+
+The most recent tradition prompts a large language model to emit
+specifications directly. SpecGen~\cite{ma2024specgen} and the approach of
+Endres et al.~\cite{endres2024can} prompt a model to produce formal contracts
+from code; Richter and Wehrheim~\cite{richter2025beyondpostconditions} extend
+this to full precondition/postcondition pairs and report the false-alarm rates
+a verifier produces on the results; Teuber and
+Beckert~\cite{teuber2025nextsteps}, closest in target language to the present
+work, generate JML for Java deductive verification. The language-model
+approach has the appeal of requiring no hand-built pattern repertoire and the
+liability of being ungrounded: the model may hallucinate clauses that are
+plausible in surface form but false against the code, and its outputs vary
+across runs at nonzero temperature. Chapter~\ref{ch:testgen} reports a direct
+comparison, finding that language-model inference attains recall comparable to
+the structural engine but substantially lower precision and far lower
+run-to-run consistency, because its proposals are not anchored in concrete
+code structure. The finding motivates a methodological caution that the thesis
+maintains throughout: a language model is an excellent \emph{consumer} of
+grounded specifications (Chapter~\ref{ch:testgen}) and a less reliable
+\emph{producer} of them.
+
+The mechanisms these systems use illuminate why. SpecGen and the approach of
+Endres et al.\ prompt a model with a method and ask it to emit a contract,
+sometimes iterating with verifier feedback to repair clauses that fail. The
+iteration helps --- it filters some hallucinations --- but it is bounded by the
+model's ability to repair toward a correct clause rather than toward a different
+plausible one, and by the verifier's ability to discharge the candidate at all.
+Richter and Wehrheim's emphasis on verifier false-alarm rates is telling: a
+model-produced specification that does not match the implementation causes the
+verifier to report a spurious failure, and the rate of such false alarms is a
+direct measure of the model's ungroundedness. The structural engine avoids the
+false-alarm problem at its source, because its clauses are read from the code's
+structure rather than predicted, so a clause it emits about a guard is a clause the
+guard actually imposes. The contrast is not that models cannot produce useful
+specifications --- the iterative approaches show they can produce some --- but that
+the rate of ungrounded clauses they produce is high enough to require verifier
+filtering as a primary mechanism rather than a safety net, which is the same cost
+structure that distinguishes Houdini from the present engine, here arising from the
+model's prediction rather than from a template vocabulary.
+
+\subsection{A Framework for Comparing Inference Approaches}
+
+The four traditions just reviewed --- dynamic, verification-driven,
+documentation-based, and learned --- can be organised along three axes that
+together locate the present work and explain its complementarities. The first axis
+is the \emph{source of evidence}: dynamic detection draws on execution traces,
+documentation extraction on natural-language text, language-model inference on a
+learned prior over code, and the present engine on the code's syntactic structure.
+The second axis is the \emph{soundness guarantee}: dynamic invariants are likely
+but not guaranteed, language-model clauses are unguaranteed, documentation clauses
+are as reliable as the documentation, and the present engine's clauses are
+heuristic but filtered through a verifier. The third axis is the \emph{input
+requirement}: dynamic detection needs a test suite and an executable program,
+documentation extraction needs documentation, language-model inference needs a
+model and tolerates none of the determinism the others offer, and the present
+engine needs only compilable source.
+
+Placed in this framework, the present engine occupies the cell defined by
+structural evidence, verifier-filtered soundness, and a minimal input requirement
+of compilable source alone. No other tradition occupies it: dynamic detection
+trades the test-suite requirement for the ability to find non-structural
+invariants, documentation extraction trades the documentation requirement for
+access to intent the code does not express, and language-model inference trades
+determinism and precision for freedom from a hand-built pattern repertoire. The
+framework makes the complementarities precise --- each tradition's strength is
+another's blind spot, located on a different axis --- and it explains why the
+thesis frames its comparisons as complementary rather than competitive: the engine
+dominates no tradition on every axis, but it is the only one in its cell, and its
+cell is the one that requires least of the user (no tests, no documentation) while
+offering most by way of soundness (verifier filtering) on the evidence most
+reliably available (the code itself).
+
+\section{Language-Model Test Generation and the Oracle Problem}
+\label{sec:bg-llm}
+
+Large language models have rapidly become a practical means of generating unit
+tests~\cite{schafer2023adaptive, chen2022codet, yuan2024chattester,
+lemieux2023codamosa, chen2021codex}, and a substantial literature has
+accumulated, recently surveyed by Zhang et al.~\cite{zhang2025llmunitsurvey}
+across 115 publications. Given a method signature a modern model produces
+compilable, plausibly named tests in seconds; given the method body it
+produces tests that exercise the visible control-flow paths. Foundational
+contributions include AthenaTest~\cite{tufano2020athenatest}, which adapted
+transformer architectures to test generation with focal context;
+CodaMOSA~\cite{lemieux2023codamosa}, which combined search-based generation
+with model sampling to escape coverage plateaus; ChatTESTER~\cite{yuan2024chattester};
+CodeT~\cite{chen2022codet}; and the empirical evaluation of Sch\"afer et
+al.~\cite{schafer2023adaptive}. Kang, Yoon, and Yoo~\cite{kang2023libro}
+showed that models can be effective few-shot testers when prompted with bug
+reports.
+
+\subsection{The Test Oracle, Defined}
+
+The oracle problem has a precise statement that clarifies why specifications
+address it. A test oracle is a procedure that decides whether a program's
+behaviour on a given input is correct. Every test has one, if only implicitly:
+the assertion at the end of a test is the oracle, deciding correctness by checking
+the observed output against an expected one. The oracle problem is the difficulty
+of obtaining the expected output --- of knowing, for a given input, what correct
+behaviour is. The problem is fundamental because correctness is defined relative to
+intent, and intent is not present in the implementation; an implementation defines
+what the program \emph{does}, and an oracle requires what it \emph{should} do,
+which is a separate piece of information.
+
+There are several sources from which an oracle can be drawn, and they form a
+hierarchy of strength. The strongest is a formal specification, which states the
+intended behaviour directly and against which any output can be checked. Weaker is
+a reference implementation, which gives correct outputs but only for inputs one can
+run it on, and only if it is itself correct. Weaker still is a regression oracle,
+which asserts that behaviour does not change --- useful for detecting regressions
+but useless for detecting present bugs, since it takes the current behaviour as
+correct by definition. Weakest is an implicit oracle, which checks only that the
+program does not crash or violate a language-level invariant --- the
+``does not throw'' assertion that a model falls back to when it has nothing better.
+The hierarchy explains the thesis's central hypothesis precisely: a specification
+sits at the top of the hierarchy, and supplying one to a test generator moves its
+oracles up from the regression or implicit level, where a model without a
+specification is stranded, to the specification level, where genuine bugs become
+detectable. The mutation-score metric measures exactly this movement, because a
+mutant is a seeded bug and only a specification-level oracle reliably catches it.
+
+\subsection{The Oracle Problem}
+
+The persistent and well-documented weakness of language-model test generation
+is the oracle problem~\cite{schafer2023adaptive, jiang2024survey,
+konstantinou2024oracles}. A unit test has two parts: a stimulus that drives
+the code into some state, and an oracle that asserts the state is correct. A
+model can synthesise stimuli readily, but the oracle requires a statement of
+\emph{intended} behaviour that the code itself does not contain. Lacking such
+a statement, the model infers the oracle from the implementation --- and so
+asserts what the code does rather than what it should do. Konstantinou et
+al.~\cite{konstantinou2024oracles} demonstrate this empirically: model-generated
+oracles encode the program's actual behaviour, faithfully reproducing its bugs
+as expected results, and when given only a signature the model falls back to
+vacuous assertions such as ``does not throw''. Molinelli et
+al.~\cite{molinelli2025oracles} evaluate 13{,}866 model-generated oracles on
+135 Java projects and report a mean mutation score of 43\% against 45\% for
+human-written oracles, a calibration point for the magnitude of the problem.
+
+A line of work attacks the oracle problem by learning oracles from corpora.
+Dinella et al.~\cite{dinella2022toga} trained a neural model jointly to
+produce exceptional and assertion oracles; Hossain and
+Dwyer~\cite{hossain2024togll} showed that large general-purpose models produce
+stronger and more diverse oracles than the original neural baseline, detecting
+an order of magnitude more bugs. Foster et al.~\cite{foster2025meta} report
+industrial deployment of mutation-guided model test generation at Meta. The
+approach of this thesis is orthogonal and complementary: rather than learning
+oracles from a corpus of tests, it supplies the model with an externally
+grounded specification derived from program structure. The two could in
+principle be ensembled --- a learned oracle and an inferred specification are
+independent sources of intended behaviour --- but the experiment in
+Chapter~\ref{ch:testgen} isolates the contribution of the inferred
+specification alone.
+
+\subsection{Why Specifications Should Help}
+
+The hypothesis that inferred specifications improve model test generation
+rests on an information argument. A method signature carries types but no
+behaviour. A method body carries behaviour but no statement of intent --- and,
+crucially, it carries the test answer directly, which is why supplying the
+body is an upper bound rather than a realistic deployment condition. A
+specification occupies the gap: it carries behavioural intent that the
+signature lacks, in a form an order of magnitude more compact than the body,
+and it carries that intent as discrete clauses a model can target one at a
+time. The experiment in Chapter~\ref{ch:testgen} tests this hypothesis with a
+four-condition design --- signature only, signature with edge-case guidance,
+signature with specification, full source --- in which the guidance condition
+is included precisely to rule out the alternative explanation that any prompt
+enrichment, not specifications in particular, would account for the effect.
+
+\subsection{The Broader Landscape of Learned Code Models}
+
+The language-model test generators reviewed above sit within a wider movement to
+apply learned models to program analysis tasks, and locating the thesis within it
+clarifies which parts of that movement it embraces and which it holds at arm's
+length. Models trained on code have been applied to code completion, program
+repair, type inference, and code summarisation, and the survey of Jiang et
+al.~\cite{jiang2024survey} maps the breadth of code generation alone. The common
+thread is that a model learns statistical regularities of code from a large corpus
+and applies them to a task by prediction. For tasks where a plausible prediction
+is a useful output --- completing a line, suggesting a fix for review --- the
+approach is transformative, because plausibility is most of what is wanted.
+
+For tasks where the output must be \emph{correct} rather than merely plausible,
+the picture is more nuanced, and specification inference is squarely such a task.
+A specification that is plausible but false is worse than no specification, because
+a downstream verifier or test generator will trust it and be misled. This is the
+basis for the thesis's division of labour: it uses a learned model where
+plausibility suffices (generating tests, which a test runner then checks) and a
+grounded static analysis where correctness is required (producing the
+specifications that the model and the verifier consume). The division is not a
+claim that learned models cannot produce correct specifications --- the
+specification-inference work of SpecGen and its successors~\cite{ma2024specgen,
+endres2024can, richter2025beyondpostconditions, teuber2025nextsteps} shows they
+can produce some --- but a claim that, on the precision and consistency dimensions
+a downstream verifier cares about, a grounded analysis is the more reliable
+producer, as the comparison in Chapter~\ref{ch:testgen} quantifies.
+
+The neural oracle-generation line --- TOGA~\cite{dinella2022toga} and
+TOGLL~\cite{hossain2024togll} --- occupies an interesting middle position. It
+learns oracles, which are a form of specification, from a corpus of tests rather
+than from code structure, and it succeeds because an oracle need only be a useful
+discriminator, not a verified contract. The contrast with the present work is the
+source of grounding: the neural oracle is grounded in a corpus of human-written
+tests, while the inferred specification is grounded in the code's own structure.
+The two groundings are complementary --- they fail on different inputs, the
+corpus-grounded oracle on code unlike its training set and the structure-grounded
+specification on code whose intent is not visible in its structure --- and an
+ensemble of the two is a natural direction the thesis notes but does not pursue.
+
+\section{Mutation Testing as Evaluation Methodology}
+\label{sec:bg-mutation}
+
+Measuring whether one set of tests is \emph{better} than another requires a
+metric more discriminating than code coverage, because coverage rewards tests
+that execute code without checking its behaviour. Mutation
+testing~\cite{papadakis2019mutation} supplies the discriminating metric. A
+mutation tool systematically introduces small faults --- a flipped
+conditional, a swapped arithmetic operator, a replaced return value --- into
+the program under test, producing a population of \emph{mutants}, each
+differing from the original by one seeded fault. A test suite is run against
+each mutant; a mutant that causes some test to fail is \emph{killed}, and a
+mutant that no test detects \emph{survives}. The mutation score, the fraction
+of mutants killed, measures the suite's fault-detection power directly, and it
+penalises exactly the weakness of oracle-free tests: a test that executes code
+without asserting its behaviour will cover the mutated line but fail to kill
+the mutant. Wang et al.~\cite{wang2025mutgen} make the point quantitatively,
+reporting that 100\% statement coverage can coexist with a mutation score as
+low as 4\%.
+
+The tool used throughout this thesis is PIT~\cite{coles2016pitest}, a mature
+mutation-testing system for the JVM that operates on bytecode and is widely
+adopted in both research and industry. Operating on bytecode rather than source
+gives PIT two advantages relevant here: it can mutate code for which source is
+unavailable, and it integrates with the standard JVM build without a separate
+compilation of mutated sources, which matters for the throughput of an experiment
+that mutates hundreds of methods. PIT's default operator set is the field's de
+facto standard, which makes results reported against it comparable across studies,
+and its automatic equivalent-mutant filtering reduces the most pernicious source of
+mutation-score distortion without manual intervention.
+
+Recent work has begun to study language models and mutation testing in
+combination, which situates this thesis's use of the methodology. Wang et al.\
+present an empirical study of models for mutation testing across hundreds of Java
+bugs, and a related line develops mutation-guided model test generation, reporting
+the disconnect between coverage and mutation score that motivates using the latter
+as the quality metric. Foster et al.'s industrial deployment of mutation-guided
+model test generation at scale demonstrates that the methodology is not merely an
+academic instrument but one that informs production test generation. The thesis
+adopts mutation score for the same reason these efforts do: it is the available
+metric that measures fault detection rather than mere execution, and it is
+therefore the metric that can distinguish the oracle-bearing tests specifications
+produce from the oracle-free tests a signature alone yields. Mutation testing has known
+limitations, principally the equivalent-mutant problem --- a seeded mutant
+that is semantically identical to the original cannot be killed by any test
+and depresses the score spuriously --- and the question of whether the
+operator set is representative of real faults. The experiments in this thesis
+mitigate the first with PIT's automatic equivalent-mutant filtering
+supplemented by a sampling estimate of the residual rate, and address the
+second by using PIT's default operator set, which is the field's de facto
+standard. Test count is reported alongside mutation score as a complementary
+metric, and the relationship between the two --- specifically, that more tests
+do not imply a higher mutation score --- is itself one of the experimental
+findings.
+
+\section{SMT Solvers and the Limits of Automated Discharge}
+\label{sec:bg-smt}
+
+The verifier that serves as this thesis's formal oracle does not prove
+verification conditions itself; it translates them to the logic of a
+satisfiability-modulo-theories (SMT) solver and asks the solver to discharge
+them. Understanding what the solver can and cannot do is essential to
+interpreting the discharge results of Chapter~\ref{ch:testgen}, because the
+clauses that fail to discharge fail not because they are false but because they
+exceed the solver's reach.
+
+An SMT solver decides the satisfiability of formulas in a combination of
+first-order theories --- linear integer and real arithmetic, the theory of
+arrays, the theory of uninterpreted functions, bitvectors, and others --- by
+combining a propositional satisfiability engine with decision procedures for each
+theory. The default solver in this work is Z3, a mature and widely used solver;
+the validation pipeline also bundles alternative versions and an alternative
+solver for cross-checking. The solver's power is real but bounded, and the bounds
+fall in predictable places. Linear arithmetic is decidable and the solver handles
+it well; nonlinear integer arithmetic --- multiplication of variables --- is
+undecidable in general, and the solver's heuristics for it are incomplete, which
+is the root of the recursive-multiplicative-growth limit that
+Chapter~\ref{ch:testgen} documents. The theory of arrays supports reading and
+writing individual elements, but reasoning about a universally quantified
+property preserved across an array update strains the solver, which is the root of
+the quantified-invariant-over-arrays limit. Quantifier instantiation, the
+mechanism by which the solver reasons about \texttt{\textbackslash forall} and
+\texttt{\textbackslash exists}, is heuristic and can fail to find the
+instantiation a proof needs, or can diverge searching for it.
+
+These are not defects of the particular solver but properties of the underlying
+decision problems, and they bound what any verifier built on SMT can certify. The
+thesis's response is twofold. First, it tunes the strictness configuration
+(Chapter~\ref{ch:inference}) to the point that maximises genuine discharge without
+provoking timeouts, an empirical optimum that stricter settings overshoot.
+Second, it extends the verifier with recursive function definitions for the
+generalised quantifiers (Chapter~\ref{ch:inference}), giving the solver a handle
+on a class of clauses it would otherwise refuse. Even so, a residual remains, and
+the thesis classifies it precisely rather than reporting an undifferentiated
+failure rate, because the classification distinguishes clauses that are false
+(which would indicate an inference bug) from clauses that are true but
+unprovable-at-budget (which indicate a solver limit). The distinction is what
+allows the discharge rate to be read as a measure of the solver's reach rather
+than of the engine's correctness.
+
+\section{Runtime Verification and the Spectrum of Checking}
+\label{sec:bg-rv}
+
+Static discharge is one end of a spectrum of ways to check a specification; the
+other is runtime verification, in which the specification is compiled into checks
+that execute alongside the program and signal a violation when one occurs. JML
+supports both: the same contract can be discharged statically by the extended
+checker or compiled into runtime assertions by the runtime-assertion-checking
+compiler. The two have complementary strengths. Static checking proves the
+specification holds on all executions but is bounded by the solver's reach;
+runtime checking observes the specification on the executions that actually occur,
+catching violations the static checker could not prove absent but saying nothing
+about executions that did not happen.
+
+The spectrum matters to the thesis in two ways. First, it clarifies that the
+unsupported clauses of Chapter~\ref{ch:testgen} --- those the static checker
+cannot discharge --- are not worthless: a clause that cannot be proved statically
+can still be checked at runtime, and can still serve as oracle information to a
+test generator, which is why the thesis retains them rather than discarding them.
+Second, it bears on the distribution work of Chapter~\ref{ch:distribution}: the
+runtime-assertion channel reviewed in Section~\ref{sec:bg-distribution} is the
+runtime-verification end of the spectrum applied to distribution, and its
+limitation --- that it carries only executable, behaviour-altering checks --- is
+what motivates the structured, behaviour-preserving embedding the thesis develops
+instead. The embedded specification can feed either end of the spectrum: a
+consumer can discharge it statically or compile it to runtime checks, because it
+is carried as data rather than as either kind of check, which is a flexibility the
+runtime-assertion channel forecloses.
+
+\section{Distributing Specifications Alongside Compiled Code}
+\label{sec:bg-distribution}
+
+A specification inferred from source is computed on a machine that has the
+source; the consumers who would benefit most often do not.
+Chapter~\ref{ch:distribution} addresses this, and the relevant background is
+the set of existing channels for shipping specifications with compiled Java,
+each of which leaves a gap.
+
+JML's native channel is the \emph{specification file} (\texttt{.jml} or
+\texttt{.spec} stub), a source-like file carrying specifications separately
+from the implementation. OpenJML reads these natively, which makes them the
+right format for a verifier, but they are a sidecar: they travel as separate
+files, are not present in the compiled JAR, and are invisible to any tool that
+does not specifically look for them. A second channel is \emph{runtime
+assertion checking}, in which specifications are compiled into executable
+checks embedded in the bytecode; this carries the specification into the
+artefact but only in executable form, restricted to the properties that can be
+evaluated at runtime, and at the cost of altering the program's behaviour. A
+third channel, for service interfaces, is the documentation field of an
+interface description such as OpenAPI, which carries prose a human can read but
+no structured contract a tool can consume.
+
+The gap common to these channels is that none carries a \emph{structured,
+toolchain-transparent} specification inside the standard compiled artefact ---
+one that any class-file reader can recover without the source, that does not
+alter program behaviour, and that survives the ordinary build and distribution
+pipeline unmodified. Chapter~\ref{ch:distribution} fills this gap with a
+runtime-retained Java annotation written into class-file attributes, and a
+parallel structured extension to OpenAPI for service boundaries. The relevant
+enabling technology is the ASM bytecode-engineering library, which permits
+class-file attributes to be added to an existing JAR in place, and the Java
+class-file format's provision for \texttt{RuntimeVisibleAnnotations}, which
+makes an embedded annotation recoverable by reflection.
+
+\section{Compositional and Interprocedural Analysis}
+\label{sec:bg-compositional}
+
+The fourth research question concerns the completeness of cross-method
+inference, and its background is the theory and practice of interprocedural
+analysis. The foundational framework is abstract
+interpretation~\cite{cousot1977abstract}, which provides the general account of
+a sound, terminating approximation of a program's concrete semantics, within
+which any specification-inference pass can be understood as computing an
+approximation of a fixpoint. The single-pass interprocedural propagation used
+by the inference engine --- analyse callees first, cache their contracts,
+substitute them at call sites --- is the standard procedure-summary mechanism
+for modular analysis, and it is sound for the case it handles: a precondition
+a callee requires unconditionally must hold at the call site.
+
+The single pass is, however, structurally blind to two classes of cross-method
+obligation, and recognising this is the contribution of
+Chapter~\ref{ch:compositional}. The first is the \emph{branch-conditional}
+obligation: a call reached only on one branch of a conditional contributes its
+precondition only on that path, so the caller's obligation is
+$\mathit{guard} \Rightarrow \mathit{precondition}$ rather than the precondition
+unconditionally. Recovering this requires the caller's control-flow context,
+which a single substitution at the call site does not have. The second is the
+\emph{polymorphic-dispatch} obligation: a call through an interface or
+overridable method may dispatch to any of several implementations at runtime,
+so the sound caller precondition is the disjunction of the candidates'
+preconditions, which a single nominal-callee resolution cannot produce.
+Recovering both requires walking the caller's body in a weakest-precondition
+fashion, accumulating guard context and enumerating dispatch candidates ---
+the second pass that Chapter~\ref{ch:compositional} implements and measures.
+
+The compositional-analysis literature offers points of comparison. Calcagno et
+al.'s Infer~\cite{calcagno2015infer} computes genuinely compositional
+procedure summaries by bi-abduction in separation logic; it is compositional
+from the outset and needs no second pass, but it targets memory-safety
+properties rather than JML contracts and is not designed for downstream JML
+verification. The contrast clarifies the niche of the present work: a pass that
+\emph{produces} JML, reasons compositionally by weakest-precondition lifting,
+and feeds an existing JML verifier, occupies a cell that the
+genuinely-compositional memory-safety analysers and the JML-consuming
+verifiers between them leave empty.
+
+The cell can be located precisely along three orthogonal axes that recur when the
+compositional propagation of Chapter~\ref{ch:compositional} is positioned against
+its neighbours: whether a technique \emph{produces} JML, whether it \emph{reasons
+compositionally} across procedure boundaries, and whether its cross-procedure
+reasoning is \emph{checked against a solver}. The deductive verifiers KeY and
+OpenJML's static checker reason compositionally and discharge against a solver but
+do not produce specifications --- they consume hand-written ones. Daikon,
+Houdini, and the language-model inference approaches produce candidate
+specifications but do not lift a callee's contract through the caller's guards or
+emit a disjunction over dynamic-dispatch candidates. Infer reasons genuinely
+compositionally, by bi-abduction in separation logic, but targets memory-safety
+properties rather than functional JML contracts and is not designed for downstream
+JML verification. The verification-condition generators in the Boogie lineage
+perform the full weakest-precondition computation that a compositional inference
+pass only approximates, but they \emph{consume} a specification --- including loop
+invariants --- rather than producing one. Houdini and the template-and-prune
+lineage are closest in spirit to the infer-then-verify architecture this thesis
+adopts, but they conjecture annotations per program element rather than lifting a
+callee's contract into a caller, so they lack the cross-method propagation that is
+the subject of Chapter~\ref{ch:compositional}. The position the thesis's
+compositional propagation occupies --- producing JML, reasoning compositionally by
+weakest-precondition lifting, and feeding an existing JML verifier --- is, to the
+best of the author's knowledge, unoccupied by prior work; the novelty is the
+combination, not any single axis.
+
+\section{Specification-Based Testing and Test Generation}
+\label{sec:bg-sbt}
+
+The consumers that an inference engine ultimately serves include the
+established family of automated test-generation tools, and understanding their
+relationship to specifications clarifies the role of inferred contracts. The
+search-based tool EvoSuite~\cite{fraser2011evosuite} generates JUnit test
+suites by evolutionary search over a coverage objective, producing suites that
+attain high structural coverage and, by default, regression oracles --- that
+is, oracles that assert whatever the current implementation does, which detect
+future changes but not present bugs. The random tool
+Randoop~\cite{pacheco2007randoop} builds tests by feedback-directed random
+sequence generation, again strong on coverage and weak on oracles unless
+supplied with contracts. Korat~\cite{boyapati2002korat} generates structurally
+complex test inputs from a specification of their validity, and is in this sense
+already a specification consumer. The common thread is that these tools solve
+the \emph{stimulus} half of the testing problem --- constructing inputs that
+exercise the code --- comprehensively, while the \emph{oracle} half remains
+dependent on a statement of intended behaviour that the tools themselves do not
+supply.
+
+Design by Contract~\cite{meyer1992design} and JML~\cite{jml, leavens2006design}
+address the oracle half directly, by embedding expected behaviour in
+specifications that a tool can turn into runtime checks or verification
+conditions. The JML-aware testing tools --- JMLUnit and the contract-aware modes
+of the search-based and random generators --- \emph{consume} these
+specifications to produce tests with genuine oracles. The structural
+relationship that matters for this thesis is the direction of the dependency:
+every one of these tools requires specifications as input, and the manual cost
+of supplying that input is the same bottleneck the introduction identified.
+JML-Inferrer supplies the upstream piece the established tools have always
+assumed, which is why the test-generation experiment of
+Chapter~\ref{ch:testgen} is framed as supplying inferred specifications to a
+consumer rather than as competing with the consumer.
+
+The contract-aware modes of these generators are the most direct illustration of
+the consumer relationship. EvoSuite, given a set of JML postconditions, can use
+them as assertion oracles rather than defaulting to regression oracles, turning a
+suite that detects change into one that detects fault; Randoop's contract-checking
+mode filters generated sequences against supplied contracts. In both cases the
+specification converts a coverage-oriented generator into a fault-oriented one, and
+in both cases the specification is an input the tool does not produce. This is the
+upstream-downstream relationship the thesis's first study exploits with a language
+model in place of a search-based or random generator: the generator is fluent at
+producing test stimuli and dependent on an external oracle, and the inferred
+specification supplies the oracle. The language model is, in this framing, simply
+the most capable contemporary instance of an oracle-dependent generator, and the
+finding that specifications help it generalises the long-standing observation that
+specifications help any oracle-dependent generator.
+
+Industrial static analysers occupy a neighbouring niche. Facebook
+Infer~\cite{calcagno2015infer} and FindBugs~\cite{hovemeyer2004finding}
+demonstrate that static analysis scales to industrial codebases, but their
+objective is bug detection rather than specification generation: they report
+suspected defects, not contracts that a verifier could discharge or a test
+generator could consume. The scalability lessons transfer --- both tools
+establish that heuristic, deliberately unsound analysis can run on millions of
+lines and deliver value --- but the output is a different artefact, and the
+inference problem this thesis attacks is the production of reusable contracts
+rather than the flagging of individual defects.
+
+\section{The Cost of Specification and the Adoption Barrier}
+\label{sec:bg-cost}
+
+The premise of the thesis --- that the manual cost of writing specifications is
+the binding constraint on the adoption of formal methods --- rests on a body of
+empirical evidence worth reviewing, because it is the evidence that makes
+inference worth attempting at all. The large-scale verification of the seL4
+microkernel~\cite{klein2014sel4, andronick_large-scale_2012} is the canonical
+data point: a fully verified operating-system kernel, in which the proof effort
+vastly exceeded the implementation effort, and in which the writing and
+maintenance of specifications and proof obligations dominated the cost.
+Matichuk et al.~\cite{matichuk_cost_2015} quantified the relationship between
+proof size and effort in that project, establishing that the cost scales with
+the volume of specification rather than with the difficulty of the code, which
+is precisely the scaling behaviour that makes manual specification prohibitive
+for large codebases.
+
+The adoption literature reaches the same conclusion from the opposite
+direction. Hall's account of the seven myths of formal
+methods~\cite{hall1990seven} catalogued the misconceptions that impeded adoption
+--- that formal methods guarantee perfect software, that they require difficult
+mathematics, that they are only for safety-critical systems --- and argued that
+the real obstacles were practical rather than conceptual. Among the practical
+obstacles, the labour of writing and maintaining specifications has proved the
+most durable: the misconceptions Hall identified have been answered by decades of
+tooling and experience reports, but the specification-writing cost has not, because
+no amount of better tooling for \emph{checking} specifications reduces the cost of
+\emph{producing} them. The subsequent decades of experience reports return
+repeatedly to this cost as the obstacle that keeps formal methods on the margins of
+practice, even as the checking technology matures. Zimmermann and Wehrheim~\cite{zimmermann2019lightweight}
+frame the problem as one of lightweight adoption: developers will use
+specifications if the cost of producing them is low enough to fit a normal
+development workflow, and will not if it is not. The inference approach of this
+thesis is a direct attack on that cost, and its viability is the reason the
+downstream-value question of Chapter~\ref{ch:testgen} matters --- if inferred
+specifications were cheap but useless, the cost reduction would be pointless;
+the thesis argues they are both cheap and useful.
+
+\section{Positioning of This Thesis}
+\label{sec:bg-positioning}
+
+The strands above converge on a single observation. The technology to
+\emph{check} specifications is mature (OpenJML, KeY, Boogie); the technology to
+generate tests, documentation, and other artefacts from specifications is
+mature (EvoSuite~\cite{fraser2011evosuite}, Randoop~\cite{pacheco2007randoop},
+and the JML-aware tooling ecosystem); and the technology to \emph{consume}
+specifications via language models is rapidly maturing. The binding
+constraint, across all of these, is the supply of specifications themselves,
+which the literature consistently identifies as a manual-labour
+bottleneck~\cite{matichuk_cost_2015, zimmermann2019lightweight, hall1990seven}.
+
+Existing inference approaches each address part of the supply problem and
+leave part open. Dynamic detection (Daikon) requires a test suite and offers
+no soundness guarantee. Documentation extraction (Jdoctor) requires
+documentation. Template-and-verify (Houdini) is grounded only in the verifier,
+not in code structure. Language-model inference is ungrounded and
+inconsistent. None of these, moreover, addresses what happens to a
+specification after it is inferred --- whether it can be distributed to
+consumers without the source, or whether single-pass inference leaves
+recoverable information behind.
+
+This thesis occupies the gaps. It contributes a code-structural inference
+engine, grounded in the WP/SP calculi and validated against a formal oracle,
+that requires neither a test suite nor documentation
+(Chapter~\ref{ch:inference}); a demonstration, with effect size, that its
+output carries measurable value to the most demanding contemporary consumer
+(Chapter~\ref{ch:testgen}); a mechanism for distributing that output to
+consumers who lack the source (Chapter~\ref{ch:distribution}); and a
+measurement of the compositional information that the single-pass inference
+strategy leaves on the table, with a second pass that recovers it
+(Chapter~\ref{ch:compositional}). The chapters that follow develop each in
+turn.
+
+The positioning can be summarised as a single observation about where the thesis
+sits relative to the two mature ends of the field. At one end is verification ---
+the tools that check specifications, mature and powerful, waiting for input. At the
+other end is generation and consumption --- the test generators, the models, the
+analysis tools, mature and capable, also waiting for input. The input both ends
+wait for is the specification, and the manual cost of producing it is the gap
+between the two mature ends, the missing middle that keeps the powerful checking
+and the capable consuming from connecting. This thesis is an attempt to fill that
+missing middle: to produce the specifications automatically, certify them with the
+verification end, deliver them to the consumption end, and refine them as analysis
+allows. The four studies are four aspects of filling the middle, and the thesis's
+claim is that the middle can be filled well enough that the two mature ends connect
+through it on real code at real scale.

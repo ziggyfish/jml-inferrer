@@ -1,0 +1,970 @@
+\chapter{Compositional Propagation and Library Compatibility}
+\label{ch:compositional}
+
+A caller's specification is not independent of the libraries it calls. When a
+method invokes another, the obligations the callee imposes become, after
+substitution, obligations on the caller; the caller's contract is in part a
+function of its callees' contracts. This dependence is the subject of the present
+chapter, and it is the mechanism on which the thesis's adoption argument most
+directly turns. If a caller's specification depends on its callees', then a change
+to a library --- a new version that tightens a precondition or weakens a guarantee
+--- propagates into the specifications of the code that uses it, and the
+behavioural compatibility of an upgrade becomes a question answerable at the
+specification level. The chapter measures how strong this dependence is on real
+code, by implementing a top-down compositional analysis that propagates callee
+specifications into callers, measuring what it recovers across five open-source
+libraries totalling 21{,}052 methods, and characterising the structural shapes of
+the recovered obligations --- which turn out to be exactly the shapes through which
+a library change reaches its callers. The chapter answers RQ4, and connects the
+result both backward to the test-generation value of Chapter~\ref{ch:testgen} and
+forward to the compatibility application the dependence enables.
+
+\section{Why the Dependence of Caller on Callee Matters}
+\label{sec:comp-why}
+
+The dependence of a caller's specification on its callees' is consequential for
+two reasons, one bearing on the thesis's other results and one bearing on its
+central adoption argument.
+
+The first is that it sets a ceiling on those other results. The specifications the
+earlier chapters validated, distributed, and supplied to a model were computed by
+the inference engine's single-pass propagation, which captures only part of the
+caller-on-callee dependence (Section~\ref{sec:comp-blind}). If a more thorough
+analysis recovers substantially more of the dependence, then the specifications the
+earlier chapters used were weaker than they could have been, and the value they
+measured was a lower bound. How much the single pass leaves uncaptured therefore
+determines whether the thesis's other results sit near the achievable ceiling or
+well below it.
+
+The second, and more important, reason is the compatibility application. The
+behavioural compatibility of a library upgrade is, at bottom, a question about how
+the library's changed contracts affect the contracts of the code that calls it ---
+and that effect exists only to the extent that caller specifications depend on
+callee specifications. If the dependence were weak, a library change would barely
+register in its callers' contracts and specification-level compatibility analysis
+would have little to work with; if it is strong, a library change propagates
+visibly into caller contracts and the analysis has a rich signal. Measuring the
+strength of the dependence is therefore the prerequisite for the compatibility
+application: it establishes whether the signal that application would rely on is
+substantial. The chapter finds that it is --- caller specifications depend on
+callee specifications heavily, through cross-method obligations that a single-pass
+analysis cannot even express --- which is what makes
+Section~\ref{sec:comp-compatibility}'s account of compatibility analysis a
+mechanism with real content rather than a hopeful extrapolation.
+
+\section{Where Single-Pass Propagation Is Blind}
+\label{sec:comp-blind}
+
+The single-pass propagation of Section~\ref{sec:inf-inter} is the right
+strategy for the simple case, and it is sound for that case: a precondition that
+a callee requires \emph{unconditionally} must hold at the call site, and
+conjoining the substituted precondition into the caller's set is correct. But
+the strategy is structurally blind to two classes of cross-method obligation,
+and the blindness is not a bug to be fixed within the single pass but a
+consequence of the pass's architecture.
+
+The first class is the \emph{branch-conditional} obligation. Consider a caller
+whose body contains a call inside a conditional:
+
+\begin{lstlisting}
+if (g) {
+    n(args);   // n requires p
+}
+\end{lstlisting}
+
+The caller's precondition is not $p[\mathit{args}/\mathit{params}]$ but
+$g \Rightarrow p[\mathit{args}/\mathit{params}]$ --- the obligation holds only
+on the path where the call is reached. Single-pass propagation has two options,
+both wrong. It can append the substituted precondition unconditionally, which
+over-constrains the caller on every path where the call does not fire; or it can
+skip the substitution to be safe, which misses the obligation entirely on the
+path where the call does fire. Neither is correct, because producing the correct
+clause requires the caller's control-flow context --- the guard $g$ enclosing
+the call --- and a single substitution at the call site does not carry that
+context.
+
+The second class is the \emph{polymorphic-dispatch} obligation. Consider a call
+through an interface or overridable method whose declared type has several
+implementations. The runtime dispatch may select any of them, so a sound caller
+precondition must hold for \emph{at least one} candidate: it is the disjunction
+$p_1 \vee p_2 \vee \dots \vee p_k$ of the candidates' substituted preconditions.
+Single-pass propagation resolves each call to a single nominal callee and cannot
+produce this disjunction, because it never enumerates the candidate set.
+
+It is worth being precise about why these two shapes, and not others, are the ones
+the single pass misses. The single pass misses them because both require
+information that lives in the \emph{caller}, not in the callee whose contract is
+being propagated. The branch-conditional shape requires the guard enclosing the
+call, which is a fact about the caller's control flow; the polymorphic shape
+requires the set of types the receiver might hold, which is a fact about the
+caller's context and the class hierarchy. Single-pass propagation, structured as a
+substitution of the callee's contract at the call site, has the callee's contract
+in hand but does not consult the caller's surrounding structure --- it reads the
+callee and writes at the call site, and the caller's guards and the receiver's
+possible types are exactly the surrounding structure it does not read. The shapes
+the single pass \emph{does} capture --- unconditional preconditions on a
+single-candidate call --- are precisely those that need nothing from the caller
+beyond the call's arguments, which the substitution already has. The boundary
+between what the single pass captures and what it misses is therefore not arbitrary:
+it is the boundary between obligations determined by the callee and the call's
+arguments, which a substitution handles, and obligations determined by the caller's
+control-flow and type context, which a substitution cannot reach.
+
+Both shapes are recoverable, but only by an analysis that does what the single
+pass does not: walk the caller's body in a weakest-precondition fashion,
+accumulating the guard context at each program point and enumerating the
+dispatch candidates at each call site. The classical weakest-precondition
+calculus~\cite{dijkstra_guarded_1975} addresses both structurally --- a call
+site reached only on $g$ contributes $g \Rightarrow p$ by the conditional rule,
+and a polymorphic call site contributes the disjunction over candidates by
+construction. A complete WP transformer for arbitrary Java is out of reach, for
+the reasons of Section~\ref{sec:bg-reasoning}, but a \emph{scaffold} that walks
+the body in WP-flavoured order, lifts each call site's substituted callee
+specification through its enclosing guards, and recognises polymorphic
+candidates is implementable as a bounded pass over the AST. That scaffold is
+what this chapter builds.
+
+\section{The Refinement Pass}
+\label{sec:comp-algorithm}
+
+The pass takes a populated specification cache, a call graph over the same
+methods, and a map from method signature to AST declaration, and it mutates the
+cache in place by adding clauses no single pass could produce.
+
+\subsection{Driver}
+
+The driver iterates the strongly connected components of the call graph in
+reverse topological order, so that callees are refined before callers. For a
+singleton component --- a method not involved in recursion --- it refines the
+method once. For a cyclic component --- a set of mutually recursive methods ---
+it refines each method in the component and repeats until no method gains a new
+clause or a fixpoint cap is reached, the cap bounding runtime on pathological
+graphs and logging a warning when it fires. In practice the cap never fires on
+the libraries measured: their call graphs are acyclic under the analyser's
+signature-matching scheme, so each method is refined exactly once.
+
+\subsection{Per-Method Refinement}
+
+For each method, the refiner walks every call expression in the body and, at
+each call site, performs five steps. First, it \emph{resolves the callee} by
+matching the call's name against the cache. Second, it \emph{substitutes
+arguments}, replacing each formal parameter in the callee's preconditions with
+the actual argument expression; the substitution is regex-based with word
+boundaries so that a formal name does not clobber a substring of an unrelated
+identifier, and a side-effecting actual argument rejects the substitution as
+unsound. Third, it \emph{lifts through enclosing guards}: it walks the AST
+upward from the call, accumulating the conjunction of any conditional or ternary
+guard whose body contains the call, and if guards are present the substituted
+precondition becomes $\mathit{guard} \Rightarrow \mathit{substituted}$, with a
+call in an else-branch contributing the negated guard. Fourth, it \emph{detects
+polymorphic dispatch}: if the resolved callee has overriding implementations in
+subtypes, found via the call graph's class-hierarchy index, it collects every
+candidate's substituted preconditions and emits their disjunction, which is
+sound because at least one candidate's contract must hold for the dispatch to be
+safe. Fifth, it \emph{conjoins} the lifted clause into the caller's set if it is
+not already present. The pass also propagates callee \emph{postconditions} into
+the caller, gated on a termination flag: a postcondition of a possibly-
+non-terminating callee describes a state established only if the callee returns,
+so propagating it unconditionally would be unsound, and the pass propagates only
+when the callee is known to terminate.
+
+\subsection{Why Postcondition Propagation Needs a Termination Gate}
+
+The postcondition propagation just described carries a soundness subtlety that the
+precondition propagation does not, and it is worth isolating because it is the kind
+of detail that distinguishes a sound compositional pass from a plausible-looking
+but broken one. A precondition is an obligation the caller must discharge before
+the call; propagating it is sound regardless of whether the callee terminates,
+because the obligation is on the entry to the call. A postcondition is a guarantee
+that holds \emph{after} the call returns; propagating it into the caller's contract
+asserts that the caller's state, after the call, satisfies the callee's
+postcondition --- which is true only if the call actually returned.
+
+For a callee that always terminates this is unproblematic. For a callee that may
+not terminate --- one with an unbounded loop or unbounded recursion --- the
+postcondition describes a state reached only on the terminating executions, and
+propagating it unconditionally would assert it on executions where the callee
+diverges, which is unsound. The termination gate is conservative: when termination
+is unknown the pass declines to propagate, missing a postcondition rather than
+asserting an unsound one, consistent with the lower-bound character of the whole
+measurement. The polymorphic case compounds the subtlety, the sound clause being a
+disjunction over the terminating candidates' postconditions, handled identically to
+the precondition disjunction. The gate is thus a discipline applied at every
+postcondition propagation, and it is part of the reason the postcondition additions
+of Table~\ref{tab:comp-headline} are smaller, on most libraries, than the
+precondition additions.
+
+\subsection{The Driver in Detail}
+
+The driver's reverse-topological traversal of strongly connected components is
+what makes the refinement well-founded, and the reasoning is worth setting out.
+Refining a method means lifting its callees' contracts into it, which is only
+sound if those callees' contracts are themselves complete; refining a caller
+before its callee would lift an under-refined contract and miss clauses the
+callee would later gain. Reverse-topological order over the condensation of the
+call graph --- the directed acyclic graph of strongly connected components ---
+guarantees that every callee outside a method's own component is fully refined
+before the method is visited. Within a component, where methods are mutually
+recursive and no acyclic order exists, the driver iterates: it refines every
+method in the component, and if any gained a clause it refines them all again,
+because a clause gained by one member may, on the next pass, lift into another.
+The iteration is monotone --- clauses are only added, never removed --- and the
+clause set per method is finite, so the iteration reaches a fixpoint; the
+configurable cap exists only to bound runtime on pathological graphs and logs a
+warning if it fires.
+
+On the five libraries measured, the cap never fires, for an interesting reason:
+under the analyser's signature-matching resolution, the call graphs are acyclic,
+so every component is a singleton and every method is refined exactly once. The
+fixpoint machinery is therefore dormant on the measured corpora, present for
+soundness on graphs that would exercise it but never invoked. This is itself a
+finding about real code: the mutual recursion that would force fixpoint iteration
+is rare enough in the five libraries that the simpler singleton case dominates,
+which is why the runtime cost (Section~\ref{sec:comp-empirical}) is so modest ---
+the pass does one refinement per method and stops.
+
+\subsection{Class-Hierarchy Analysis and Dispatch Precision}
+
+The polymorphic-dispatch detection rests on a class-hierarchy index, and its
+precision is governed by the same trade-off that has long characterised
+call-graph construction for object-oriented languages. The simplest sound
+over-approximation of a virtual call's targets is class-hierarchy analysis, which
+takes the targets to be every override of the called method in any subtype of the
+receiver's declared type. It is sound --- the runtime target is always among them
+--- but imprecise, because it includes subtypes that the receiver could never
+actually be at the call site. A more precise analysis, rapid-type analysis,
+prunes the candidate set to subtypes that are actually instantiated somewhere in
+the program, and flow-sensitive analyses prune further by tracking which types
+reach the receiver.
+
+The refinement pass uses the class-hierarchy index its call graph provides, which
+is a class-hierarchy-analysis-level approximation: it enumerates the overrides of
+the called method in the receiver type's subtypes and emits the disjunction over
+their preconditions. The imprecision has a benign direction for the pass's
+soundness: including a candidate the receiver could never be makes the disjunction
+weaker --- easier to satisfy --- which cannot make the emitted precondition unsound,
+only less informative. A disjunction over too many candidates is a precondition
+that demands too little, which is safe; a disjunction that omitted a real candidate
+would be a precondition that demands too much, which would be unsound, and the
+hierarchy index avoids omission by including every override. The pass thus inherits
+the standard class-hierarchy-analysis trade-off in its benign form: it may emit a
+disjunction weaker than a more precise analysis would, but never one that is
+unsound, and the disjunctive-shape counts of the measurement are therefore a sound
+if conservative account of the polymorphic obligations the code imposes.
+
+The prevalence of the disjunctive shape on Vavr, the library with the deepest
+interface hierarchies, is in part a consequence of this approximation: a deep
+hierarchy means many overrides, and class-hierarchy analysis enumerates them all,
+so a call through a Vavr interface produces a disjunction over many candidates. A
+more precise analysis would prune some, narrowing the disjunctions, but at the cost
+of the flow-sensitive machinery the pass deliberately forgoes. The measurement
+reports the class-hierarchy-analysis-level result, which is the sound conservative
+one, and notes that a more precise dispatch analysis is a direction that would
+sharpen the disjunctions without changing the qualitative finding that they are
+present and substantial.
+
+\subsection{What the Pass Is and Is Not}
+
+The pass is a \emph{lifting} step over an existing single-pass result, not a
+complete WP transformer. It does not compute the weakest precondition through
+arithmetic or array statements --- it accepts the engine's clauses verbatim ---
+it does not reason about aliasing, it does not lift through loops (the engine's
+loop-invariant heuristics handle those in the single pass), and it does not
+discharge clauses against a solver (the downstream OpenJML pipeline does that).
+It does exactly enough --- branch-guard lifting and polymorphic-dispatch
+disjunction --- to expose the two structural classes of additions that single-
+pass propagation cannot produce. The measurement that follows asks whether those
+additions are empirically substantial on real code, and the answer is the
+chapter's contribution.
+
+A question the structural measurement raises but does not by itself answer is
+whether the refined specifications remain \emph{sound} --- whether the clauses the
+pass adds discharge against the implementation the way the engine's other clauses
+do. The pass is designed so that they should: the lifted clauses are the callees'
+already-validated preconditions, substituted and guarded, and a sound callee
+precondition lifted through a sound guard is itself sound. The substitution
+disciplines of Section~\ref{sec:comp-substitution} preserve this --- they reject
+exactly the substitutions that would break soundness --- so a clause the pass adds
+is, in principle, dischargeable whenever the callee's original clause was. The
+refined specifications therefore feed the same OpenJML validation layer the
+engine's other output feeds, and a clause that fails to discharge is flagged like
+any other, which means the second pass does not relax the soundness discipline of
+the first. The measurement reports the clauses the pass adds, not their discharge
+rate, because discharging the full refined corpus --- twenty thousand methods with
+their refined contracts --- is a substantial verification effort deferred with the
+downstream mutation evaluation as a completion of the study. The architectural
+point stands regardless: the refined clauses are not a new class of unvalidated
+output but lifted instances of already-validated callee clauses, passing through the
+same validation gate.
+
+\section{The Soundness of Substitution}
+\label{sec:comp-substitution}
+
+The refinement pass lifts a callee's precondition into the caller by substituting
+actual arguments for formal parameters, and the soundness of that substitution is
+not automatic --- it is a property the pass must actively preserve, and the cases
+where it does not hold are the cases the pass must reject. The textbook WP rule
+for procedure call substitutes actuals for formals, but the rule assumes the
+actuals are pure expressions whose evaluation has no side effect and whose value
+does not change between the precondition's evaluation point and the call. Real
+Java arguments violate both assumptions, and the pass handles the violations by
+refusing the unsound substitutions rather than performing them incorrectly.
+
+The first hazard is a side-effecting actual. If a call passes \texttt{n(i++)} and
+the callee requires its parameter be non-negative, naively substituting yields
+\texttt{i++ >= 0}, a clause whose evaluation increments \texttt{i} and whose
+meaning is therefore ill-defined as a precondition --- a precondition must be a
+predicate the caller can evaluate without changing the state it constrains. The
+pass detects increment, decrement, and assignment expressions in actual arguments
+and rejects the substitution for those call sites, contributing no clause rather
+than an unsound one. The conservatism costs recall --- a genuine obligation is
+missed --- but it preserves the invariant that every clause the pass adds is one
+the caller could in principle satisfy.
+
+The second hazard is name capture in the substitution itself. Replacing a formal
+parameter named \texttt{s} by a textual search-and-replace would corrupt an
+unrelated identifier that contains \texttt{s} as a substring --- turning
+\texttt{this.size} into \texttt{this.<arg>ize} --- which is a class of bug the
+implementation history of the engine records as a real and recurring one. The
+pass substitutes with word-boundary matching, so that only whole-identifier
+occurrences of the formal are replaced, and a formal that happens to be a
+substring of another identifier leaves that identifier untouched. The
+word-boundary discipline is the textual analogue of capture-avoiding substitution
+in the lambda calculus: it ensures that substituting for \texttt{s} affects
+exactly the occurrences of the variable \texttt{s} and nothing else.
+
+The third hazard concerns the guard lifting itself. A guard that is itself
+side-effecting --- a condition that calls a mutating method --- cannot soundly be
+lifted into a precondition, for the same reason a side-effecting actual cannot:
+the precondition would change the state it describes. The pass rejects
+side-effecting guards, lifting only guards that are pure boolean expressions over
+the caller's state. Together these three disciplines --- reject side-effecting
+actuals, substitute with word boundaries, reject side-effecting guards --- are
+what make the lifted clauses sound additions to the caller's contract rather than
+syntactically plausible but semantically broken strings, and they are the reason
+the measurement of Section~\ref{sec:comp-empirical} reports a lower bound on the
+compositional gain: every rejection is a clause the pass could have added under a
+less careful policy but declines to add under a sound one.
+
+\section{Empirical Measurement}
+\label{sec:comp-empirical}
+
+\subsection{Subjects and Method}
+
+The pass is measured on the source jars of five open-source Java libraries
+spanning four idiom families: Apache Commons Lang (utility/string code, 3{,}494
+methods), Apache Commons IO (I/O abstractions, 2{,}111 methods), Apache Commons
+Math (numerical algorithms, 6{,}645 methods), jOOL (functional-style
+combinators, 3{,}691 methods), and Vavr (persistent collections, 5{,}111
+methods). Combined, the corpus is 1{,}712 source files and 21{,}052 methods with
+a non-empty isolated baseline specification. The breadth is deliberate: it spans
+the imperative utility-class idiom that the earlier chapters emphasise and the
+higher-order generic style of the functional libraries, so that the result
+cannot be attributed to a single coding style. Commons Lang and IO are the same
+libraries used in Chapters~\ref{ch:testgen} and~\ref{ch:distribution}, which
+keeps cross-chapter comparisons free of corpus-difference confounds.
+
+For each library, the harness parses every source file, builds the call graph,
+runs the engine's standard inference (including its single-pass
+\texttt{InterproceduralAnalyzer}) to produce the isolated baseline, snapshots the
+per-method clause counts, runs the refinement pass, and diffs the post-refinement
+specifications against the baseline, categorising each newly added precondition
+by syntactic shape. All measurements are deterministic given the inputs, and each
+is reported once.
+
+\subsection{The Call Graph and the Measurement Harness}
+
+The pass depends on a call graph, and the harness that takes the measurement
+depends on resolving source methods to the cache, so both deserve description ---
+not least because their limitations bound the measurement, as the threats section
+records. The call graph is built by walking every method declaration and recording,
+for each call expression in its body, the callee it resolves to, together with the
+class-hierarchy relationships --- which classes extend which, which implement which
+interfaces --- that the polymorphic-dispatch detection consults. The graph's nodes
+are method signatures and its edges are calls; its condensation into strongly
+connected components is what the driver iterates.
+
+The resolution of a call to a callee is by signature matching, and here the harness
+makes a deliberate simplification whose consequence the measurement must account
+for. Two source methods of the same name and parameter count can, under erased
+generics, share a bytecode descriptor, and the harness's name-and-arity matching
+cannot always distinguish them. The consequence is that a residual of call sites
+resolve to the wrong callee or fail to resolve, and the pass adds no clause for
+those sites. Because a missed or misresolved call site can only cause the pass to
+add \emph{fewer} clauses --- it never invents a clause from a wrong resolution, the
+substitution being rejected when the arities disagree --- the effect is to
+\emph{under}-count the compositional gain. Every number the measurement reports is
+therefore a lower bound on the true gain a fully type-resolving harness would find,
+which is the conservative direction for a claim that the gain is substantial: the
+true gain is at least what is reported.
+
+The measurement is otherwise deterministic. Given the source jars, the call graph,
+the inference, and the refinement are all deterministic functions of the input, so
+re-running the harness produces byte-identical output, which the threats section
+records as verified across all five libraries. The harness snapshots the per-method
+clause counts before refinement, runs the refinement, and diffs --- a procedure
+that isolates exactly the clauses the second pass adds, attributing nothing to the
+single pass that the single pass did not produce. This isolation is what licenses
+the headline claim's form: not that the refined specifications are large, but that
+they are larger than the single-pass baseline by a specific, measured amount, on
+the same methods, under the same inference, with only the second pass varied.
+
+\subsection{Headline Result (RQ4)}
+
+Table~\ref{tab:comp-headline} reports the headline measurements across the five
+libraries. The second pass strictly extends the isolated set on every library:
+it adds at least one clause to between 24.33\% and 43.85\% of the methods in each
+library's cache, a median of 36.33\%, and adds 42{,}370 new precondition clauses
+and 25{,}203 new postcondition clauses in total. The single-pass propagation is
+not subsuming on any library studied, and the gap is consistent across idiom
+families.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Effect of compositional refinement over the isolated single-pass
+baseline across five libraries. \emph{Refined} counts methods whose spec gained
+at least one new clause; percentages are of methods in cache.}
+\label{tab:comp-headline}
+\begin{tabular}{lrrrrr}
+\toprule
+& \textbf{Lang} & \textbf{IO} & \textbf{Math} & \textbf{jOOL} & \textbf{Vavr} \\
+\midrule
+Methods in cache             & 3{,}494 & 2{,}111 & 6{,}645 & 3{,}691 & 5{,}111 \\
+\midrule
+Methods refined              & 1{,}532 & 767     & 2{,}492 & 898     & 1{,}799 \\
+\hspace{1em}\emph{\% of cache} & 43.85\% & 36.33\% & 37.50\% & 24.33\% & 35.20\% \\
+With new precondition & 1{,}160 & 522    & 1{,}929 & 802     & 1{,}225 \\
+With new postcondition & 1{,}270 & 666   & 1{,}969 & 467     & 1{,}387 \\
+\midrule
+New precondition clauses     & 5{,}763  & 2{,}001 & 25{,}796 & 5{,}388 & 3{,}422 \\
+\hspace{1em}\emph{avg/refined} & 4.97 & 3.83 & 13.37 & 6.72 & 2.79 \\
+\hspace{1em}\emph{max on one} & 132   & 41 & 665 & 240 & 177 \\
+New postcondition clauses    & 5{,}206  & 2{,}015 & 11{,}745 & 3{,}223 & 3{,}014 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The fraction of methods refined varies with idiom in an interpretable way. The
+utility library Commons Lang shows the highest fraction, because its delegating
+helpers expose many guarded call sites; the functional library Vavr shows fewer
+refined methods but concentrates its additions in disjunctive shapes from
+polymorphic dispatch, a consequence of its deep interface inheritance. The
+per-method dispersion is heavy-tailed --- a small number of large fa\c{c}ade
+methods account for the maxima of 132 to 665 new clauses --- but the mean new
+preconditions per refined method (2.79 to 13.37) sits well below those maxima on
+every library, establishing that the refinement is a population-level effect
+rather than an artefact of a handful of large methods.
+
+\subsection{Shape Distribution}
+
+Table~\ref{tab:comp-shapes} categorises the newly added preconditions by
+syntactic shape. Branch-conditional implications --- the shape the single pass
+structurally cannot produce, because it lacks the control-flow context the WP
+walk supplies --- are the largest single shape on four of the five libraries,
+peaking at 64.1\% on Commons Math, where heavy algorithmic code paths gate calls
+on numerical preconditions. The exception is jOOL, where null checks dominate
+because the higher-order combinators delegate to user-supplied lambdas through a
+small set of pinch-point validation sites; even there, branch-conditional shapes
+account for a substantial third of the additions. Disjunctive clauses --- the
+polymorphic-dispatch signal, the other shape the single pass cannot produce ---
+are present on every library and peak at 9.7\% on Vavr, the library with the
+deepest interface inheritance chains.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Syntactic shape of the newly added preconditions across the five
+libraries. Branch-conditional implications dominate on four of five; disjunctive
+clauses are present on every library.}
+\label{tab:comp-shapes}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Shape (\% of new precond.)} & \textbf{Lang} & \textbf{IO} & \textbf{Math} & \textbf{jOOL} & \textbf{Vavr} \\
+\midrule
+Branch-conditional (\texttt{==>})  & 52.6\% & 42.8\% & 64.1\% & 34.1\% & 54.2\% \\
+Null check                         & 21.8\% & 34.7\% & 24.1\% & 60.2\% & 30.9\% \\
+Range / bound                      & 19.8\% & 18.9\% & 7.0\%  & 0.5\%  & 4.5\%  \\
+Disjunctive (\texttt{||})          & 4.3\%  & 1.8\%  & 3.7\%  & 5.1\%  & 9.7\%  \\
+Other                              & 1.5\%  & 1.7\%  & 1.2\%  & 0.2\%  & 0.6\%  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Null and range/bound clauses make up most of the remainder. These are
+obligations the single pass \emph{would} produce when the call site is
+unguarded; the second pass adds them when the call site is guarded by a
+condition the single pass would not lift. The dominance of branch-conditional
+and disjunctive shapes is the chapter's central evidence: between 38\% and 74\%
+of the new clauses on each library are of shapes that the single pass cannot
+express by construction, which is direct confirmation that the architectural
+distinction between single-pass propagation and compositional refinement is real
+and consequential, not merely a difference in implementation thoroughness.
+
+\subsection{Interpreting the Magnitude}
+
+The headline figure --- 42{,}370 new precondition clauses --- is large enough to
+warrant interpretation, because a raw count can mislead in either direction. On one
+hand, the count aggregates over twenty-one thousand methods, so the per-method
+average is modest, and a reader should not imagine every method gaining hundreds of
+clauses; the median refined method gains a handful, and the large counts are
+concentrated in the fa\c{c}ade methods that fan out to many callees. On the other
+hand, the count is a lower bound, for the reasons the substitution-soundness and
+callee-resolution discussions establish: every rejected substitution and every
+unresolved call site is a clause the pass declined to add under a sound policy, so
+the true compositional gain exceeds the reported one.
+
+The figure that matters more than the raw count is the fraction of methods refined
+--- between a quarter and nearly a half of each library's cache --- because it
+speaks to how pervasive the phenomenon is. That single-pass propagation leaves
+something to recover on a quarter to a half of all methods, across five libraries
+of different idioms, establishes that the gap is not a corner case affecting a few
+unusual methods but a routine consequence of how cross-method obligations arise. A
+gap affecting one method in a hundred would be a curiosity; a gap affecting one in
+three is a structural property of the single-pass architecture, and it is the
+pervasiveness, not the raw clause count, that makes the case for the second pass.
+
+The shape distribution sharpens the interpretation once more. If the additions were
+dominated by null checks and range bounds --- the shapes the single pass produces
+when call sites are unguarded --- one could argue the second pass merely recovers
+clauses the single pass missed by oversight, and a more careful single pass would
+close the gap. But the additions are dominated by branch-conditional implications
+and include disjunctions on every library, and these are shapes the single pass
+cannot produce by construction, not by oversight. The magnitude is therefore
+significant not merely for its size but for its composition: it is large, it is
+pervasive, and it is concentrated in exactly the shapes that demonstrate the
+architectural distinction is real.
+
+\subsection{Runtime Cost}
+
+The pass completes in 44 seconds total across all five libraries and 21{,}052
+methods, an average of 2.1 milliseconds per method, ranging from 0.7 seconds on
+Commons IO to 20.3 seconds on the largest library, Commons Math. No strongly
+connected component hit the fixpoint cap on any library, because the call graphs
+are acyclic under the analyser's signature-matching scheme and each method is
+refined once. The cost is dominated by the per-method AST walk for call sites,
+which is linear in body size; the lifting and substitution steps add constant
+factors per call site. The refinement is therefore an addition of seconds to
+tens of seconds on top of an inference pass that already takes minutes on
+libraries of this scale --- a clearly affordable enhancement, which answers the
+cost half of RQ4.
+
+The scaling behaviour across the five libraries confirms the linear character. The
+twenty-second figure on Commons Math, the largest library, against the sub-second
+figure on Commons IO, the smallest, tracks the ratio of their method counts and
+call-site densities rather than any superlinear effect: Math has both more methods
+and, as a numerical library, more call sites per method, and its runtime reflects
+the product. No library exhibits the runtime explosion that a fixpoint iteration on
+a deeply cyclic call graph would produce, because no library's call graph is
+cyclic under the analyser's resolution, and the dormant fixpoint machinery
+contributes nothing to the measured times. The practical consequence is that a
+deployer can predict the refinement cost from the corpus size --- roughly two
+milliseconds per method --- without worrying about pathological cases, because the
+pathological case (deep mutual recursion forcing many fixpoint iterations) does not
+arise in the libraries measured and would, if it did, be bounded by the
+configurable cap. The cost is thus not only affordable but predictable, which is
+the property a deployer integrating the pass into a build needs.
+
+\section{The Character of Each Library}
+\label{sec:comp-perlibrary}
+
+The five libraries were chosen to span idiom families, and the shape
+distributions of Table~\ref{tab:comp-shapes} reflect their characters in ways
+that illuminate what drives compositional refinement. Reading the libraries one
+at a time turns the aggregate result into an account of \emph{why} the second
+pass finds what it finds.
+
+Apache Commons Lang, the utility library, shows the highest fraction of methods
+refined (43.85\%) and a branch-conditional-dominated shape distribution. This
+follows from its design: it is a collection of small static helpers that delegate
+to one another and to validation utilities, and the delegation happens inside
+guards --- a helper checks a condition and, on one branch, calls a more primitive
+helper that imposes its own requirement. The guarded delegation is exactly the
+structure the branch-conditional lifting recovers, and the library's density of
+it is why nearly half its methods gain a clause. The library is, in a sense, the
+ideal case for the second pass: small methods, heavy delegation, guarded calls.
+
+Commons IO, the I/O abstraction library, shows a lower refined fraction (36.33\%)
+and a higher proportion of null checks among its additions. Its methods are
+larger and its delegation shallower, but its file and stream abstractions impose
+many non-null requirements --- a stream must be open, a path must be non-null ---
+that propagate through call chains. The branch-conditional fraction is still
+substantial, reflecting the defensive guarding common in I/O code, but the null
+check is more prominent than in Lang because the domain's central obligations are
+non-nullness obligations.
+
+Commons Math, the numerical library, is the outlier in magnitude: it adds 25{,}796
+new precondition clauses, more than the other four libraries combined, and its
+branch-conditional fraction peaks at 64.1\%. The explanation is the structure of
+numerical code, which is dense with guarded calls into validation and computation
+helpers --- a method computing a statistic checks the data's validity and, on the
+valid branch, calls a helper that requires it, and the helper in turn guards
+further calls. The deep, guarded call chains characteristic of numerical
+algorithms produce branch-conditional obligations at every level, and the second
+pass lifts them all, which is why a single large fa\c{c}ade method can gain
+hundreds of clauses. Commons Math is the case that most stresses the pass and most
+rewards it.
+
+jOOL, the functional-combinator library, inverts the pattern: null checks
+dominate its additions at 60.2\%, and branch-conditional clauses, while still a
+substantial third, are less prevalent than elsewhere. The reason is the
+higher-order style. jOOL's combinators take user-supplied functions and delegate
+to them through a small set of validation pinch-points --- a combinator checks
+its function arguments are non-null and then applies them --- so the dominant
+propagated obligation is the non-nullness of the supplied function, not a guarded
+numerical precondition. The functional idiom concentrates obligations at the
+boundary where user code enters, and that boundary is a null check.
+
+Vavr, the persistent-collection library, shows the highest disjunctive fraction
+at 9.7\%, the polymorphic-dispatch signal. Its deep interface inheritance --- a
+value type implementing a traversable interface implementing an iterable
+interface, and so on --- means that a call through one of its interfaces may
+dispatch to any of many implementations, and the second pass emits the
+disjunction over candidates at each such site. Vavr is the case that most
+exercises the polymorphic-dispatch half of the pass, and its disjunctive fraction
+is direct evidence that the half is doing real work: a library that uses
+polymorphism heavily produces the disjunctive obligations a library that does not
+would lack.
+
+The five libraries thus form a spectrum, and the second pass responds to each
+according to its idiom: guarded delegation in Lang and Math produces
+branch-conditional clauses, boundary validation in IO and jOOL produces null
+checks, and deep polymorphism in Vavr produces disjunctions. The aggregate result
+--- that the single pass is not subsuming on any of them --- holds across the
+spectrum, but the \emph{reason} it holds differs by library, and the per-library
+reading is what shows that the result is not an artefact of one coding style but a
+general consequence of how cross-method obligations arise in code.
+
+\section{From Compositional Dependence to Compatibility Analysis}
+\label{sec:comp-compatibility}
+
+The measurement establishes the fact the compatibility application rests on: a
+caller's specification depends substantially on its callees', through cross-method
+obligations a single-pass analysis cannot express. This section develops what that
+fact makes possible, which is the thesis's most direct answer to the adoption
+question --- a capability manual specification never made routine.
+
+Consider a consumer whose code calls a library, and a new release of that library.
+Three kinds of change can occur at the library boundary. The library may change a
+method's \emph{signature}, which the compiler detects; this is the only kind of
+incompatibility today's tooling reliably catches. It may preserve the signature but
+change the method's \emph{behaviour} --- tightening a precondition so that inputs
+the old version accepted now violate the contract, or weakening a postcondition so
+that guarantees the caller relied on no longer hold. This second kind, behavioural
+incompatibility under signature compatibility, is the dangerous one: it compiles,
+it may even pass shallow tests, and it breaks in the cases the tests do not cover.
+The third kind is no change at all, and a consumer wants to distinguish a
+genuinely compatible upgrade from a dangerous one without running their entire
+test suite against every release and hoping the suite covers the changed
+behaviour.
+
+Inferred, library-boundary specifications make the second kind detectable. The
+inferrer, run over the old and the new library versions, produces a specification
+for each method in each version; comparing the two reveals which methods' contracts
+changed and how --- which preconditions strengthened, which postconditions weakened.
+A strengthened callee precondition is a candidate incompatibility: the caller may
+pass arguments the new version rejects. A weakened callee postcondition is another:
+the caller may rely on a guarantee the new version no longer makes. And because the
+compositional analysis of this chapter propagates callee contracts into caller
+contracts, the analysis can go further than flagging the library-side change: it
+can recompute the \emph{caller's} specification against the new library and compare
+it to the caller's specification against the old, surfacing precisely the caller
+obligations that the library change altered. A caller obligation that appears only
+against the new version is a new demand the upgrade places on the caller; one that
+disappears is a guarantee the caller has lost. The cross-method obligations this
+chapter measured --- the guard-conditional clauses lifted from guarded calls, the
+disjunctions from polymorphic dispatch --- are exactly the channels through which a
+library change reaches the caller, which is why the shape distribution matters: it
+shows that the propagation carries the kinds of obligation that behavioural change
+travels through.
+
+The thesis establishes the mechanism --- the substantial, measured dependence of
+caller specifications on callee specifications --- but does not run the
+version-to-version experiment that would demonstrate compatibility detection
+end to end. That experiment, recomputing caller specifications against successive
+library versions and reporting the incompatibilities the comparison surfaces, is
+the foremost item of future work (Chapter~\ref{ch:conclusion}), and the present
+chapter's contribution is to show that the signal it would rely on is real and
+substantial. What the chapter demonstrates is the prerequisite: that a library's
+specifications propagate into its callers' strongly enough, and through the right
+structural channels, for their version-to-version change to carry the behavioural-
+compatibility information a consumer needs. The compatibility application is the
+capability this dependence enables, and naming it precisely --- mechanism
+demonstrated here, end-to-end experiment deferred --- is the honest statement of
+how far the thesis takes it.
+
+\section{Preliminary Downstream Signal}
+\label{sec:comp-downstream}
+
+The structural result establishes that the second pass adds clauses; it does not
+by itself establish that the added clauses help a downstream consumer. A
+preliminary probe connects the refinement back to the test-generation result of
+Chapter~\ref{ch:testgen}. The experiment re-runs the test-generation comparison
+with two configurations of the specification context: the isolated baseline
+specification (the P3 condition of Chapter~\ref{ch:testgen}) and the
+compositionally refined specification, on the eleven-class Commons Lang fa\c{c}ade,
+five generation runs per class.
+
+On the eight of eleven classes that returned extractable tests in both
+configurations, the refined specification yields a 9.1\% higher mean test count,
+with six of the eight showing an increase. The largest gains are on
+validation-heavy classes --- \texttt{Validate} (+54.8\%) and \texttt{BooleanUtils}
+(+27.5\%) --- where the refined specification's branch-conditional clauses give
+the model additional case structure to test. The single substantial regression
+is \texttt{CharUtils} ($-23\%$), where the disjunctive obligations from the
+class's many overloaded predicate methods appear to be interpreted by the model
+as one combined assertion rather than several distinct cases. The aggregate is a
+weak positive signal with high per-class variance, and the small sample
+precludes a meaningful significance test.
+
+The \texttt{CharUtils} regression repays closer attention, because a negative
+result in a downstream probe is as informative as a positive one. \texttt{CharUtils}
+is dense with overloaded predicate methods --- variants of \texttt{isAscii} and its
+relatives --- and the refinement pass, encountering calls through these overloads,
+emits disjunctions over the candidates' preconditions. The disjunction is sound and
+informative to a verifier, but to a language model generating tests it appears to
+read as a single combined assertion rather than as an enumeration of cases, so the
+model produces one test where the baseline specification's simpler clauses prompted
+several. The richer specification, in this instance, gives the model a clause whose
+structure it handles less well than the simpler clause it replaces. This is a
+genuine finding about the interaction between specification shape and model
+consumption: not every structurally richer specification is a better prompt, and a
+disjunction that helps a verifier may hinder a generator that does not decompose it.
+The observation does not undermine the aggregate positive signal --- six of eight
+classes improve --- but it identifies a specific mechanism by which refinement can
+backfire for a particular consumer, which is exactly the kind of nuance a downstream
+evaluation should surface and a structural measurement alone would miss.
+
+The signal is reported with its limitations stated plainly. It measures the
+number of tests the model emits, not the mutation-killing rate, because the
+generated tests did not all compile cleanly in the measurement environment ---
+a tooling issue in the test-generation harness and in the model's occasional
+emission of non-Java tokens, not a property of the specifications. A full
+mutation-coverage comparison between baseline and refined specifications is the
+natural next step and is identified as the top-priority follow-up. What the
+probe establishes is narrower but real: the delta between baseline and refined
+specifications is non-zero at the test-generation step, which is consistent with
+the hypothesis that the additional clauses carry downstream value and motivates
+the fuller evaluation.
+
+The fuller evaluation, when it is done, should measure mutation score rather than
+test count, on a corpus large enough to support a significance test, with the
+generated tests compiling and running so that their fault-detection power can be
+assessed directly. The hypothesis it would test is specific: that the
+branch-conditional and disjunctive clauses the refinement adds equip a model to
+generate tests that kill mutants the baseline specification's tests miss --- mutants
+on the guarded paths the branch-conditional clauses describe and the dispatch
+targets the disjunctions enumerate. The probe's positive-but-noisy test-count
+signal is consistent with this hypothesis but does not establish it, because a test
+count says nothing about whether the additional tests kill additional mutants. The
+\texttt{CharUtils} regression is a caution that the relationship may not be uniform
+--- a richer specification can, for a particular consumer and a particular clause
+shape, produce fewer or weaker tests --- so the fuller evaluation should report the
+per-class distribution, not only the aggregate. The probe's role in the thesis is to
+establish that the question is worth the fuller study's cost: the delta is non-zero,
+the mechanism is plausible, and the regression shows the answer is not trivially
+positive, which is exactly the situation that warrants a careful measurement rather
+than an assumption.
+
+\section{Worked Examples of the Two Shapes}
+\label{sec:comp-examples}
+
+The two recoverable shapes are best seen on concrete code. Consider first a
+caller that reaches a guarded call:
+
+\begin{lstlisting}
+// callee: requires divisor != 0
+static int safeDivide(int a, int divisor) { return a / divisor; }
+
+static int scale(int value, int factor) {
+    if (factor != 0) {
+        return safeDivide(value, factor);
+    }
+    return value;
+}
+\end{lstlisting}
+
+The callee \texttt{safeDivide} carries the inferred precondition
+\texttt{divisor != 0}. Single-pass propagation, encountering the call
+\texttt{safeDivide(value, factor)}, substitutes the actual argument to obtain
+\texttt{factor != 0} and faces the dilemma of Section~\ref{sec:comp-blind}:
+adding it unconditionally would forbid calling \texttt{scale} with
+\texttt{factor == 0}, which the method explicitly handles by returning
+\texttt{value}; skipping it would lose the obligation. The refinement pass walks
+the body, finds the call enclosed in the guard \texttt{factor != 0}, and lifts
+the substituted precondition through the guard to obtain
+\texttt{factor != 0 ==> factor != 0} --- which simplifies to a tautology here,
+correctly reflecting that the guard already discharges the callee's requirement.
+The example is deliberately degenerate to show the mechanism; in the common case
+the guard and the callee's requirement differ, as when a call to a method
+requiring a non-empty list is guarded by a size check, and the lifted clause
+\texttt{size > 0 ==> list.size() > 0} carries genuine, non-tautological
+information that the single pass cannot express.
+
+Now consider polymorphic dispatch:
+
+\begin{lstlisting}
+interface Shape { double area(); }   // no precondition
+class Disk implements Shape {
+    // requires radius >= 0
+    public double area() { return Math.PI * radius * radius; }
+}
+class Square implements Shape {
+    // requires side >= 0
+    public double area() { return side * side; }
+}
+
+static double totalArea(Shape s) { return s.area(); }
+\end{lstlisting}
+
+The call \texttt{s.area()} in \texttt{totalArea} dispatches at runtime to
+whichever implementation \texttt{s} actually is. Single-pass propagation resolves
+the call to the nominal type \texttt{Shape}, whose \texttt{area} declares no
+precondition, and so adds nothing. The refinement pass, consulting the call
+graph's class-hierarchy index, enumerates the implementing candidates
+\texttt{Disk} and \texttt{Square}, collects their substituted preconditions, and
+emits the disjunction \texttt{radius >= 0 || side >= 0}. The disjunction is the
+sound caller obligation: for the dispatch to be safe, at least one candidate's
+precondition must hold, namely the one corresponding to the runtime type. This is
+the polymorphic-dispatch shape, and it is structurally invisible to a single pass
+that resolves each call to a single nominal callee. The shape's prevalence on
+Vavr (Table~\ref{tab:comp-shapes}), the library with the deepest interface
+inheritance, is a direct consequence of how much polymorphic dispatch its design
+employs.
+
+\section{Positioning}
+\label{sec:comp-positioning}
+
+The unified review of compositional and interprocedural analysis
+(Section~\ref{sec:bg-compositional}) located the position this propagation
+occupies along three axes --- whether a technique produces JML, reasons
+compositionally across procedure boundaries, and checks its reasoning against a
+solver --- and found the cell it fills (produces JML, reasons compositionally by
+weakest-precondition lifting, feeds an existing JML verifier) unoccupied by prior
+work. The measurement of this chapter substantiates that positioning: it
+demonstrates the compositional reasoning concretely, on real code at scale,
+through the guard-lifting and dispatch-disjunction steps that distinguish the
+approach from the genuinely-compositional memory-safety analysers (which do not
+produce JML), the deductive verifiers (which consume rather than produce
+specifications), and the template-and-prune inferrers (which do not lift callee
+contracts into callers). The novelty is the combination, and the value the
+chapter adds to the positioning is the evidence that the combination produces a
+substantial, structurally characterisable body of obligations --- the evidence on
+which the compatibility application of Section~\ref{sec:comp-compatibility} rests.
+
+\section{Implications for Inferrer Architecture}
+\label{sec:comp-implications}
+
+The measurement settles a design question that the single-pass-versus-second-pass
+choice poses for any specification inferrer, and the settlement has consequences
+beyond the particular engine of this thesis. The question is whether the
+additional architectural complexity of a compositional pass is justified by the
+information it recovers, and the answer the measurement gives is conditional on
+what the inferrer is for.
+
+For an inferrer whose output feeds a consumer that benefits from richer
+specifications --- a verifier, a test generator, a language model --- the second
+pass is clearly worth integrating: it adds tens of thousands of clauses across the
+corpus at a cost of seconds, and the clauses are of shapes the single pass cannot
+produce. The cost-benefit is lopsided in the second pass's favour, and the
+preliminary downstream signal suggests the added clauses carry value to exactly
+the kind of consumer that motivates the thesis. For an inferrer whose output is
+consumed eagerly and superficially --- an IDE showing hover text, a tool that
+displays the first precondition --- the additional clauses may not justify their
+runtime, and the second pass is reasonably left off. The thesis's design makes the
+pass opt-in for precisely this reason: the right choice depends on the consumer,
+and the measurement gives a deployer the information to choose.
+
+A subtler implication concerns inferrers that wish to remain single-pass for
+engineering simplicity. The measurement shows that the branch-conditional shape,
+which dominates the gap on four of five libraries, requires only the caller's
+local control-flow context --- the guard enclosing each call --- which a
+single-pass analyser already traverses during its AST walk. Such an analyser could
+lift its substituted clauses through enclosing guards before adding them,
+capturing the dominant shape of the gap without the full machinery of a second
+pass over the call graph. The polymorphic-dispatch shape is harder to capture in a
+single pass, because it requires consulting the class hierarchy at the point of
+propagation, which is the kind of cross-cutting lookup a second pass is naturally
+organised to perform. The measurement thus decomposes the gap into an easy half a
+single pass could capture with a local extension and a hard half that wants a
+second pass, and it quantifies each, which is the information an inferrer designer
+needs to decide how far to go.
+
+\section{Threats to Validity}
+\label{sec:comp-threats}
+
+\paragraph{Internal validity.} The clause-count diffs are deterministic;
+rerunning the harness produces byte-identical output, verified across all five
+libraries. The shape categorisation uses regex-based bucketing with a documented
+order of precedence, so the buckets are reproducible; a small residual of
+arithmetic comparisons the regex does not match falls into the \emph{other}
+bucket and does not affect the headline result.
+
+\paragraph{External validity.} The five libraries deliberately span four idiom
+families, including generics-heavy and numerical code, to address the concern
+that the result is utility-class-specific; it holds across all five. Application
+and framework code (web frameworks, middleware) have different call-graph shapes
+and are not represented; generalisation to them is open. Google Guava, included
+in the earlier chapters, is excluded here after a stack-overflow fix in the
+call-graph builder's interface-inheritance walk, because its source-jar size
+exceeded the measurement budget; the qualitative conclusion would not change but
+the run was not completed.
+
+\paragraph{Construct validity.} ``Refined'' is operationalised as gaining at
+least one clause not in the baseline, using exact string equality, so two
+semantically equivalent but syntactically different clauses count as distinct ---
+which makes the new-clause count an upper bound on genuinely new logical
+obligations, though the shape categorisation is unaffected. The callee-resolution
+step matches on name and arity, so a residual of call sites is lost to overload
+collisions; a missed call site can only under-count additions, so the reported
+numbers are a lower bound on the true compositional gain on every library. The
+downstream signal measures test count, not mutation kills, and rests on a sample
+of eight classes; it is reported as preliminary for exactly these reasons.
+
+\paragraph{Conclusion validity.} The structural claims are exact measurements,
+not statistical inferences, so no significance test applies to them; the
+conclusions hold for the corpora and the specific refinement implementation
+reported. The qualitative finding --- that single-pass propagation cannot lift
+through guards or dispatch, and that a second pass recovers substantial clauses
+of exactly those shapes --- has a structural explanation that suggests it will
+transfer, but quantitative transfer to other libraries is an open question.
+
+\section{Summary}
+\label{sec:comp-summary}
+
+This chapter asked whether the single-pass interprocedural propagation that makes
+inference practical captures the cross-method specification information a genuinely
+compositional analysis would, and answered by building and measuring a top-down
+weakest-precondition refinement pass. The answer is that the single pass is not
+subsuming: across five libraries spanning four idiom families and 21{,}052 methods,
+the second pass adds 42{,}370 precondition clauses, refining a quarter to nearly a
+half of each library's methods, at a cost of seconds to tens of seconds. The
+additions are dominated by branch-conditional implications and include
+polymorphic-dispatch disjunctions on every library --- the two shapes the single
+pass cannot produce, because both require the caller's control-flow or
+class-hierarchy context that a substitution at the call site does not carry. The
+per-library analysis showed the result holds across idioms for idiom-specific
+reasons, and a preliminary downstream probe connected the additions back to the
+test-generation value of Chapter~\ref{ch:testgen}, finding a positive but noisy
+signal that motivates a fuller mutation-coverage evaluation.
+
+The chapter's contribution is twofold: a measurement, at a scale and across a
+breadth the literature has not previously reported, of what single-pass inference
+leaves uncaptured; and a characterisation of that residual as two structurally
+identifiable shapes rather than an undifferentiated gap. The measurement gives an
+inferrer designer the evidence to decide whether a second pass is worth its
+complexity, and the characterisation shows that the easy half of the gap --- the
+branch-conditional shape --- could be captured by a local extension to a single
+pass, while the harder half --- the disjunctive shape --- wants the second pass's
+cross-cutting view of the class hierarchy. Beyond the design guidance, the
+measurement supplies the prerequisite for the thesis's compatibility argument: it
+establishes that a caller's specification depends on its callees' substantially and
+through the structural channels --- guard-conditional and dispatch-dependent
+obligations --- through which a library change propagates to the code that uses it.
+This dependence is what makes specifications at the library boundary a basis for
+behavioural-compatibility analysis, the capability that
+Section~\ref{sec:comp-compatibility} develops and that the thesis offers as a
+direct answer to the adoption question: a thing practitioners could not previously
+do, made possible by inferred, propagating, library-level specifications. The
+end-to-end version-comparison experiment that would demonstrate it remains future
+work, but its mechanism is measured and real.

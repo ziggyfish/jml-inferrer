@@ -1,46 +1,4 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-We asked whether a single-pass callee-precondition propagation, the
-strategy used by an established heuristic JML inferrer, captures
-everything a top-down compositional refinement would. We implemented
-the refinement as a 414-line analyser and measured its effect on
-five real-world libraries spanning four idiom families
-(21{,}052 inferred methods in total). The single pass does
-\emph{not} subsume on any library studied: compositional refinement
-adds at least one new clause to 24--44\% of methods in each
-library's cache (median 36.33\%), for a total of 42{,}370 new
-precondition clauses and 25{,}203 new postcondition clauses across
-the five corpora.
-
-The shape distribution explains the gap. Branch-conditional
-implications (\texttt{guard ==> obligation}) make up the largest
-single shape on four libraries of five (34--64\% of additions);
-disjunctive obligations from polymorphic dispatch are present on
-every library and peak at 9.7\% on Vavr. Both shapes arise from
-contexts the single pass cannot see: enclosing branch guards and
-sibling dispatch candidates. The WP-style walk through the body
-that the second pass performs is what supplies the missing
-context. Null checks and range bounds account for most of the
-remainder.
-
-The runtime cost of the second pass is small: 44 seconds total across
-all five libraries (21{,}052 methods), with no fixpoint iteration
-triggered at any library's scale. The refactoring is therefore a
-clear value: an inferrer-pipeline addition of seconds yields a
-measurably richer spec set for downstream consumers.
-
-What this paper does not measure is whether the additional clauses
-materially improve downstream tooling --- whether tests generated
-from the refined specs catch more bugs, whether IDEs displaying the
-refined contracts help reviewers, whether LLMs reading them produce
-better completions. Those questions are the planned next stage of
-this thesis programme; the present article establishes the
-structural prerequisite, that the additional clauses exist, before
-the downstream-impact question can be meaningfully posed.
-
-Two bugs were uncovered in the analyser by the corpus-scale run
-(both string-splitting errors that the unit-test inputs did not
-exercise); we report them as a methodological note. The analyser
-ships with the corpus-scale measurement harness as a runnable
-replication artefact.
+We asked whether single-pass callee-precondition propagation captures what a top-down compositional refinement would. Measured across five libraries (21{,}052 methods), the single pass does \emph{not} subsume on any: refinement adds at least one clause to 23--43\% of methods per library (median 35.53\%), totalling 45{,}740 new preconditions and 24{,}895 new postconditions. Branch-conditional implications dominate on four of five libraries (46--67\%); polymorphic-dispatch disjunctions appear on every library and peak at 9.8\% on Vavr --- both shapes the single pass cannot produce. The pass costs 34 seconds total. A two-year Commons Lang version step (3.12.0 vs 3.14.0, Section~\ref{sec:empirical-version}) surfaces 525 of 3{,}188 common methods with a changed inferred specification, 144 with a strengthened precondition --- the candidate-breaking artefact a behavioural-compatibility checker would consume.

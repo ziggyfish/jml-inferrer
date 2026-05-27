@@ -88,6 +88,13 @@ public class MethodSpecificationInferrer {
     public MethodSpecification inferSpecification(MethodDeclaration methodDecl) {
         MethodSpecification spec = new MethodSpecification();
 
+        // Capture parameter names on the spec so cross-CompilationUnit callers
+        // (e.g. the H2 client-compatibility experiment) can do positional
+        // callee → caller substitution without an AST lookup.
+        List<String> paramNames = new ArrayList<>();
+        methodDecl.getParameters().forEach(p -> paramNames.add(p.getNameAsString()));
+        spec.setParameterNames(paramNames);
+
         // Single-pass AST collection — all sub-analyzers share this collector
         ASTCollector collector = ASTCollector.collect(methodDecl);
 
