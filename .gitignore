@@ -35,20 +35,22 @@ hs_err_pid*
 .claude/
 
 # LaTeX build artifacts
-journal/*.aux
-journal/*.bbl
-journal/*.blg
-journal/*.fdb_latexmk
-journal/*.fls
-journal/*.out
-journal/*.synctex.gz
-journal/*.toc
-journal/*.lof
-journal/*.lot
-journal/*.nav
-journal/*.snm
-journal/*.vrb
-journal/*.log
+journal/**/*.aux
+journal/**/*.bbl
+journal/**/*.blg
+journal/**/*.fdb_latexmk
+journal/**/*.fls
+journal/**/*.out
+journal/**/*.synctex.gz
+journal/**/*.toc
+journal/**/*.lof
+journal/**/*.lot
+journal/**/*.nav
+journal/**/*.snm
+journal/**/*.vrb
+journal/**/*.log
+journal/**/out/
+journal/**/*-diff-*.pdf
 
 # OpenJML tools and validation reports
 tools/

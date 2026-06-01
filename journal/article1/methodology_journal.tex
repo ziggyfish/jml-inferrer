@@ -33,12 +33,55 @@ The evaluation comprises four phases designed to isolate the contribution of for
 
 \begin{description}
     \item[Phase~1 (P1) --- Signature only:] test generation from method signatures alone.
-    \item[Phase~2 (P2) --- Signature with guidance:] signatures supplemented with explicit guidance to cover edge cases.
+    \item[Phase~2 (P2) --- Signature with guidance:] signature supplemented with a fixed, method-agnostic checklist of edge-case categories the model is instructed to cover.
     \item[Phase~3 (P3) --- Signature with specification:] signatures augmented with inferred formal specifications.
     \item[Phase~4 (P4) --- Source-code baseline:] full method source code, providing an upper bound on attainable quality.
 \end{description}
 
-Test generation used Google's Gemini~2.0 (Table~\ref{tab:llm-config}); a sampling temperature of 0.3 was selected to balance diversity against consistency. Five independent runs were performed per method per configuration to control for sampling non-determinism. Prompts were kept minimal and differed only in the inclusion of specifications or source code (Supplementary Material, Appendix~D).
+The P2 guidance is a uniform block appended to the P1 signature prompt; the same checklist is used for every method and conveys no per-method behavioural information. It enumerates the standard edge-case categories of unit-test design: \texttt{null} for each reference parameter; empty, single-element, and maximum-size collections, arrays, and strings; boundary numeric values (zero, $\pm 1$, \texttt{Integer.MIN\_VALUE}, \texttt{Integer.MAX\_VALUE}, and the adjacent integers \texttt{Integer.MIN\_VALUE+1} and \texttt{Integer.MAX\_VALUE-1}); floating-point special values (\texttt{NaN}, $\pm$\texttt{Infinity}, $\pm 0.0$); unicode boundary code points where a parameter is \texttt{char} or \texttt{String}; and overflow-prone combinations of arithmetic parameters. The verbatim prompt template is reproduced in Supplementary Material, Appendix~D. With no oracle in the input, P2 tests default to weak assertions (\texttt{assertNotNull}, \texttt{assertDoesNotThrow}) on cases where the expected return value cannot be derived from the signature; the resulting effect on test count and mutation score is analysed in Section~\ref{sec:results}. P2 is included as the control for the alternative hypothesis that explicit guidance about test design---not specifications in particular---is what raises mutation score; if a generic edge-case checklist matched P3, the contribution of formal specifications would not be distinguishable from any other form of structured prompt.
+
+Listing~\ref{lst:phase-example} shows the four phase inputs side by side for a single method---\texttt{MutableInt.add(Number)} from \texttt{org.apache.commons.lang3.mutable}---to make the experimental manipulation concrete. The method signature is identical across all four phases; only the material supplied alongside it differs. P3's specification is the contract emitted by JML-Inferrer for this method without modification, and P4's body is the unmodified source from the corpus.
+
+\begin{listing}[t]
+\caption{Worked example of the four phase inputs supplied to the LLM, applied to \texttt{MutableInt.add(Number)} from Apache Commons Lang. The signature is held constant across phases; P2 adds a method-agnostic edge-case checklist, P3 adds the JML contract inferred by JML-Inferrer, and P4 substitutes the full source body.}
+\label{lst:phase-example}
+
+\noindent\textbf{P1 --- Signature only:}
+\begin{lstlisting}
+public void add(Number operand);
+\end{lstlisting}
+
+\noindent\textbf{P2 --- Signature + edge-case checklist (identical block for every method):}
+\begin{lstlisting}
+public void add(Number operand);
+
+// Test-design checklist:
+// - null for each reference parameter
+// - empty/single-element/maximum-size collections, arrays, strings
+// - boundary numeric values (0, +/-1, Integer.MIN_VALUE,
+//   Integer.MAX_VALUE, and adjacent integers)
+// - floating-point specials (NaN, +/-Infinity, +/-0.0)
+// - unicode boundary code points (for char/String parameters)
+// - overflow-prone arithmetic combinations
+\end{lstlisting}
+
+\noindent\textbf{P3 --- Signature + inferred JML specification:}
+\begin{lstlisting}
+//@ requires operand != null;
+//@ assignable this.value;
+//@ ensures this.value == \old(this.value) + operand.intValue();
+public void add(Number operand);
+\end{lstlisting}
+
+\noindent\textbf{P4 --- Full source code (upper-bound baseline):}
+\begin{lstlisting}
+public void add(Number operand) {
+    this.value += operand.intValue();
+}
+\end{lstlisting}
+\end{listing}
+
+Test generation used Google's Gemini~2.0 (Table~\ref{tab:llm-config}); a sampling temperature of 0.3 was selected to balance diversity against consistency. Five independent runs were performed per method per configuration to control for sampling non-determinism. Prompts were kept minimal and differed only in the inclusion of edge-case guidance, specifications, or source code (Supplementary Material, Appendix~D).
 
 \begin{table}[ht]
 \centering

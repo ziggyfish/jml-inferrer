@@ -6,7 +6,9 @@
 \subsubsection{OpenJML Discharge of Inferred Clauses}
 \label{subsec:discharge-results}
 
-OpenJML's Extended Static Checker establishes that an inferred clause is formally consistent with the implementation. Table~\ref{tab:discharge} reports the outcome of running the discharge layer over all 624 inferred clauses (preconditions and postconditions for 312 methods); loop invariants and assignable clauses are reported separately, because the discharge semantics differ.
+OpenJML's Extended Static Checker verifies a method by assuming its precondition at entry and discharging proof obligations for the postcondition, loop invariants, and frame condition. The semantics of \emph{discharge} therefore differ by clause type. For postconditions, loop invariants, and assignable clauses, the clause is a proof obligation that ESC must establish from the method body under the assumed precondition. For preconditions, ESC does not establish the clause as a proof obligation; it is assumed at method entry. ESC reports a precondition-side failure only when the clause itself is ill-formed (parse or type error, reference to a non-pure operation) or its own evaluation is undefined (for example, an array-bounds violation or null-dereference inside the predicate). Precondition discharge in Table~\ref{tab:discharge} is therefore a well-formedness and consistency check, not a proof of necessity. The proof obligation a precondition incurs is at \emph{call sites}: whenever the caller is itself in the corpus and is verified under ESC, the caller must establish the callee's precondition before the call, and an unprovable precondition there is reported as a flagged caller-side clause rather than a flagged precondition.
+
+Two further caveats apply to all clause types. First, discharge is a \emph{soundness} measure, not a \emph{completeness} one: a vacuous contract (\texttt{requires true; ensures true;}) would also be discharged, so the figures below should be read as ``no clause was found inconsistent with the implementation'', not ``the inferred specification is complete''. The complementary structural strength measure in Section~\ref{subsec:strength-results} addresses completeness on an independent axis, and the residual gap is discussed in Section~\ref{sec:threats}. Second, ESC's discharge is solver-bounded: clauses that exceed the configured Z3 budget are reported separately as \emph{unsupported} (Section~\ref{subsec:validation}) rather than counted as discharged. With these caveats, Table~\ref{tab:discharge} reports the outcome of OpenJML discharge across all 985 inferred clauses (preconditions, postconditions, loop invariants, and assignable clauses) over the 312-method corpus.
 
 \begin{table}[ht]
 \centering
@@ -70,6 +72,7 @@ The 37 flagged clauses---chiefly subtle overflow boundary postconditions on sign
 \end{figure}
 
 \subsubsection{Specification Strength Distribution}
+\label{subsec:strength-results}
 
 Figure~\ref{fig:spec-strength} shows specification strength across the five categories present in the 312-method corpus (the \emph{other} category contributes no methods, per Section~\ref{sec:methodology}, and is omitted). Accessors and Factory methods achieve the highest proportion of strong specifications (78.2\% and 72.1\%); State Modification methods have the lowest at 58.7\%, reflecting the difficulty of capturing complete frame conditions for methods that mutate object state under conditional logic.
 
