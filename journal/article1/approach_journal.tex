@@ -200,15 +200,12 @@ The effect of the loop is measured directly on the end-to-end verification regre
 ]
 \addplot+[color=blue!65!black, mark=*, mark size=1.3pt, thick] coordinates {
     (10,188) (11,174) (12,172) (13,179) (14,172) (15,171) (16,172) (17,171)
-    (18,171) (19,170) (20,169) (21,169) (22,168) (23,168) (24,168) (25,168) (26,168) (27,170)
+    (18,171) (19,170) (20,169) (21,169) (22,168) (23,168) (24,168) (25,168) (26,168) (27,170) (30,86)
 };
-\addplot+[densely dashed, color=blue!55!black, mark=none, thick] coordinates {(27,170) (30,86)};
-\addplot+[only marks, mark=square*, mark size=2.6pt, color=red!75!black] coordinates {(30,86)};
 \node[anchor=west, font=\scriptsize] at (axis cs:29.6,96) {86 (submission)};
-\legend{recorded window (575 tests), unlogged later iterations}
 \end{axis}
 \end{tikzpicture}
-\caption{Effect of the probe-and-backport loop on the end-to-end verification suite. Solid markers are per-iteration runs over a recorded development window at a fixed 575-test suite (fix10--fix27); the upward steps at iterations~13 and~27 are candidate heuristics that regressed the suite under the fixed strictness configuration and were reverted before the next iteration. The dashed segment denotes further iterations beyond the recorded window, ending at the submission run (square marker): 86 failing tests of 576, an 85.1\% pass rate. The suite size is essentially constant across this span (575 vs.\ 576 tests), so failing-test counts are directly comparable. Each test asserts that the inferrer, given a bare method, emits a specification that OpenJML's ESC discharges.}
+\caption{Effect of the probe-and-backport loop on the end-to-end verification suite. Markers are per-iteration runs over a recorded development window at a fixed 575-test suite (fix10--fix27); the upward steps at iterations~13 and~27 are candidate heuristics that regressed the suite under the fixed strictness configuration and were reverted before the next iteration. The line continues to the submission run (labelled ``86 (submission)''): 86 failing tests of 576, an 85.1\% pass rate; the iterations between the recorded window and submission are not individually plotted. The suite size is essentially constant across this span (575 vs.\ 576 tests), so failing-test counts are directly comparable. Each test asserts that the inferrer, given a bare method, emits a specification that OpenJML's ESC discharges.}
 \label{fig:loop-progress}
 \end{figure}
 
