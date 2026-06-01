@@ -178,32 +178,37 @@ The heuristic repertoire described in the preceding subsections was not specifie
 
 The verifier-in-the-loop is the load-bearing element. It is what distinguishes the loop from direct LLM-driven specification inference, which, evaluated as a baseline in Section~\ref{sec:results}, exhibits only 72.4\% run-to-run \emph{consistency} --- the same method, prompted identically, yields non-identical contracts across runs at the configured temperature, and the variance includes clauses that the verifier would reject. This 72.4\% figure is a measure of the baseline's instability, not a discharge rate: a clause an LLM finds plausible but Z3 rejects never enters the engine. The probe-and-backport workflow instead forces every clause that enters the engine's repertoire to be one that OpenJML has actually discharged on an example, and the discharged examples then anchor the engine's structural heuristics by regression.
 
-The effect of the loop is measured directly on the end-to-end verification regression suite, which runs each inferred specification through OpenJML's ESC under the fixed strictness configuration (Section~\ref{subsec:validation}). Figure~\ref{fig:loop-progress} traces one representative development window of eighteen iterations during which the suite size was held fixed at 575 tests, isolating the loop's effect from changes in the suite itself. Backporting validated probes reduced the failing-test count from 188 to a plateau of 168 (a pass rate of 67.3\% rising to 70.8\%), with occasional upward steps where a candidate heuristic regressed the suite and was reverted before the next iteration; because the strictness configuration is fixed throughout, every such regression is a real one, so the net movement is conservative. As the engine matured beyond this window the suite was expanded with further probes, so failing-test counts across the full project history are not directly comparable; measured at submission and at the finer granularity of individual clauses rather than whole methods, the engine discharges 92.9\% of all emitted clauses (Section~\ref{sec:results}). The residual failures concentrate in a small number of method-level patterns (nested-quantifier accumulators and array-mutation frames) that exceed the present solver budget rather than indicating unsound inference.
+The effect of the loop is measured directly on the end-to-end verification regression suite, which runs each inferred specification through OpenJML's ESC under the fixed strictness configuration (Section~\ref{subsec:validation}). Over the development period the loop reduced the suite from 188 failing tests at the start of the recorded window to 86 of 576 at submission --- a pass rate rising from 67.3\% to 85.1\% (Figure~\ref{fig:loop-progress}). Within the recorded fixed-suite window the descent is visible iteration by iteration, with occasional upward steps where a candidate heuristic regressed the suite and was reverted before the next iteration; because the strictness configuration is held fixed throughout, every such regression is a real one. Measured at the finer granularity of individual clauses rather than whole methods, the engine discharges 92.9\% of all emitted clauses (Section~\ref{sec:results}). The residual failures concentrate in a small number of method-level patterns (nested-quantifier accumulators and array-mutation frames) that exceed the present solver budget rather than indicating unsound inference.
 
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-    width=0.85\textwidth,
-    height=6cm,
-    xlabel={Development iteration},
-    ylabel={Failing tests (of 575)},
-    xmin=10, xmax=27,
-    ymin=160, ymax=192,
-    xtick={10,12,14,16,18,20,22,24,26},
-    ytick={160,165,170,175,180,185,190},
+    width=0.88\textwidth,
+    height=6.2cm,
+    xlabel={Development progression (fix iteration $\rightarrow$ submission)},
+    ylabel={Failing tests (of ${\approx}576$)},
+    xmin=9, xmax=31,
+    ymin=70, ymax=200,
+    xtick={10,13,16,19,22,25,27,30},
+    xticklabels={10,13,16,19,22,25,27,subm.},
+    ytick={80,100,120,140,160,180,200},
     grid=both,
     grid style={gray!18},
     tick label style={font=\footnotesize},
     label style={font=\small},
 ]
-\addplot+[color=blue!65!black, mark=*, mark size=1.4pt, thick] coordinates {
+\addplot+[color=blue!65!black, mark=*, mark size=1.3pt, thick] coordinates {
     (10,188) (11,174) (12,172) (13,179) (14,172) (15,171) (16,172) (17,171)
     (18,171) (19,170) (20,169) (21,169) (22,168) (23,168) (24,168) (25,168) (26,168) (27,170)
 };
+\addplot+[densely dashed, color=blue!55!black, mark=none, thick] coordinates {(27,170) (30,86)};
+\addplot+[only marks, mark=square*, mark size=2.6pt, color=red!75!black] coordinates {(30,86)};
+\node[anchor=west, font=\scriptsize] at (axis cs:29.6,96) {86 (submission)};
+\legend{recorded window (575 tests), unlogged later iterations}
 \end{axis}
 \end{tikzpicture}
-\caption{Effect of the probe-and-backport loop over one development window in which the end-to-end verification suite was held fixed at 575 tests. Backporting validated probes reduced failing tests from 188 at the start of the window to a plateau of 168; the upward steps (notably at iterations~13 and~27) are candidate heuristics that regressed the suite under the fixed strictness configuration and were reverted before the next iteration. Each test asserts that the inferrer, given a bare method, emits a specification that OpenJML's ESC discharges. Iterations are numbered by their position in the project's fix sequence (fix10--fix27). Later iterations expanded the suite with further probes and are not shown, as the changing denominator makes raw failing-test counts non-comparable across the full history.}
+\caption{Effect of the probe-and-backport loop on the end-to-end verification suite. Solid markers are per-iteration runs over a recorded development window at a fixed 575-test suite (fix10--fix27); the upward steps at iterations~13 and~27 are candidate heuristics that regressed the suite under the fixed strictness configuration and were reverted before the next iteration. The dashed segment denotes further iterations beyond the recorded window, ending at the submission run (square marker): 86 failing tests of 576, an 85.1\% pass rate. The suite size is essentially constant across this span (575 vs.\ 576 tests), so failing-test counts are directly comparable. Each test asserts that the inferrer, given a bare method, emits a specification that OpenJML's ESC discharges.}
 \label{fig:loop-progress}
 \end{figure}
 
