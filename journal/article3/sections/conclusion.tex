@@ -1,4 +1,0 @@
-\section{Conclusion}
-\label{sec:conclusion}
-
-We asked whether single-pass callee-precondition propagation captures what a top-down compositional refinement would. Measured across five libraries (21{,}052 methods), the single pass does \emph{not} subsume on any: refinement adds at least one clause to 23--43\% of methods per library (median 35.53\%), totalling 45{,}740 new preconditions and 24{,}895 new postconditions. Branch-conditional implications dominate on four of five libraries (46--67\%); polymorphic-dispatch disjunctions appear on every library and peak at 9.8\% on Vavr --- both shapes the single pass cannot produce. The pass costs 34 seconds total. A two-year Commons Lang version step (3.12.0 vs 3.14.0, Section~\ref{sec:empirical-version}) surfaces 525 of 3{,}188 common methods with a changed inferred specification, 144 with a strengthened precondition --- the candidate-breaking artefact a behavioural-compatibility checker would consume.
