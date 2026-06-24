@@ -341,7 +341,7 @@ If you use this tool in academic research:
   title={Automated JML Specification Inference via Pattern Matching for Enhanced LLM-Based Test Generation},
   author={JML-Inferrer Contributors},
   year={2025},
-  note={Available at: https://github.com/ziggyfish/jml-inferrer}
+  note={Available at: https://anonymous.4open.science/r/jml-inferrer-anon}
 }
 ```
 

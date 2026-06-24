@@ -1,9 +1,9 @@
 # SOLVER_UNKNOWN Failure Bucket: Methodological Analysis
 
-*Source data:* `C:\Users\bed88\Inferrer_new\Inferrer\inferred-spec-completed.log`
+*Source data:* `inferred-spec-completed.log` (in the repository root)
 (2.7 MB; 11 786 inferred-spec blocks; 124 lines containing `Validity is unknown`)
 *Run identifier:* `fix14` — verification campaign of 27 April 2026
-*Verifier:* OpenJML 21-0.23 with the local fork at `C:\Users\bed88\openjml-dev\` (adds
+*Verifier:* OpenJML 21-0.23 with the local fork at `openjml-dev/` (adds
 `define-fun-rec` for `\sum`, `\product`, `\num_of`)
 *Solver:* Z3 (cvc5 was excluded because it hangs the suite at `(check-sat)`)
 

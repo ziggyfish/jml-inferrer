@@ -4,7 +4,7 @@ Thank you for your interest in contributing to the JML Specification Inferrer pr
 
 ## Getting Started
 
-1. Fork the repository at https://github.com/ziggyfish/jml-inferrer
+1. Fork the repository at https://anonymous.4open.science/r/jml-inferrer-anon
 2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/jml-inferrer.git`
 3. Create a feature branch: `git checkout -b feature/your-feature-name`
 4. Make your changes
