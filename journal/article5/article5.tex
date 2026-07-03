@@ -1,0 +1,143 @@
+\documentclass[11pt]{article}
+
+% Wiley/JSEP-style formatting (consistent with Articles 1, 2, and 4) --- to be
+% swapped for wileyNJD-v2.cls before submission.
+\usepackage[margin=1in]{geometry}
+\usepackage{times}
+
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage[english]{babel}
+\usepackage[autostyle, english = british]{csquotes}
+\MakeOuterQuote{"}
+
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.geometric,shapes.symbols}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{cleveref}
+\usepackage{lineno}
+\usepackage{textcomp}
+
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codeblue}{rgb}{0.0,0.0,0.6}
+\definecolor{codegreen}{rgb}{0,0.5,0}
+
+\lstdefinestyle{code}{
+  basicstyle=\fontsize{8.5}{10}\selectfont\ttfamily,
+  numbers=none,
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  frame=single,
+  rulecolor=\color{black},
+  tabsize=2,
+  captionpos=b,
+  breaklines=true,
+  breakatwhitespace=true,
+  keywordstyle=\color{codeblue},
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{red},
+}
+\lstset{style=code}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape Edmonds and Utting}
+\fancyhead[R]{\small\itshape J. Softw. Evol. Process}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\begin{document}
+
+\linenumbers
+
+\noindent\textbf{RESEARCH ARTICLE}
+\vspace{1em}
+
+\begin{center}
+{\LARGE\bfseries A Verification-Centric Reference Pipeline for\\AI-Native Software Development}
+\vspace{1.5em}
+
+{\large Brendan Edmonds\textsuperscript{1}* \quad Mark Utting\textsuperscript{1}}
+\vspace{0.5em}
+
+{\small\textsuperscript{1}UQ Cyber, School of Electrical Engineering and Computer Science, University of Queensland, St Lucia QLD 4067, Australia}
+\vspace{0.5em}
+
+{\small *Correspondence: Brendan Edmonds, b.edmonds@uq.edu.au}
+\end{center}
+
+\vspace{1em}
+
+\noindent\textbf{Abstract}
+\vspace{0.5em}
+
+\noindent As large language models make implementation code cheap to generate and regenerate, the economics of software development invert: the implementation becomes a disposable build output, and the durable, scarce artefact becomes the \emph{specification} from which it is produced. The emerging generation of AI-native, specification-driven development lifecycles---exemplified by AWS AI-DLC, GitHub Spec Kit, and Kiro---has recognised this shift but stops short of exploiting it, because their specifications are unverifiable natural language, their generate-then-review loop has no machine gate, and their verification, where present, is circular: the same model that writes the code also writes the tests that judge it. This article proposes a verification-centric reference pipeline that supplies the missing piece: a machine-checkable formal-specification contract layer and a closed, counterexample-guided verification loop. The architecture is organised around the formal contract as the \emph{pivot} between ambiguous human intent and precise machine verification, exploiting the dual role of a specification as both the precise \emph{input} an agent builds against and the \emph{oracle} its output is verified against. We develop four mechanisms in detail: an intent-elaboration layer that closes the \emph{ratification gap} by having developers ratify behaviour rather than formal logic; a brownfield characterisation phase that triangulates code, issue trackers, and documentation to recover contracts and surface candidate defects; a synthesis--verification loop in which an independently authored contract gates agent-generated code over all inputs; and compositional change propagation that turns a callee specification change into a sound, run-free behavioural blast-radius and version-compatibility analysis. We show the architecture is buildable by mapping its trusted components onto externally validated prior artefacts---a heuristic JML inference engine, an OpenJML/Z3 verifier---and instantiating it as a proof of concept over a real three-stream corpus drawn from Apache Commons Lang. We specify a falsifiable evaluation built on tool-derived metrics; full empirical validation on external production codebases and an industrial case study are identified as future work.
+
+\vspace{1em}
+
+\noindent\textbf{Keywords:} specification inference; formal verification; large language models; AI agents; design by contract; JML; software development lifecycle; brownfield software; API evolution; behavioural compatibility
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\input{sections/introduction}
+\input{sections/background}
+\input{sections/related_work}
+\input{sections/motivation}
+\input{sections/architecture}
+\input{sections/intent_layer}
+\input{sections/brownfield}
+\input{sections/verification_loop}
+\input{sections/propagation}
+\input{sections/instantiation}
+\input{sections/evaluation_plan}
+\input{sections/threats}
+\input{sections/discussion}
+\input{sections/conclusion}
+
+\section*{Data Accessibility}
+
+A replication package containing the proof-of-concept orchestrator, the
+specification inference engine, the OpenJML/Z3 verification harness, the
+JSON schemas for the inference and characterisation reports, and the
+Apache Commons Lang corpus configuration will be made available at
+\url{https://github.com/[anonymized]/jml-inferrer}.
+
+\section*{Acknowledgments}
+
+This research was supported by the University of Queensland Cyber initiative.
+
+\section*{Conflict of Interest}
+
+The authors declare no conflict of interest.
+
+\section*{Author Contributions}
+
+\textbf{Brendan Edmonds}: Conceptualization, Methodology, Software, Validation, Investigation, Writing - Original Draft. \textbf{Mark Utting}: Conceptualization, Methodology, Writing - Review \& Editing, Supervision.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

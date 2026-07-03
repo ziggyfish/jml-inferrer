@@ -1,0 +1,86 @@
+\section{Instantiation: A Proof-of-Concept on Apache Commons Lang}
+\label{sec:instantiation}\label{sec:poc}
+
+The reference architecture of \cref{sec:pipeline} is a design claim, and a design claim about a verification spine is worth little unless it can be shown to be buildable from components that already work. This section therefore does not present a finished system; it presents an \emph{instantiation}---a concrete mapping of every architectural layer onto either a pre-existing, independently validated asset of this programme or a small, well-scoped piece of new code, together with a staged build plan and a real, three-stream demonstration corpus. The purpose of the exercise is to de-risk the architecture: to demonstrate that the trusted parts of the pipeline already exist and have been validated outside the present work, that the new parts are modest orchestration rather than novel verification machinery, and that the whole can be exercised end-to-end on a real-world library whose intent is documented in code, issue tickets, and Javadoc simultaneously. Throughout, the discipline that makes the architecture credible---that the trusted verifier never grades itself---is preserved by construction, because the verifier is a component the author did not write for this purpose and cannot tune to flatter the agent's output.
+
+\subsection{Mapping the architecture onto validated and new components}
+\label{subsec:inst-mapping}
+
+The instantiation rests on a deliberate separation between \emph{trusted} components, which determine whether a ``verified'' claim is honest, and \emph{untrusted} components, which merely propose artefacts that the trusted components then judge. The architectural insistence on independent authority (\cref{sec:pipeline}) reduces, in implementation terms, to a single rule: no trusted component may have been authored, configured, or prompted by the agent whose output it evaluates. The reuse of prior, externally validated assets is what makes this rule enforceable rather than aspirational.
+
+The \emph{trusted oracle} below the contract pivot is the custom OpenJML fork driven by the Z3 SMT solver. OpenJML performs extended static checking of Java against JML contracts, discharging proof obligations over \emph{all} inputs rather than a sampled subset~\cite{cok2014openjml,cok2011openjml}, and Z3 is the decision procedure that settles the resulting verification conditions~\cite{demoura2008z3}. The fork extends the stock tool with \texttt{define-fun-rec} encodings of \verb|\sum|, \verb|\product|, and \verb|\num_of|, which unblocks a class of aggregate postconditions that the upstream release reports as unsupported. Critically, this oracle is a deductive verifier with a fixed semantics: it does not learn from, and cannot be steered by, the agent that produced the code under test. It is the embodiment of the independent-authority constraint, because its verdict is a function of the contract and the code alone.
+
+The \emph{bootstrap} for draft contracts is the JML-Inferrer, the Java~21 / JavaParser instrument developed across Articles~1--4 of this programme. It infers preconditions, postconditions, loop invariants, class invariants, and assignable clauses by AST heuristics, and in the brownfield setting it supplies the code-derived draft contract that the characterisation phase reconciles against the ticket and documentation streams (\cref{sec:pipeline}). Its compositional second pass---the weakest-precondition refinement that recovered approximately $18{,}854$ additional well-formed preconditions on the corpus~\cite{edmonds_article3}---is precisely the mechanism that the change-propagation layer promotes into a lifecycle capability. The \texttt{AnnotationToJMLConverter} normalises inferred and authored annotations into the surface JML syntax the verifier consumes, and the Dockerised pipeline of Article~4~\cite{edmonds_article4} provides reproducible, isolated execution of the entire toolchain, including the pinned solver build whose choice materially affects termination.
+
+\cref{tab:inst-components} summarises the mapping. The decisive observation is the asymmetry between the two columns: every \emph{trusted} component is pre-existing and externally validated, whereas all \emph{new} code is untrusted orchestration. The new code comprises an orchestrator that sequences the elaboration, synthesis, and verification phases and manages the counterexample-refinement loop, together with the LLM calls (to Claude) that perform elicitation, contract drafting, and code synthesis. None of these new components renders a verification verdict. The orchestrator routes artefacts; the LLM proposes; the OpenJML fork disposes. Consequently, a defect in the new code cannot cause OpenJML to certify falsely that code satisfies the contract it was given, because the verifier's verdict is a function of contract and code alone and the new code cannot tune it. It can, however, cause a \emph{wrong contract} to be drafted; the independent-authority property therefore protects the code-satisfies-contract judgement, not the contract-captures-intent judgement. The latter is guarded not by the verifier but by human ratification (milestone M3) and by the \texttt{inferred-unconfirmed} provenance that an unratified drafted contract carries, so a poor contract surfaces as a discrepancy the human adjudicates rather than as a silent false certification of intent.
+
+\begin{table}[t]
+  \centering
+  \caption{Mapping of architectural layers onto validated assets and new code. Trusted components determine the honesty of a ``verified'' claim; new components only propose artefacts that trusted components judge.}
+  \label{tab:inst-components}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Architectural role & Component & Status \\
+    \midrule
+    Trusted oracle (verification) & OpenJML fork + Z3~\cite{cok2014openjml,demoura2008z3} & Validated (Art.~3--4) \\
+    Draft-contract bootstrap & JML-Inferrer (AST heuristics)~\cite{edmonds_article3} & Validated (Art.~1--3) \\
+    Compositional refinement & WP second pass~\cite{edmonds_article3} & Validated (Art.~3) \\
+    Surface-syntax normalisation & \texttt{AnnotationToJMLConverter} & Validated (Art.~2) \\
+    Reproducible execution & Dockerised pipeline~\cite{edmonds_article4} & Validated (Art.~4) \\
+    \midrule
+    Phase sequencing \& CEGIS loop & Orchestrator & New (untrusted) \\
+    Elicitation / drafting / synthesis & LLM calls (Claude) & New (untrusted) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{The demonstration corpus: a real three-stream dataset}
+\label{subsec:inst-corpus}
+
+A faithful instantiation of the brownfield workflow requires a target in which all three evidence streams of multi-source intent triangulation---code, tickets, and documentation---are genuinely present, public, and linkable. Apache Commons Lang satisfies this requirement unusually well and is already wired into the author's experiment harness, which removes incidental engineering risk from the demonstration. The \emph{code} stream is the library's mature, heavily exercised Java source, dominated by self-contained utility methods over strings, numbers, arrays, and primitives. The \emph{ticket} stream is the public Apache JIRA \texttt{LANG} project, whose \texttt{LANG-\#\#\#\#} issues record why behaviours exist, which edge cases were once wrong, and how boundary decisions were ultimately resolved---exactly the ``why'' that code alone cannot supply~\cite{merten2015issuetracking,montgomery2022jira}. The \emph{documentation} stream is the library's rich Javadoc, which states declared intent at method granularity and is therefore the natural source of doc-stated obligations.
+
+The value of triangulation is disagreement detection, and Commons Lang offers concrete disagreements rather than contrived ones. Consider \texttt{StringUtils} and \texttt{NumberUtils}, two classes whose null-handling and boundary conventions have been the subject of repeated clarification in both the Javadoc and the issue tracker. A code-derived draft contract for a method such as \texttt{StringUtils.substring} or \texttt{NumberUtils.createNumber} encodes what the present implementation does at the empty-string, null, and out-of-range boundaries; the Javadoc states what the method is \emph{declared} to do; and the \texttt{LANG} tickets frequently record cases where the two once diverged. Where the code-derived clause and the doc-derived or ticket-derived clause disagree, the instantiation surfaces a \emph{candidate bug} or a stale-documentation finding, which is precisely the success outcome of the characterisation phase rather than a failure of it. Reconciling these streams is noisy---linking a ticket or a Javadoc sentence to the method it constrains depends on references, commit links, and path heuristics that are imperfect at scale~\cite{antoniol2002recovering,borg2014recovering,tan2012tcomment}---and the demonstration accordingly makes no claim of corpus-wide recall. It claims that, on a curated module surface, the reconciliation produces real, inspectable discrepancies with per-clause provenance, which is sufficient to validate the architecture's central brownfield assertion: that code-derived verification is characterisation, and that correctness-relative-to-intent emerges only where the code is confronted with the ticket and documentation streams.
+
+\subsection{Staged build: milestones M0--M3}
+\label{subsec:inst-milestones}
+
+The build is staged so that each milestone de-risks one independent assumption of the architecture before the next is attempted, and so that every milestone produces a runnable artefact. \cref{tab:inst-milestones} states each milestone, the assumption it tests, and the artefact it yields.
+
+\begin{table}[t]
+  \centering
+  \caption{Milestones M0--M3. Each isolates and de-risks one architectural assumption and yields a runnable artefact.}
+  \label{tab:inst-milestones}
+  \begin{tabular}{@{}p{0.07\linewidth}p{0.30\linewidth}p{0.30\linewidth}p{0.21\linewidth}@{}}
+    \toprule
+    & Milestone & Assumption de-risked & Artefact \\
+    \midrule
+    M0 & Verify-as-a-service & Trusted oracle wraps cleanly & \texttt{verify(src)} endpoint \\
+    M1 & Synthesis loop, fixed contract & CEGIS loop converges & Closed-loop synthesiser \\
+    M2 & Contract generation from NL & Drafting is tractable & NL/code $\rightarrow$ contract \\
+    M3 & Conversational ratification & Behaviour-level ratify works & Socratic + example loop \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{M0: verify-as-a-service.} The first milestone wraps the existing Dockerised pipeline behind a single function, \texttt{verify(src)}, that returns either \texttt{ok} or a concrete counterexample. This isolates and proves the load-bearing assumption that the trusted oracle can be invoked as a black-box service by untrusted orchestration without the orchestration acquiring any influence over the verdict. M0 establishes the independent-authority boundary as an executable interface: the orchestrator hands a contract and an implementation across the boundary and receives a verdict back, and nothing it does on its side of the boundary can change a \texttt{fail} into an \texttt{ok}. Because the underlying toolchain is already validated, M0 carries essentially no verification risk; its risk is purely in the interface, and proving the interface is the point.
+
+\paragraph{M1: synthesis loop against a fixed contract.} The second milestone exercises the CEGIS-shaped synthesis--verification loop in isolation, against a fixed, hand-written contract attached to a method class that the inferrer already verifies green. The synthesis agent emits an implementation; \texttt{verify} judges it; on failure the counterexample---a concrete witness, a strictly more informative signal than ``a test failed''~\cite{barr2015oracle}---is returned to the agent, which regenerates, capped at $N$ iterations. M1 de-risks the loop mechanics independently of the harder problem of producing a good contract: because the contract is fixed and known-dischargeable, any failure to converge is attributable to the synthesis agent or the loop plumbing, not to a defective oracle or an unverifiable specification. This is the cleanest possible test of the closed-loop claim, and it deliberately mirrors the CEGIS structure that the synthesis lineage established~\cite{solarlezama2008sketching,alur2013sygus}.
+
+\paragraph{M2: contract generation from natural language.} The third milestone introduces contract drafting. In the greenfield direction it generates a JML contract from NL intent by few-shot prompting an LLM, grounded in the author's own corpus of verified JML as exemplars---a use of in-context examples consistent with recent NL-to-specification work~\cite{endres2024nl2postcond,ma2025specgen,cosler2023nl2spec}. In the brownfield direction the JML-Inferrer supplies the code-derived draft directly, and the LLM's role narrows to reconciling that draft with the ticket and documentation streams. M2 de-risks the elaboration layer's tractability: it tests whether a draft contract good enough to enter the M1 loop can be produced at all, and it does so without yet requiring the contract to be correct, because every clause it produces is provenance-tagged and, absent human ratification, marked \emph{inferred-unconfirmed} or \emph{doc-stated} rather than treated as a trusted oracle.
+
+\paragraph{M3: conversational ratification.} The final milestone closes the loop on human authority by implementing the Socratic, decision-surfacing dialogue and the example-pinning ratification mechanism. Rather than asking the human to confirm formal text---the move that would make the ratification gap (\cref{sec:pipeline}) fatal---the orchestrator renders each contested clause as a concrete, checkable example (``given \texttt{x = -1}, this contract says the result is \texttt{0}; is that correct?'') and surfaces only the boundary decisions the drafting agent had to resolve: null versus empty, overflow, ordering, duplicates, error versus exception. Ratified examples become pinned oracles that the contract must continue to satisfy. M3 de-risks the one part of the architecture that cannot be validated by tooling alone, namely that a non-formalist human can exercise genuine authority over a formal contract by ratifying behaviour rather than logic.
+
+\subsection{Target method classes}
+\label{subsec:inst-targets}
+
+The instantiation deliberately begins with method classes that the inferrer already produces dischargeable specifications for, so that the early milestones test the loop and the dialogue rather than the open research problem of verification scalability. These are: null-safety and emptiness contracts, which dominate \texttt{StringUtils} and verify reliably; array-bounds obligations; simple arithmetic postconditions over primitives, as found across \texttt{NumberUtils}; and the loop patterns for which the inferrer already emits adequate invariants---maximum and minimum, linear search, and summation. \cref{lst:inst-target} shows a representative target: a null-and-bounds contract of the kind the inferrer generates and OpenJML discharges, and which therefore serves as a fixed, green starting point for the M1 synthesis loop.
+
+\begin{lstlisting}[style=code,caption={A representative green target: a null-and-bounds contract of the class the inferrer already discharges, used as the fixed contract for the M1 synthesis loop.},label={lst:inst-target}]
+//@ requires str != null;
+//@ requires 0 <= start && start <= str.length();
+//@ ensures \result != null;
+//@ ensures \result.length() == str.length() - start;
+public static String substring(String str, int start) { ... }
+\end{lstlisting}
+
+Confining the proof-of-concept to these classes is an honest scoping decision, not an evasion. The known decidability and scalability limits of the verifier---Z3 timeouts on multiplicative reasoning, array-theory queries, and rich preconditions---are real and documented in this programme, and the tiered-assurance mechanism of the architecture exists precisely to degrade gracefully when they bite. Starting from green method classes lets the instantiation validate the loop, the contract-drafting pipeline, and the ratification dialogue on solid ground, while the frontier-adoption strategy of \cref{sec:pipeline}---specify the module under change and the public API surface, treat the remainder as weakly defaulted---defines how the same machinery extends outward without pretending the whole library can be verified at once. What the instantiation establishes, accordingly, is feasibility and realism: that the reference architecture can be assembled from validated parts, exercised on a genuine three-stream corpus, and made to surface real code-versus-intent discrepancies, with full empirical validation on external production codebases and an industrial case study left, as \cref{sec:conclusion} sets out, to future work.

@@ -1,0 +1,88 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{The single-pass strategy is not subsuming}
+
+Our measurement settles a question the predecessor papers left open: the isolated-pass inferrer's \texttt{InterproceduralAnalyzer}~\cite{edmonds2026inference} does not capture what a compositional refinement would, on any of the five libraries we measured. Two structural shapes are out of reach by
+construction: branch-conditional implications that depend on the
+caller's control-flow context, and disjunctive obligations from
+polymorphic dispatch. The cross-library data shows these are not
+edge cases --- branch-conditional implications are the largest single
+shape of newly-added preconditions on Lang, IO, and Vavr, and a third
+or more on Math and jOOL; disjunctive shapes are present on every
+library and most prominent where interface inheritance runs deep
+(Vavr, 18.6\%).
+
+The implication for the inferrer's downstream consumers
+(test generators, IDEs, LLMs) is that running the second pass before
+emission delivers a measurably richer spec. Whether the additional
+clauses translate into stronger downstream behaviour (more bugs
+caught, fewer false positives in static analysis, better test
+inputs) is the empirical question for follow-up work; we report only
+that the gap exists and that it is structurally explainable.
+
+\subsection{Why the single pass already does so much}
+
+We also note what the single pass \emph{does} cover. The isolated
+baseline is already rich --- a substantial fraction of its clauses
+are interprocedural propagations the \texttt{InterproceduralAnalyzer}
+produces during isolated inference~\cite{edmonds2026embedding} --- yet
+the second pass adds 18{,}854 \emph{new} clauses on top of it: the
+single pass does the right thing on unguarded, single-candidate call
+sites, and the gap concentrates in the guarded and polymorphic cases.
+
+\subsection{Implications for analyser architecture}
+
+For inferrers that target downstream tools where richer specs help (deductive verification with KeY~\cite{key2016book} or OpenJML~\cite{openjml}, test generation with EvoSuite~\cite{fraser2011evosuite} or Randoop~\cite{pacheco2007randoop}, mutation-testing pipelines~\cite{coles2016pitest,papadakis2019mutation}, or LLM-driven consumers~\cite{schafer2023adaptive,lemieux2023codamosa,kang2023libro}), the second pass is worth integrating: an extra 50 seconds total across all five libraries for an average of 31.47\% of methods receiving refined specifications is a strong trade. For inferrers that target downstream tools that consume
+specs eagerly (auto-completion, hover text in an IDE), the
+runtime cost may not justify the extra clauses; the second pass
+is opt-in by design so deployers can choose.
+
+A single-pass pipeline could still recover the easy half of the
+gap: the branch-conditional shape only needs the enclosing guard of
+each call site, available during the AST walk the isolated pass
+already performs, so the substituted clause could be lifted through
+the guard before being added. The polymorphic-dispatch shape is
+harder to fold in, as it requires looking up sibling cache entries at
+the point of propagation --- exactly what the second pass does.
+
+\subsection{Scope of the result: precondition propagation versus class invariants}
+\label{sec:scope-invariants}
+
+The RQ3 finding --- that the second pass's fixpoint iteration never
+fires in practice (Section~\ref{sec:empirical}) --- is specific to
+\emph{precondition propagation along the call graph} and does not
+generalise to every specification a compositional inferrer produces.
+Class invariants are the sharpest boundary. The call-graph fixpoint
+stays cheap because callee preconditions flow one way, callee to
+caller, so reverse-topological order refines each in a single sweep
+and the cap (16) is never reached. A class invariant has no such
+acyclic structure: it is at once an assumption every method may use
+at entry and an obligation every method must re-establish at exit, so
+inferring it is a greatest-fixpoint --- weakening a candidate because
+one method violates it withdraws an assumption that \emph{other}
+methods, even ones with no call edge to the offender, relied upon.
+That iteration is driven by shared-invariant coupling, not the call
+graph, so ``the fixpoint never fires'' says nothing about it. Our
+\texttt{ClassInvariantInferrer} side-steps this by inferring
+invariants conservatively in a single local pass --- sound, but
+forgoing exactly those whose preservation depends on a callee's
+effect. Converging class invariants is thus a distinct contribution
+we leave to future work.
+
+\subsection{Limitations}
+
+The 453-line analyser is a scaffold, not a complete WP transformer.
+It does not lift through loops (the inferrer's loop-invariant
+analyser handles those in the isolated pass), does not reason about
+aliasing (the syntactic substitution treats two distinct names as
+distinct values), and does not interact with the SMT verifier that
+discharges the final clauses. These are the boundaries of the
+present contribution; the comprehensive WP transformer would be a
+substantially larger development.
+
+The 208-clause worst case (one jOOL method) sits in the deep
+generic-combinator hierarchy where many polymorphic and guarded call
+sites compound. Whether so large a spec is \emph{useful} downstream
+--- parsimonious enough to read, tight enough to inform --- we defer
+to the planned downstream-impact study.

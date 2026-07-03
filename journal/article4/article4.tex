@@ -1,0 +1,132 @@
+\documentclass[11pt]{article}
+
+% Wiley-style formatting (consistent with Article 1 and Article 2) — to be
+% swapped for wileyNJD-v2.cls before submission.
+\usepackage[margin=1in]{geometry}
+\usepackage{times}
+
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage[english]{babel}
+\usepackage[autostyle, english = american]{csquotes}
+\MakeOuterQuote{"}
+
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{cleveref}
+\usepackage{lineno}
+\usepackage{textcomp}
+
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codeblue}{rgb}{0.0,0.0,0.6}
+\definecolor{codegreen}{rgb}{0,0.5,0}
+
+\lstdefinestyle{code}{
+  basicstyle=\fontsize{8.5}{10}\selectfont\ttfamily,
+  numbers=none,
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  frame=single,
+  rulecolor=\color{black},
+  tabsize=2,
+  captionpos=b,
+  breaklines=true,
+  breakatwhitespace=true,
+  keywordstyle=\color{codeblue},
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{red},
+}
+\lstset{style=code}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape Edmonds and Utting}
+\fancyhead[R]{\small\itshape J. Softw. Evol. Process}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\begin{document}
+
+\linenumbers
+
+\noindent\textbf{RESEARCH ARTICLE}
+\vspace{1em}
+
+\begin{center}
+{\LARGE\bfseries Specification Inference in Continuous Integration:\\Design and a Reference Implementation}
+\vspace{1.5em}
+
+{\large Brendan Edmonds\textsuperscript{1}* \quad Mark Utting\textsuperscript{1}}
+\vspace{0.5em}
+
+{\small\textsuperscript{1}UQ Cyber, School of Electrical Engineering and Computer Science, University of Queensland, St Lucia QLD 4067, Australia}
+\vspace{0.5em}
+
+{\small *Correspondence: Brendan Edmonds, b.edmonds@uq.edu.au}
+\end{center}
+
+\vspace{1em}
+
+\noindent\textbf{Abstract}
+\vspace{0.5em}
+
+\noindent The first three articles in this thesis demonstrate that automatically inferred JML specifications materially improve LLM-based test generation (Article~1), can be embedded into compiled Java artefacts and OpenAPI documents at 100\% roundtrip fidelity (Article~2), and admit compositional refinement across method boundaries (Article~3). What remains is the question of \emph{deployment}: can the inference pipeline be integrated into a working Agile development workflow without introducing significant overhead or workflow disruption?
+
+This article presents a reference workflow design and a working implementation in three CI/CD systems --- GitHub Actions, GitLab CI, and Jenkins. The design rests on three principles: (i)~per-PR diff-only analysis with content-hash caching so unchanged methods are never re-analysed, (ii)~fail-open semantics so inference errors never block a merge, and (iii)~in-place PR comment updates so reviewers see one persistent inference summary rather than a comment trail. The reference implementation is provided as a CLI driver (\texttt{jml-ci}) plus three platform-specific workflow templates, all open-source.
+
+The article reports the design decisions and their rationale, the implementation surface and its test coverage, and a self-test in which the reference workflow is applied to the inferrer's own repository. Empirical evaluation against external production codebases is the planned follow-up; this article specifies the experimental design and identifies the metrics (build-time overhead, spec churn rate, cache hit rate, cumulative pipeline time) that the follow-up will report.
+
+\vspace{1em}
+
+\noindent\textbf{Keywords:} continuous integration; Agile development; JML; specification inference; GitHub Actions; GitLab CI; Jenkins; CI/CD pipelines
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\input{sections/introduction}
+\input{sections/reference_workflow}
+\input{sections/cli_design}
+\input{sections/platform_implementations}
+\input{sections/self_test}
+\input{sections/empirical_design}
+\input{sections/threats}
+\input{sections/related_work}
+\input{sections/conclusion}
+
+\section*{Data Accessibility}
+
+A complete replication package is available at \url{https://github.com/[anonymized]/jml-inferrer}, containing the CLI source, the GitHub Actions / GitLab CI / Jenkins workflow templates, the JSON schema for the inference and verification reports, and reproducibility scripts.
+
+\section*{Acknowledgments}
+
+This research was supported by the University of Queensland Cyber initiative.
+
+\section*{Conflict of Interest}
+
+The authors declare no conflict of interest.
+
+\section*{Author Contributions}
+
+\textbf{Brendan Edmonds}: Conceptualization, Methodology, Software, Validation, Investigation, Writing - Original Draft. \textbf{Mark Utting}: Conceptualization, Methodology, Writing - Review \& Editing, Supervision.
+
+\section*{ORCID}
+
+Brendan Edmonds \url{https://orcid.org/0000-0000-0000-0000}\\
+Mark Utting \url{https://orcid.org/0000-0000-0000-0000}
+
+\bibliographystyle{plainnat}
+\bibliography{../article1/references}
+
+\end{document}

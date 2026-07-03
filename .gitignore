@@ -34,23 +34,18 @@ hs_err_pid*
 # Claude Code
 .claude/
 
-# LaTeX build artifacts
+# Journal articles: track sources (.tex/.bib/.cls) + PDFs, ignore LaTeX build intermediates
 journal/**/*.aux
 journal/**/*.bbl
 journal/**/*.blg
-journal/**/*.fdb_latexmk
-journal/**/*.fls
 journal/**/*.out
-journal/**/*.synctex.gz
 journal/**/*.toc
 journal/**/*.lof
 journal/**/*.lot
-journal/**/*.nav
-journal/**/*.snm
-journal/**/*.vrb
-journal/**/*.log
+journal/**/*.fls
+journal/**/*.fdb_latexmk
+journal/**/*.synctex.gz
 journal/**/out/
-journal/**/*-diff-*.pdf
 
 # OpenJML tools and validation reports
 tools/

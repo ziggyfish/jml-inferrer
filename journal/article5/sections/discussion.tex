@@ -1,0 +1,194 @@
+\section{Discussion}\label{sec:discussion}
+
+The reference pipeline described in this article is not, in the first instance,
+a verification technique; it is a proposal to reorganise the software
+development \emph{process} around a machine-checkable specification. The
+technical mechanisms---inference, elaboration, the synthesis--verification
+loop, compositional propagation---are in service of a process change, and it is
+that change, rather than any single algorithm, that constitutes the
+article's central contribution to the software development process. This section therefore steps back from
+the architecture and asks what the lifecycle looks like once a formal contract
+layer sits at the pivot between human intent and machine output: what the unit
+of work becomes, where trust is anchored, how dependency evolution is handled,
+how the approach is adopted incrementally, and---honestly---where it will and
+will not repay the effort.
+
+\subsection{The process shift: from reviewing code to reviewing
+specifications}\label{subsec:disc-processshift}
+
+The most consequential implication is a relocation of the human review
+activity. In the prevailing process, the durable record of intent is the code
+itself, and quality control is exercised by reading code in review. When an
+agent can regenerate an implementation cheaply, the implementation becomes a
+disposable build output and the scarce, durable artefact is the contract it was
+built and verified against. Review then migrates up the stack: the reviewer
+inspects the \emph{specification delta}, not the diff of generated statements.
+This is a qualitatively easier object to reason about, because a contract states
+\emph{what} must hold over all inputs rather than \emph{how} one particular
+realisation computes it, and because the implementation has already been proved
+to satisfy whatever the contract says by OpenJML's extended static
+checking~\cite{cok2014openjml}, covering all inputs rather than the sampled
+inputs a test suite exercises.
+
+Correspondingly, the unit of change becomes a \emph{spec-delta plus a discharged
+proof obligation} rather than a code patch. A pull request in this model carries
+the changed obligations, their provenance and assurance tags, and the verifier's
+verdict that the new implementation satisfies them. The reviewer adjudicates the
+contract change---is this the behaviour we want?---and delegates the question of
+whether the code conforms to the verifier. This is the sense in which trust
+becomes \emph{transferable}. In conventional review, trust is established by a
+qualified human eyeballing the implementation, an act that does not compose and
+does not transfer: a reviewer's approval is an opinion, not a checkable artefact.
+When conformance is established by a discharged proof obligation, the trust is
+attached to the artefact and can be re-checked by anyone, including a machine.
+It is precisely this property that would let an agent merge its own work without
+a human in the conformance loop: not because the agent is trusted, but because
+its output carries an independently re-verifiable certificate that it satisfies a
+human-ratified contract. The human authority is exercised once, over the
+contract; it is not re-spent on every implementation.
+
+Two caveats keep this from becoming a slogan. First, transferable trust is only
+as strong as the contract: a discharged proof against a weak or wrong contract
+certifies nothing useful, which is why the independent-authority constraint and
+behaviour-level ratification described in the elaboration layer are load-bearing
+rather than decorative. Second, the verdict is honest only if it carries its
+assurance level. A merge gate must distinguish an obligation that was
+\texttt{proved} from one that was merely \texttt{bounded-checked} or
+\texttt{tested} after the proof timed out; the tiered-assurance tagging exists so
+that ``verified'' on a pull request is an auditable claim rather than a
+reassuring word.
+
+\subsection{Dependency evolution as a spec-diff event}\label{subsec:disc-depupgrade}
+
+The second process change follows from compositionality. Because contracts
+compose, a change to a callee's contract mechanically recomputes the proof
+obligations of its callers, and the verifier reports which callers no longer
+discharge---without executing any of them. Internal refactoring and external
+dependency upgrades are then the same operation viewed at different scopes: in
+both cases a callee specification moves and the blast radius is the set of call
+sites whose obligations break. This recasts the perennial and poorly served
+question ``which of my call sites does this library upgrade break
+behaviourally?'' as a first-class, answerable lifecycle event. The existing
+literature on breaking changes is overwhelmingly signature-level---tools such as
+APIDiff and the Maven-Central replication studies detect that a method's
+\emph{shape} changed~\cite{brito2018apidiff,ochoa2022breaking}---while the harder
+and more common problem is the \emph{behavioural} breaking change, where the
+signature is stable but the contract is not, and which the same line of work
+identifies as the dominant unsolved
+case~\cite{mostafa2017behavioral,jayasuriya2024understanding}. Semantic
+versioning encodes a promise about compatibility but cannot check
+it~\cite{preston2013semver,raemaekers2017semver}. A contract-diff over composed
+specifications turns that promise into a verification condition: an upgrade is
+behaviourally compatible for a given client exactly when the client's obligations
+still discharge against the new callee contract. This is the lifecycle
+expression of the thesis link, with the compositional refinement validated in
+our prior work~\cite{edmonds_article3} promoted from an offline corpus
+measurement to an online change-impact capability, and it is the point at which
+the formal-methods-adoption and library-compatibility strands of the programme
+meet in a single mechanism.
+
+\subsection{An adoption path that earns trust before it demands it}\label{subsec:disc-adoption}
+
+A reference architecture is worthless if it can only be entered greenfield, and
+the overwhelming majority of software is brownfield. The adoption path is
+therefore designed to be incremental along two axes. The first is
+\emph{scope}: verification does not scale to an entire legacy application, so the
+contract layer is introduced at a frontier---the module under active change, the
+public API surface, and the modules referenced by live tickets---while the
+remainder is treated as unspecified and governed only by weak inherited default
+contracts. The boundary contracts at this frontier are exactly where
+compositional propagation attaches, so the specified region can grow outward
+along call edges rather than requiring a big-bang formalization. The second axis
+is \emph{sequence}. The first pass over a brownfield codebase is
+\emph{retroactive}: the startup phase recovers a draft contract from the code,
+triangulates it against tickets and documentation, and surfaces the
+disagreements as candidate bugs and stale docs to be resolved with a human;
+only after this establishes a trusted baseline do \emph{prospective} passes
+introduce new behaviour. The tool thus earns its keep on existing code---finding
+real discrepancies in a system the team already owns---before it is permitted to
+change anything. Inherited default contracts carry much of the adoption burden:
+organisation-level policies (public methods reject null unless stated, monetary
+values are never negative, returned collections are never null) are specified
+once and inherited everywhere, so that the per-method ratification labor is
+spent only on departures from default. The human role, across all of this, moves
+up the stack: away from writing and reviewing implementations and toward
+adjudicating contracts, ratifying behaviour through concrete examples, and
+arbitrating the disagreements the triangulation surfaces.
+
+\subsection{What is genuinely novel}\label{subsec:disc-novelty}
+
+It is important to be precise about what distinguishes this proposal from the
+substantial bodies of work it builds on, because individually most of its
+ingredients are not new. Counterexample-guided synthesis is decades
+old~\cite{solarlezama2008sketching,alur2013sygus}; closed-loop verified code
+generation with a language model and a deductive verifier has recent and capable
+instances~\cite{sun2024clover,misu2024dafny,mugnier2025dafnypro}; specification
+inference, both dynamic and learned, is a mature
+field~\cite{ernst2007daikon,ma2025specgen,endres2024nl2postcond}; and
+spec-driven agentic lifecycles are emerging in
+industry~\cite{githubspeckit,awsaidlc,awskiro}. The novelty is not in any one of
+these but in three commitments that the emerging agentic lifecycles in
+particular do not make. The first is insistence on a \emph{machine-checkable}
+contract at the pivot, in place of the natural-language specification those
+lifecycles treat as ground truth; this is what closes the otherwise open
+generate-then-eyeball loop with a machine gate that ranges over all inputs. The
+second is the \emph{independent-authority constraint}: the contract a code is
+verified against must not be authored by the agent that wrote the code,
+dissolving the circularity that afflicts self-grading approaches where the same
+model produces an implementation and the tests that judge it---a hazard the
+test-oracle literature has begun to flag explicitly for LLM-generated
+oracles~\cite{liu2026oracle,barr2015oracle}. The third is the elaboration layer's
+treatment of the \emph{ratification gap}: rather than asking a human to confirm
+formal text they used natural language precisely to avoid, the contract is
+ratified at the level of behaviour through pinned, human-confirmed examples, and
+its strength is policed by an adversarial elaborator that hunts for scenarios
+consistent with the stated intent yet permitted by an over-weak contract. The
+combination---a verification spine, an authority separation, and a
+behaviour-level human gate---is, to our knowledge, not assembled in prior agentic
+or spec-driven work, and it is that assembly, instantiated on validated
+components, that constitutes the contribution.
+
+\subsection{Where the approach will and will not pay off}\label{subsec:disc-payoff}
+
+Candor about applicability is owed to the reader, both because the claim of this
+article is feasibility rather than measured effect and because the failure modes
+are predictable. The approach pays off where behaviour is precisely statable and
+mechanically checkable: data-structure and library code, numeric and bounds
+contracts, null- and emptiness-discipline, and the loop patterns---maximum,
+minimum, linear search, summation---for which the inference instrument already
+produces discharging invariants. These are the method classes that verify green
+today and the natural first targets for instantiation. It pays off least where
+intent resists formalization (subjective or aesthetic requirements, distributed
+and timing-dependent behaviour, performance properties outside a functional
+contract) and where the underlying decision procedures do not terminate; the
+Z3-bound timeouts on multiplicative reasoning, array theory, and rich
+preconditions observed across our verification corpus are real, known, and not
+papered over---they are precisely the cases the tiered-assurance mechanism exists
+to degrade gracefully rather than to deny.
+
+Several limitations bear directly on the process claims above and must be stated
+plainly. Inferred contracts skew weak, describing what code does rather than
+what it should, so ratification is genuine human labor; the mitigation is
+inherited defaults plus API-surface prioritisation, not an assertion that the
+labor disappears. Inferred contracts are sometimes wrong or over-strong, which
+manifests as false candidate bugs; this is why every recovered clause is offered
+as a \emph{candidate} and why human ratification, not the inference, owns the
+truth. Translating ticket and documentation intent into formal clauses without a
+human is imperfect, so those clauses remain unconfirmed and drive the dialogue
+rather than gating it, and linking tickets and docs to code is noisy enough that
+it is credible only over a curated module rather than a whole repository. Above
+all, a wrong contract verified against is worse than no contract, because it
+launders an error into a proof; this single observation is why the independent
+authority and behavioural ratification are not optional refinements but the load
+bearing structure of the whole proposal. Finally, what verification establishes
+over a brownfield codebase must not be overstated: proving code against a
+code-derived contract is characterisation---a faithful-description baseline and a
+toolchain sanity check---and is nearly circular; it does not prove the absence of
+bugs. Correctness relative to intent emerges only from the ticket and
+documentation streams and the human ratification on top of them, and bugs appear
+as \emph{disagreements} between what the code does and what those streams say it
+should. The full empirical adjudication of these claims on external production
+codebases, including an industrial action-research case study under appropriate
+ethics review, is future work; this article claims that the architecture is
+realistic and instantiable on validated components, not that its benefits have
+yet been measured at scale.

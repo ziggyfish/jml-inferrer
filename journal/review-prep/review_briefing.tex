@@ -1,0 +1,1177 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{times}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage[most]{tcolorbox}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+\definecolor{warnbg}{RGB}{255,243,205}
+\definecolor{warnframe}{RGB}{180,140,0}
+\definecolor{okbg}{RGB}{223,240,216}
+\definecolor{okframe}{RGB}{60,118,61}
+\definecolor{qbg}{RGB}{226,235,250}
+\definecolor{qframe}{RGB}{40,80,160}
+
+\newtcolorbox{redflagbox}[1]{colback=warnbg,colframe=warnframe,boxrule=0.6pt,
+  arc=2pt,left=5pt,right=5pt,top=4pt,bottom=4pt,fonttitle=\bfseries,title={#1}}
+\newtcolorbox{okboxx}[1]{colback=okbg,colframe=okframe,boxrule=0.6pt,
+  arc=2pt,left=5pt,right=5pt,top=4pt,bottom=4pt,fonttitle=\bfseries,title={#1}}
+\newtcolorbox{qbox}[1]{colback=qbg,colframe=qframe,boxrule=0.6pt,
+  arc=2pt,left=5pt,right=5pt,top=4pt,bottom=4pt,fonttitle=\bfseries,title={#1}}
+
+\titleformat{\section}{\large\bfseries}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.7em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{\thesubsubsection}{0.7em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape Review Briefing --- Articles 1 \& 3}
+\fancyhead[R]{\small\itshape Confidential / internal}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parskip}{0.4em}
+\setlength{\parindent}{0pt}
+
+\title{\vspace{-2.5em}\textbf{PhD Review Briefing}\\[0.3em]
+\large Everything to Know About Article~1 and Article~3\\[0.2em]
+\normalsize Prepared for the review meeting, Thursday (week of 22 June 2026)}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+\vspace{-3em}
+
+\tableofcontents
+\vspace{1em}
+\hrule
+
+%==================================================================
+\section{How to use this document}
+
+This is a deep-prep brief for the review panel meeting --- intended to be
+read end-to-end the night before, with the cheat sheet
+(Section~\ref{sec:cheat}) and the mock-defence drill (Section~\ref{sec:drill})
+revisited on the morning of. It is built entirely from the current sources in
+\texttt{journal/article1/} and \texttt{journal/article3/}; every number is
+traceable to those files.
+
+Reading order if you are short on time: Section~\ref{sec:thesis} (thesis
+spine), Section~\ref{sec:weak} (must-fix items), Section~\ref{sec:drill}
+(rapid-fire defence), Section~\ref{sec:cheat} (numbers). Read
+Sections~\ref{sec:a1}--\ref{sec:a3} in full if you want to be able to defend
+\emph{any} methodological detail.
+
+%==================================================================
+\section{The thesis spine (say this first)}
+\label{sec:thesis}
+
+The research programme has two long-term claims, and every paper is a
+load-bearing piece of one or both:
+
+\begin{enumerate}[leftmargin=1.6em,itemsep=0.2em]
+  \item \textbf{Adoption.} Formal specifications solve the oracle problem, but
+        nobody writes them because they are expensive (manual specification is
+        $\approx$50\% of effort in large verification case studies). If we can
+        \emph{infer} specifications automatically and show they deliver
+        concrete downstream value, we lower the adoption barrier.
+  \item \textbf{Library compatibility via compositional specs.} Inferred
+        specifications act as callee summaries. When a library changes, a
+        change to a callee's specification implies a change to the
+        specification of every caller that depends on it --- so you check the
+        affected call sites instead of re-verifying the whole program.
+\end{enumerate}
+
+\textbf{One-sentence framing:} ``I infer JML specifications heuristically, and
+I am demonstrating that those inferred specifications are (a) verifiable,
+(b) useful to downstream tools, and (c) compositional enough to drive
+library-compatibility checking.''
+
+\textbf{The three downstream uses (from Article~1's introduction)} --- keep
+these straight, the panel will probe which is proven and which is future work:
+\begin{enumerate}[leftmargin=1.6em,itemsep=0.1em]
+  \item Stronger LLM test oracles --- \emph{proven in Article~1}.
+  \item Compositional verification of callers / library compatibility --- the
+        \emph{mechanism is Article~3}; the checker itself is future work.
+  \item Machine-readable contracts for AI coding agents over post-cut-off
+        libraries --- \emph{future work}.
+\end{enumerate}
+
+\textbf{The arc between the papers.} Article~1 = specs are verifiable and pay
+off downstream. Article~3 = the inference itself must be \emph{compositional}
+to be complete, and that compositionality is what makes library-compatibility
+checking possible. Article~3's single-pass baseline is exactly Article~1's
+\texttt{InterproceduralAnalyzer}; Article~3 is the natural follow-up to a
+limitation implicit in Article~1.
+
+%==================================================================
+\section{Why this matters now: AI and the changing nature of software}
+\label{sec:aiswe}
+
+This is your ``why now'' framing --- and it is the strongest motivation your
+thesis has. The more code AI writes, the more acute the oracle problem becomes,
+because AI generates code \emph{without a statement of what it is supposed to
+do}. Automatically inferred, machine-checkable specifications are exactly the
+missing artefact. Lead with this when asked why the work is timely.
+
+\subsection{The landscape (citable figures, 2025--2026)}
+\begin{itemize}[leftmargin=1.4em,itemsep=0.1em]
+  \item \textbf{Adoption is near-universal.} The Stack Overflow 2025 Developer
+        Survey reports $\approx$84\% of developers using or planning to use AI
+        tools, and $\approx$51\% of professional developers using them daily.
+        GitHub Copilot reached $\approx$20M users by mid-2025 and is used by
+        $\approx$90\% of Fortune 100 companies.
+  \item \textbf{A large, fast-growing share of new code is AI-generated.}
+        Microsoft (Nadella) and Google (Pichai) have publicly stated AI writes
+        $\approx$20--30\% of their code, with later Google statements citing
+        higher figures; industry/vendor estimates put AI's share of all new
+        code in the 40--46\% range. Meta and others have set internal targets
+        for the majority of committed code to be AI-assisted by 2026.
+  \item \textbf{But humans are increasingly out of the writing loop, not the
+        \emph{checking} loop.} Only $\approx$30\% of AI-suggested code is
+        accepted as-is; developer trust in AI accuracy has \emph{fallen}
+        (Stack Overflow: $\approx$40\% to $\approx$29\% year-on-year); the
+        single biggest frustration ($\approx$66\%) is ``AI solutions that are
+        almost right, but not quite,'' and the second is that debugging
+        AI-generated code is more time-consuming.
+\end{itemize}
+
+\begin{okboxx}{The thesis tie-in (say this --- it is the whole point)}
+The reported failure modes of AI-written code --- ``almost right but not quite,''
+harder debugging, falling trust, low accept rates --- are \emph{the oracle
+problem at industrial scale}. AI produces plausible code with no specification
+of intent, so you cannot mechanically tell correct from merely plausible. My
+work supplies the missing piece three ways: (1) inferred specs are stronger
+\emph{oracles} for testing AI-written code (Article~1); (2) they are the
+\emph{callee summaries} compositional verification needs when an AI changes one
+method in a dependency graph (Article~3); and (3) they are the
+\emph{machine-readable contracts} an AI coding agent can consume for a library
+that postdates its training cut-off --- which it otherwise has no model of. As
+more code is machine-written, automatically inferred, verifiable specifications
+move from convenience to necessity.
+\end{okboxx}
+
+\begin{redflagbox}{Trap warning --- do not assert ``most code isn't written by humans''}
+The literal claim that \emph{most} code is now written by AI is \emph{not}
+robustly established, and a hostile examiner will demand a source and then
+dismantle an overstatement. What you can defend: AI \emph{assists} the large
+majority of developers, and a \emph{large and rapidly growing share of new
+code} is AI-generated (CEO-reported 25--50\%+, vendor-estimated $\approx$40\%) ---
+but these are mostly self-reported corporate or vendor figures, loosely defined
+(``written with AI'' conflates autocomplete, suggestion, and full generation),
+and not peer-reviewed measurement. Say ``a large and growing fraction of new
+code is now machine-generated, and adoption is near-universal,'' cite Stack
+Overflow 2025 for adoption, attribute the share figures to their sources as
+\emph{claims}, and pivot immediately to the oracle-problem consequence --- which
+holds at \emph{any} of these percentages and is the part that matters for your
+work.
+\end{redflagbox}
+
+%==================================================================
+\section{Article 1 --- ``Do JML Specifications Help LLMs Write Better Unit Tests?''}
+\label{sec:a1}
+
+\textbf{Venue:} Journal of Software: Evolution and Process (Wiley/JSEP),
+research article. \textbf{Authors:} Edmonds \& Utting. \textbf{Status:}
+submission-ready bar one internal inconsistency (Section~\ref{sec:weak}, \#1).
+
+\subsection{The question and why it matters}
+
+LLMs write plausible unit tests from a signature, but without an oracle the
+tests assert what the code \emph{does}, not what it \emph{should} do --- the
+\emph{oracle problem}. Konstantinou et al.\ show empirically that LLM oracles
+encode actual (often buggy) behaviour. Formal specs are the classical answer
+but are too costly to write by hand. So the empirical question is practical:
+\emph{does giving the model an inferred specification measurably improve the
+tests it writes?} Quality is measured by mutation testing (PIT), the objective
+dependent variable.
+
+\subsection{Theoretical background --- what counts as a specification}
+
+The specs are organised by the two classical directions of program reasoning;
+be ready to explain both:
+\begin{itemize}[leftmargin=1.4em,itemsep=0.1em]
+  \item \textbf{Weakest precondition (WP)} (Dijkstra): for statement $S$ and
+        postcondition $Q$, $\mathrm{WP}(S,Q)$ is the weakest entry predicate
+        guaranteeing $Q$ on termination. \emph{Preconditions} are derived this
+        way: a guard-and-throw idiom \texttt{if (G) throw} contributes
+        $\neg G$ as a \texttt{requires} clause; range checks give two
+        conjuncts; null guards give non-nullness; dereferences contribute
+        definedness conditions.
+  \item \textbf{Strongest postcondition (SP)} (Hoare/Cousot): for precondition
+        $P$, $\mathrm{SP}(S,P)$ is the strongest exit predicate. Each
+        \texttt{return e} gives $\backslash$\texttt{result == e}; each field
+        assign \texttt{this.f = e} gives \texttt{this.f == e} with field refs
+        wrapped in $\backslash$\texttt{old()}.
+  \item \textbf{Key design choice to defend:} branching is emitted as a
+        \emph{guarded conjunction} $(C \Rightarrow r_1) \land (\neg C
+        \Rightarrow r_2)$ rather than a monolithic disjunction, so each clause
+        discharges independently. Conditions that merely branch (both sides
+        return) yield \emph{no} precondition --- that filter stops internal
+        control flow being mistaken for a contract requirement.
+  \item \textbf{Loops} are where syntax alone is incomplete: the WP of a
+        \texttt{while} needs an invariant no syntactic procedure can derive.
+        Handled by four heuristics (below).
+  \item \textbf{Soundness is recovered \emph{a posteriori}}: the WP/SP framing
+        says \emph{what} to look for, not that each clause is sound; OpenJML
+        ESC discharges every emitted clause and flags failures.
+\end{itemize}
+
+\subsection{The inference instrument (JML-Inferrer)}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=0.1em]
+  \item Java 21, $\approx$20{,}000 LOC, JavaParser AST, visitor pattern.
+        Three phases: parse $\to$ infer (the core) $\to$ format as JML.
+        $\approx$88 ms/file; Apache 2.0 licence.
+  \item \textbf{Loop invariants} via four complementary heuristics:
+        bound-based (counter loops), accumulator-pattern detection,
+        monotonicity from update expressions, and bounded symbolic unrolling
+        (3 iterations) as fallback; a conservative weak invariant if all fail.
+        Non-trivial-invariant rate 85.3\% over 68 loops.
+  \item \textbf{Interprocedural propagation:} two passes --- analyse in
+        dependency order and cache each spec, then propagate across call sites
+        by formal-to-actual substitution. Standard-library calls resolve
+        against a curated spec database (\texttt{String}, \texttt{Math},
+        \texttt{List}, \texttt{Map}); unknown calls are uninterpreted
+        (conservative). \emph{This single-pass propagation is exactly what
+        Article~3 shows is incomplete.}
+  \item \textbf{Soundness gating:} heuristics unsound under two's-complement
+        (e.g.\ $\backslash$\texttt{result} $\ge 0$ for $x*x$ or
+        \texttt{Math.abs} on \texttt{int}/\texttt{long}) are gated by return
+        type.
+  \item \textbf{Verification stack:} forked OpenJML emitting SMT-LIB
+        \texttt{define-fun-rec} for $\backslash$\texttt{sum},
+        $\backslash$\texttt{product}, $\backslash$\texttt{num\_of} (upstream
+        reports these ``not yet supported''). Strictness fixed at four flags:
+        \texttt{--code-math=safe}, \texttt{--spec-math=bigint},
+        \texttt{--arithmetic-failure=hard}, \texttt{--nullable-by-default}.
+        Default solver z3~4.13.4 (4.7.1 and 4.16.0 selectable). cvc5 available
+        but not default (non-termination on the preamble).
+\end{itemize}
+
+\subsection{Probe-and-backport development methodology}
+
+This is a genuine methodological contribution; expect questions on what makes
+it different from ``just ask an LLM.'' Four steps, applied per unrecognised
+pattern:
+\begin{enumerate}[leftmargin=1.6em,itemsep=0.05em]
+  \item \emph{Specify by example} --- reduce the failing pattern to a minimal
+        method; LLM (or author) drafts candidate JML.
+  \item \emph{Verify with the SMT oracle} --- OpenJML ESC discharges or
+        rejects each clause under the fixed strictness; the verifier is a
+        \emph{non-negotiable filter} (a clause the LLM finds plausible but Z3
+        rejects never enters the corpus).
+  \item \emph{Encode as a probe test} --- the minimal method + discharged
+        contract is pinned in the regression suite (576 tests at submission).
+  \item \emph{Backport via an agentic coding assistant} --- the agent extends
+        the right analyser until the probe passes with no regression (strictness
+        fixed, so every regression is real).
+\end{enumerate}
+\textbf{Headline of the loop:} reduced the end-to-end suite from 188 failing
+to 86 of 576 (pass rate 67.3\% $\to$ 85.1\%). The verifier-in-the-loop is the
+load-bearing element distinguishing it from direct LLM inference (which shows
+only 72.4\% run-to-run consistency). \emph{Note:} this is a dev-tool workflow,
+distinct from LLM-at-inference-time (which is deferred).
+
+\subsection{Experimental design (memorise this)}
+
+Controlled four-phase comparison on \textbf{312 methods} from Apache Commons
+Lang~3.14 (11 classes), holding the model fixed and varying \emph{only} the
+input:
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item \textbf{P1} --- signature alone (baseline).
+  \item \textbf{P2} --- signature + a \emph{method-agnostic} edge-case
+        checklist (same block for every method: nulls, empty/min/max
+        collections, numeric boundaries, FP specials, unicode, overflow
+        combos).
+  \item \textbf{P3} --- signature + inferred JML specification (the treatment).
+  \item \textbf{P4} --- full source code (upper-bound baseline).
+\end{itemize}
+\textbf{Why P2 exists:} it is the control for the alternative hypothesis that
+\emph{any} structured guidance, not specifications specifically, raises
+mutation score. If a generic checklist matched P3, the spec contribution would
+be indistinguishable from any structured prompt.
+
+\textbf{Worked example} (\texttt{MutableInt.add(Number)}): P1 = bare
+signature; P3 adds \texttt{requires operand != null; assignable this.value;
+ensures this.value == \textbackslash old(this.value) + operand.intValue();};
+P4 = the two-line body. Signature held constant across phases.
+
+\textbf{LLM config:} Gemini 2.0, temperature 0.3, max tokens 4{,}096,
+top-$p$ 0.95, \textbf{5 runs} per method per phase $=$ 6{,}240 generations
+($\approx$25{,}000 incl.\ pilot tuning).
+
+\subsection{Metrics and statistics}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item \textbf{Spec quality:} OpenJML discharge rate; coverage rate; strength
+        (strong = both sides non-trivial, partial = one, weak = neither).
+  \item \textbf{Test quality:} test count, compile rate, pass rate, mutation
+        score via \textbf{PIT 1.15.3}, \texttt{DEFAULTS} operator group
+        (conditionals-boundary, increments, invert-negs, math,
+        negate-conditionals, return-vals, void-calls, and the *-returns set),
+        10 s per-test timeout. Residual equivalent-mutant rate estimated 4.7\%
+        (Papadakis sampling, dual-rater, $\kappa = 0.83$).
+  \item \textbf{Statistics:} mean/SD/median/IQR + 95\% bootstrap CIs
+        (10{,}000 iters); paired $t$-tests (Wilcoxon signed-rank corroboration
+        for non-normal samples); Cohen's $d$ effect size; \textbf{Bonferroni}
+        across 24 contrasts (6 pairwise $\times$ 4 metrics), per-test
+        $\alpha' \approx 0.0021$. Post-hoc power $> 0.999$ on the P1-vs-P3
+        mutation contrast (min detectable effect 2.2 pp; observed 40.7 pp).
+  \item \textbf{Categorisation:} six categories extending Dragan et al.'s
+        stereotypes; inter-rater $\kappa = 0.87$.
+\end{itemize}
+
+\subsection{Results in detail}
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Metric (mean per method)} & \textbf{P1} & \textbf{P2} & \textbf{P3} & \textbf{P4}\\
+\midrule
+Tests generated      & 9.0  & 38.0 & 33.5 & 54.7\\
+Mutation score (\%)  & 27.5 & 81.8 & 68.2 & 94.8\\
+Compile rate (\%)    & 89.2 & 87.8 & 91.5 & 93.2\\
+Pass rate (\%)       & 94.1 & 92.3 & 96.8 & 97.1\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item Test count: \textbf{+272\%} P3 over P1 (95\% CI $[245,299]$).
+  \item Mutation: \textbf{+40.7 pp} P3 over P1 ($68.2-27.5$; $p<0.001$,
+        Cohen's $d=2.41$, CI $[2.08,2.79]$).
+  \item P3 closes $\approx$\textbf{60\%} of the sig-to-source gap
+        ($(68.2-27.5)/(94.8-27.5)$) in $\approx$an order of magnitude smaller
+        input (5--12 lines JML vs.\ 30--150 lines of body). Residual 26.6 pp
+        gap to P4 is because source effectively hands over the oracle.
+  \item \textbf{Category gains (P1$\to$P3):} Control +47.1, Utility +40.6,
+        State +36.6, Factory +19.5, Acc/Mut +19.1 pp. Looping methods with a
+        non-trivial invariant score 72.4\% vs.\ 54.1\% without.
+  \item \textbf{Engine:} 99.0\% coverage (309/312; Jdoctor 45.2\%); 100\%
+        determinism vs.\ 72.4\% direct-LLM; OpenJML discharges 92.9\% of 985
+        clauses (pre 94.9\%, post 85.9\%, loop-inv 81.1\%, assignable 100\%).
+\end{itemize}
+
+\subsection{Threats to validity (rehearse these)}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item \emph{Internal:} sampling non-determinism (5 runs + low temp); prompt
+        confounding (minimal prompts, P4 control). Spec oracle is the verifier,
+        not human judgement --- so numbers mean ``consistent with the
+        implementation,'' not ``matches documented intent.''
+  \item \emph{External:} single library (Commons Lang), mature/well-structured
+        so may flatter the approach; \emph{other} category (callbacks/IO) has 0
+        methods; single LLM (Gemini 2.0, budget reason); Java-only. Defence:
+        P1$\to$P3 gain (27.5$\to$68.2) is inconsistent with mere training-set
+        recall (else P1 would already $\approx$ P4); literature reports
+        consistent qualitative ordering across GPT/Claude/Gemini.
+  \item \emph{Construct:} mutation-testing limits (equivalent mutants, operator
+        representativeness); spec oracle = implementation, so for contracts
+        weaker than the code (\textbf{sort stability for duplicates} is the
+        canonical case) the inferred spec is sound-but-over-specified.
+  \item \emph{Conclusion:} Bonferroni-corrected; power $>0.999$.
+  \item \textbf{Three categorical non-discharge limits} (the 7.1\% residue ---
+        know these cold): (i) recursive multiplicative growth (factorial,
+        Fibonacci, power --- emitted with literal small-input bounds like
+        \texttt{n <= 12}); (ii) quantified invariants over mutable arrays
+        (\texttt{arr[i] *= factor} --- Z3 array-theory, 240 s timeout);
+        (iii) OpenJML for-each translation hides \texttt{val == arr[count]}.
+        These are SMT/JML-translation limits, \emph{not} inferrer unsoundness.
+\end{itemize}
+
+\subsection{Related-work positioning (the ``why is this novel'' answer)}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item \emph{vs.\ Houdini:} Houdini guesses from fixed templates and prunes
+        with ESC/Java; we replace the template guess with WP/SP-organised
+        structural pattern matching and extend the oracle to OpenJML with
+        quantifier support.
+  \item \emph{vs.\ Daikon / PreInfer:} dynamic, need test suites/execution
+        traces and give ``likely'' invariants; we are purely static (any
+        compilable Java, no tests).
+  \item \emph{vs.\ Toradocu / Jdoctor:} documentation-based; effective only
+        where Javadoc is thorough. Complementary --- Jdoctor finds 25
+        exception preconditions we miss; we find 37 it misses.
+  \item \emph{vs.\ direct LLM inference (SpecGen, Endres, Teuber\&Beckert):}
+        we are deterministic (100\% vs.\ 72.4\% consistency) and verifier-gated.
+  \item \emph{vs.\ TOGA/TOGLL, EvoSuite/Randoop/Korat:} those \emph{consume}
+        specs (or learn oracles from corpora); we \emph{infer} the specs they
+        need --- the complementary upstream half of the pipeline.
+  \item \emph{Calibration point:} Molinelli et al.\ report LLM oracles at 43\%
+        mutation vs.\ 45\% human; Sch\"afer et al.\ report 70\% compile rate
+        (we raise to 91.5\%).
+\end{itemize}
+
+%==================================================================
+\section{Article 3 --- ``Does Compositional Refinement Strictly Extend Heuristic Specification Inference?''}
+\label{sec:a3}
+
+\textbf{Venue:} targeting \textbf{ICSE 2027} (IEEEtran conference, double-blind);
+SANER is the realistic fallback (body is SANER-sized, tight for ICSE's
+10-page limit). \textbf{Type:} measurement study.
+
+\subsection{The question and why it matters}
+
+Most inferrers fold in cross-method information by \emph{single-pass
+propagation}: at each call site substitute the callee's cached preconditions
+and append them. The question: \emph{is that single pass already enough, or
+does a second, top-down WP refinement pass discover preconditions the single
+pass cannot?} If single-pass suffices, the second pass is wasted engineering;
+if not, downstream consumers get a richer spec.
+
+\subsection{Where the single pass is blind (+ motivating example)}
+
+Single-pass is correct for unconditional callee requirements but structurally
+blind to two shapes:
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item \textbf{Branch-conditional obligations.} A call \texttt{n(args)} guarded
+        by \texttt{if (g)} means the caller's obligation is
+        \texttt{g ==> p[args]}, not \texttt{p[args]}. Single-pass either
+        appends unconditionally (over-constrains) or skips (misses it) --- both
+        wrong.
+  \item \textbf{Polymorphic-dispatch obligations.} For \texttt{x.n()} with
+        multiple implementations, the sound caller precondition is the
+        \emph{disjunction} \texttt{(p\_1 || ... || p\_k)} over candidates ---
+        single-pass resolves one nominal callee and cannot produce it.
+\end{itemize}
+\textbf{Motivating example:} \texttt{scale} calls \texttt{safeDivide(value,
+factor)} (which \texttt{requires divisor != 0}) only inside \texttt{if (factor
+!= 0)}. Appending \texttt{factor != 0} would forbid the \texttt{scale(value,0)}
+call the method explicitly handles; skipping loses the obligation. The
+compositional pass lifts through the guard to the correct branch-conditional
+clause. A non-tautological corpus case: a call requiring a non-empty list
+guarded by a size check yields \texttt{size > 0 ==> list.size() > 0}.
+
+\subsection{The algorithm (be ready to whiteboard this)}
+
+\textbf{Inputs:} a populated \texttt{SpecificationCache}, the call graph, and
+a signature$\to$AST map. Mutates the cache in place.
+
+\textbf{Driver.} Iterate strongly-connected components (SCCs) of the call graph
+in \emph{reverse topological order} so callees refine before callers.
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item Singleton SCC (no recursion): refine once. On an acyclic graph a single
+        reverse-topological sweep suffices --- each callee precedes its
+        callers, so no clause it gains can invalidate an already-visited caller.
+  \item Cyclic SCC (mutual recursion): refine each method, repeat to fixpoint
+        (cap 16 iterations). Terminates because each method's clause set only
+        grows and is bounded by the finitely many substituted callee clauses;
+        the cap only guards pathological nesting, not non-termination.
+\end{itemize}
+
+\textbf{Per-method refinement} --- for each \texttt{MethodCallExpr} in the
+body:
+\begin{enumerate}[leftmargin=1.6em,itemsep=0.05em]
+  \item \emph{Resolve the callee} by simple-name match (no full type harness ---
+        a documented measurement limitation).
+  \item \emph{Substitute arguments} (regex with word boundaries so formal
+        \texttt{s} doesn't clobber \texttt{this.size}); reject side-effecting
+        actuals (\texttt{++}, \texttt{--}) as unsound.
+  \item \emph{Lift through enclosing guards} --- accumulate the conjunction of
+        \texttt{if}/ternary conditions containing the call; emit
+        \texttt{(guard) ==> (substituted)}; \texttt{else} branch contributes
+        \texttt{!(guard)}; side-effecting guards rejected.
+  \item \emph{Detect polymorphic dispatch} via the class-hierarchy index; emit
+        the disjunction over candidates (sound: at least one contract must
+        hold for dispatch to be safe).
+  \item \emph{Conjoin} the lifted clause into the caller's set if not present.
+\end{enumerate}
+\textbf{Termination-aware postcondition propagation:} the callee's
+postconditions propagate into the caller \emph{only if} the callee terminates
+(a flag the inferrer maintains) --- a non-terminating callee's postcondition
+holds only \emph{if} it returns.
+
+\textbf{What it is / is not:} a \emph{lifting scaffold} over the single-pass
+result, not a full WP transformer. It does \emph{not} compute WP through
+arithmetic/array statements, handle aliasing, lift through loops, or run SMT ---
+each is handled elsewhere in the pipeline.
+
+\subsection{Implementation and the two bugs}
+
+$\approx$410-line \texttt{CompositionalAnalyzer}, opt-in, depends only on the
+existing model + JavaParser. A 15-test unit suite passed; the corpus-scale run
+surfaced two real bugs --- both a \texttt{lastIndexOf('.')} that took the
+rightmost dot (which falls inside dotted parameter types like
+\texttt{java.lang.String}) in the polymorphic-candidate lookup and the
+call-site resolver. Use this as a \emph{methodological strength}: ``the corpus
+run finds bugs the unit suite misses.''
+
+\subsection{Corpus, method, and results}
+
+\textbf{Corpus:} five libraries, four idiom families --- Commons Lang 3.14.0
+(3{,}494 methods), Commons IO 2.13.0 (2{,}111), Commons Math 3.6.1 (6{,}645),
+jOOL 0.9.14 (3{,}691), Vavr 0.10.4 (5{,}111). Total \textbf{1{,}712 files,
+21{,}052 methods}. Lang+IO match the predecessor work (no corpus confound).
+Harness: parse $\to$ build call graph $\to$ run isolated inference (snapshot
+baseline) $\to$ \texttt{refineAll()} $\to$ diff and categorise each new clause.
+
+\begin{center}
+\begin{tabular}{lccccc}
+\toprule
+ & \textbf{Lang} & \textbf{IO} & \textbf{Math} & \textbf{jOOL} & \textbf{Vavr}\\
+\midrule
+Methods in cache        & 3{,}494 & 2{,}111 & 6{,}645 & 3{,}691 & 5{,}111\\
+Methods refined         & 1{,}513 & 750     & 2{,}417 & 862     & 1{,}728\\
+\% of cache             & 43.3 & 35.5 & 36.4 & 23.4 & 33.8\\
+New precond.\ clauses   & 5{,}755 & 1{,}983 & 27{,}240 & 7{,}309 & 3{,}453\\
+avg / refined method    & 5.06 & 3.86 & 14.47 & 9.52 & 2.82\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item \textbf{RQ1:} strictly extends on \emph{every} library --- refines
+        23--43\% of methods (median 35.53\%), adds \textbf{45{,}740}
+        preconditions and 24{,}895 postconditions. Single-pass not subsuming
+        anywhere. Means are modest (not driven by a few huge methods; maxima
+        710/216/208/177/41 are deep-tail outliers).
+  \item \textbf{RQ2 (shape distribution):} branch-conditional
+        (\texttt{==>}) dominant on 4/5 libraries (Lang 57.8, IO 45.9, Math
+        67.1, Vavr 56.2\%); jOOL is the exception (null checks 69.8\%,
+        branch-conditional still 26.0\%). Disjunctive (polymorphic) on every
+        library, up to 9.8\% (Vavr). Both shapes structurally outside
+        single-pass reach.
+  \item \textbf{RQ3:} 34 s total (1.62 ms/method); no SCC hit the fixpoint cap
+        (call graphs acyclic under signature-matching). Per-library refine ms:
+        Lang 2{,}164, IO 664, Math 13{,}414, jOOL 2{,}791, Vavr 15{,}039.
+  \item \textbf{Downstream probe (preliminary):} P3 (isolated spec) vs.\ P3C
+        (refined spec) into gemini-2.5-flash, 11-class Commons Lang subset,
+        temp 0.3, 5 runs. Mean test count +9.1\% (8 extractable classes, 6/8
+        favour P3C); biggest gains on validation-heavy classes (\texttt{Validate}
+        +54.8\%, \texttt{BooleanUtils} +27.5\%); one regression
+        (\texttt{CharUtils} $-23\%$). No mutation score; tests didn't compile.
+        \emph{Report as non-zero signal only.}
+\end{itemize}
+
+\subsection{The version-step instance (your thesis link --- emphasise this)}
+
+Commons Lang 3.12.0 $\to$ 3.14.0, diffing inferred specs over the 3{,}188
+methods common to both: \textbf{525 changed} (16.5\%), of which \textbf{144
+have strengthened preconditions}, 87 weakened, 90 mixed (plus postcondition
+changes). This is exactly the ``candidate-breaking set'' a behavioural-
+compatibility checker consumes --- callee changes propagating into caller
+specifications on a real two-year version step. Spot check: a mix of real
+tightenings (added non-null guards on \texttt{CharRange}, \texttt{CharSet},
+\texttt{Builder} fields) and inferrer noise; full release-note validation is a
+separate study, but the set is the right size/shape to make that tractable.
+
+\subsection{Threats to validity (rehearse these)}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=0.05em]
+  \item \emph{Internal:} deterministic (byte-identical reruns); effect-size
+        deltas not significance tests (statistics inapplicable in a
+        deterministic regime); runtime is single-platform (OpenJDK 21, G1GC,
+        Windows 11) --- clause counts are platform-independent, wall-clock is
+        not.
+  \item \emph{Construct:} ``refined'' = gained $\ge 1$ clause by exact string
+        equality, no normalisation --- so the new-clause count is an
+        \emph{upper bound} on genuinely-new logical obligations (\texttt{a<b}
+        vs.\ \texttt{b>a} both counted). Shape buckets are regex-based;
+        \emph{other} is 0.2--1.7\%.
+  \item \emph{Callee resolution:} simple-name match; arity check rejects
+        mismatches; arity-pass rate 53\% (Vavr) to 75\% (IO). Unresolved sites
+        would either \emph{add} clauses (strengthening the result) or be
+        rejected (no effect) --- so the reported numbers are a \emph{lower
+        bound} on true compositional gain. (Strong rebuttal point.)
+  \item \emph{External:} 5 libraries chosen to span idioms; \textbf{Guava
+        excluded} (call-graph stack-overflow fixed, but source-jar size blew
+        the parsing budget --- harness engineering, not analyser correctness;
+        algorithm has no per-library coupling); baseline is one specific
+        single-pass implementation.
+\end{itemize}
+
+%==================================================================
+\section{Recent literature in your area (2025--2026): the field is hot and your work fits}
+\label{sec:recent}
+
+Use this section to project confidence. The honest, positive headline is:
+\emph{your area is one of the most active in software engineering right now, it
+is being validated industrially, and recent independent results corroborate the
+premises your papers rest on --- while the specific niche you occupy
+(deterministic, verifier-gated static inference feeding LLMs, plus compositional
+refinement for library compatibility) is still largely unclaimed.}
+
+\begin{okboxx}{Three positive talking points to lead with}
+\textbf{(1) Timely \& industrial.} Mutation-guided LLM test generation is now
+deployed at Meta (Automated Compliance Hardening, 2025); the oracle problem has
+a dedicated ASE 2025 track-level study. Your RQ is exactly where the field's
+attention is. \textbf{(2) Independently corroborated.} A leakage-controlled
+ASE 2025 study (13{,}866 oracles, 135 post-2024 Java projects) finds LLM
+oracles reach \emph{human-comparable} mutation scores --- and a 2026 study
+finds \emph{prompt/context matters more than model choice}. Both directly
+support your central claim that \emph{what you put in the prompt} (a
+specification) is the lever, which is the whole point of P1$<$P2$<$P3.
+\textbf{(3) Distinctive.} The 2025--2026 spec-inference wave (SpecGen, VeriAct,
+AutoReSpec, counterexample-guided modular specs) is overwhelmingly
+\emph{LLM-sampled with iterative verifier feedback}; your engine is
+\emph{deterministic and verifier-gated by construction} --- a different and
+defensible point in the design space.
+\end{okboxx}
+
+\subsection{Test oracles and LLM test generation}
+\begin{itemize}[leftmargin=1.4em,itemsep=0.1em]
+  \item \textbf{``Do LLMs Generate Useful Test Oracles? An Empirical Study with
+        an Unbiased Dataset''} (Di~Grazia, Ernst et al., \emph{ASE 2025}).
+        13{,}866 oracles, 135 projects, all tests post-2024-09-01 to avoid
+        training leakage; LLM oracles reach mutation scores comparable to
+        human-written ones. \emph{You already cite this (your
+        \texttt{molinelli2025oracles}); it is your calibration point (43\% vs
+        45\%). Engaging the current state-of-the-art head-on is a strength.}
+  \item \textbf{``Understanding LLM-Driven Test Oracle Generation''}
+        (arXiv 2601.05542, 2026). Finds prompting strategy has a stronger
+        effect than model choice. \emph{Direct support for your input-varying
+        design and your single-model defence --- the lever is the prompt
+        content, not the model.}
+  \item \textbf{``Do LLMs generate test oracles that capture actual or expected
+        behaviour?''} (Konstantinou et al., 2024--25). LLM oracles tend to
+        encode \emph{actual} (often buggy) behaviour. \emph{You already cite
+        this --- it is the motivation for supplying an external specification.}
+  \item \textbf{LLM unit-test-generation survey} (arXiv 2511.21382, 2025) and
+        \textbf{Meta ACH / mutation testing} (Engineering at Meta 2025; your
+        \texttt{foster2025meta}). \emph{Evidence the problem is survey-worthy
+        and industrially deployed.}
+  \item \textbf{``Evaluating LLM-Based Test Generation Under Software
+        Evolution''} (arXiv 2603.23443, 2026). \emph{New, and squarely
+        supports Article~3's version-step framing --- the evolution angle is a
+        live, independently-pursued topic, not a niche you invented.}
+\end{itemize}
+
+\subsection{LLM-based specification / contract inference}
+\begin{itemize}[leftmargin=1.4em,itemsep=0.1em]
+  \item \textbf{``Beyond Postconditions: Can LLMs infer Formal Contracts\dots''}
+        (Richter \& Wehrheim, arXiv 2510.12702, 2025) and \textbf{``Next Steps
+        in LLM-Supported Java Verification''} (Teuber \& Beckert,
+        arXiv 2502.01573, 2025). \emph{Both already cited --- the closest JML
+        neighbours; your deterministic, OpenJML-discharged engine contrasts
+        with their sampled approaches.}
+  \item \textbf{SpecGen} (your \texttt{ma2024specgen}) --- iterative
+        verifier-feedback JML synthesis, 72.5\% of 385 programs.
+        \emph{The natural baseline; your angle is determinism + the
+        probe-and-backport development loop.}
+  \item \textbf{New 2026 preprints worth a sentence each:} ``Automatic
+        Generation of Formal Specification and Verification Annotations Using
+        LLMs and Test Oracles'' (arXiv 2601.12845); ``VeriAct: Agentic
+        Synthesis of Correct and Complete Formal Specifications''
+        (arXiv 2604.00280); ``AutoReSpec'' (arXiv 2604.03758); ``Integrating
+        Symbolic Execution with LLMs for Program Specifications''
+        (arXiv 2506.09550). \emph{All sampled/agentic --- cite to show currency
+        and to position your verifier-gated determinism as the contrast.}
+\end{itemize}
+
+\subsection{Compositional / modular inference and API evolution (Article 3)}
+\begin{itemize}[leftmargin=1.4em,itemsep=0.1em]
+  \item \textbf{``Counterexample-Guided Inference of Modular Specifications''}
+        (\emph{PACMPL/OOPSLA 2025}, doi 10.1145/3720505). \emph{The strongest
+        recent neighbour for Article~3 --- inferring the callee specs modular
+        verification needs. Contrast: theirs is CEGIS/solver-driven; yours is
+        a lightweight WP-lifting scaffold over a heuristic baseline, measured
+        at corpus scale.}
+  \item \textbf{``Compositional Inductive Invariant Inference via
+        Assume-Guarantee Reasoning''} (arXiv 2509.06250, 2025). \emph{Reinforces
+        that ``compositional beats global'' is a current, accepted finding ---
+        backs your RQ1 motivation.}
+  \item \textbf{``Understanding the Impact of APIs' Behavioral Breaking Changes
+        on Client Applications''} (\emph{Proc.\ ACM SE / FSE},
+        doi 10.1145/3643782) and the Maven-Central breaking-changes study.
+        \emph{Establish that behavioural (not just syntactic) breaking changes
+        are a recognised, under-tooled problem --- precisely the gap your
+        version-step artefact addresses.}
+\end{itemize}
+
+\textbf{How to deploy this in the room.} If asked ``is this still novel given
+how fast LLMs move?'', answer: ``The field is moving fast \emph{toward} my
+premises --- 2025--26 work independently confirms that input/specification
+matters more than model and that LLM oracles can match humans. What remains
+unfilled is a \emph{deterministic, verifier-gated} inference engine and a
+\emph{compositional refinement} step that produces the candidate-breaking set
+for API-compatibility checking. Recent modular-spec and behavioural-breaking-
+change papers show both halves are live problems others are circling but not
+solving the way I do.'' \emph{(Action: 2--3 of the new 2026 preprints are worth
+adding to the related-work sections before submission to show currency; the
+already-cited ASE 2025 / Richter / Teuber / Meta references keep you on the
+current frontier.)}
+
+%==================================================================
+\section{Known weaknesses --- be ready, and fix one before Thursday}
+\label{sec:weak}
+
+\begin{redflagbox}{\#1 (FIX BEFORE MEETING) --- Article 1 table contradicts its own narrative}
+The abstract, intro, and results prose all state ``P2 generates the most tests
+but achieves a \emph{lower} mutation score than P3,'' and the whole ``test
+count is a poor proxy for oracle strength'' argument depends on it. But
+Table~4 (\texttt{results\_journal.tex}) reports mean mutation score
+\textbf{P2 = 81.8\%} vs.\ \textbf{P3 = 68.2\%} --- P2 \emph{higher} than P3 by
+13.6 pp --- and \emph{every} per-class row shows P2 $>$ P3. The data table
+says the opposite of the prose. If a panellist opens the table you cannot
+defend the narrative. \textbf{Action:} decide which is correct (are the P2/P3
+mutation columns swapped, or is the narrative wrong?), reconcile every mention
+--- abstract, intro, the ``Why P2 produces more tests than P3 yet scores
+lower'' paragraph, and the summary --- and rebuild the PDF. Highest-priority
+item.
+\end{redflagbox}
+
+\begin{redflagbox}{\#2 --- Article 3: ``you measured the input, not the output''}
+Article~3 proves the second pass \emph{adds clauses}, not that they help any
+downstream tool. The LLM probe is +9.1\% mean test count, $n=11$, high
+variance, one $-23\%$ regression, no mutation score, tests didn't compile.
+\textbf{Defence:} the contribution is the \emph{structural prerequisite} --- the
+richer clauses provably exist on five libraries --- which is necessary for any
+downstream gain; the downstream study is explicitly future work. Don't
+over-claim the probe.
+\end{redflagbox}
+
+\begin{redflagbox}{\#3 --- Article 3: most of the gain may not need two passes}
+Branch-conditional implications are 46--67\% of additions, but the discussion
+concedes a single pass \emph{could} recover them by lifting through the guard
+during its existing AST walk. That leaves the genuinely two-pass-only
+contribution (polymorphic disjunctions) at 1.8--9.8\%. \textbf{Defence:} the
+categorical argument is that single-pass \emph{by construction} cannot produce
+disjunction over dispatch candidates from a sibling-cache lookup; that holds
+against \emph{any} single-pass implementation. Frame the branch-conditional
+half as ``recoverable but not recovered by the deployed baseline.''
+\end{redflagbox}
+
+\begin{redflagbox}{\#4 --- Article 3: Guava is excluded}
+Predecessor papers used Guava; Article~3 drops it (source-jar size). Reads as
+``doesn't scale'' / ``didn't hold.'' \textbf{Defence:} harness engineering,
+not analyser correctness; the algorithm has no per-library coupling.
+\textbf{Best fix:} an overnight run with more heap closes it definitively ---
+flagged as the single highest-value improvement in the red-team.
+\end{redflagbox}
+
+\begin{redflagbox}{\#5 --- Article 3: single version step, single library}
+The compatibility framing (525 changed specs) rests on one library, one
+two-year delta. \textbf{Defence:} the structural claim is the five-library
+measurement; the version step is an intentional single instance. A second diff
+(e.g.\ Commons IO 2.11 vs 2.13) is $\sim$1 hour and defuses it.
+\end{redflagbox}
+
+\begin{redflagbox}{\#6 --- Article 1: scope and generality}
+Single library, single model (Gemini 2.0), mutation-score-as-quality; the
+\emph{other} category has 0 methods. \textbf{Defence:} Commons Lang is a
+standard SE-research subject; P4 is the upper bound; P1$\to$P3 gain rules out
+training-set recall; planned follow-up is service-boundary code where the
+oracle problem is most acute.
+\end{redflagbox}
+
+\textbf{Lower-severity, one-liner each:} regex shape buckets with an
+unanalysed ``other'' (Art.~3); ``414-line'' is LOC not complexity; polymorphic
+disjunction candidate-set sizes not shown (2--3 informative vs.\ 20+ vacuous);
+``dominate on four of five'' is uneven (jOOL has it only third) --- soften to
+``substantial ($>$30\%) on every library''; sort-stability / underdetermined-
+by-code limit (Art.~1, own it as a known structural boundary).
+
+%==================================================================
+\section{How the two articles connect}
+\label{sec:link}
+
+\begin{itemize}[leftmargin=1.4em,itemsep=0.15em]
+  \item \textbf{Shared engine.} Both use JML-Inferrer. Article~1's single-pass
+        \texttt{InterproceduralAnalyzer} is precisely the baseline Article~3
+        shows is not subsuming.
+  \item \textbf{Shared corpus anchor.} Commons Lang (+IO) appear in both, so
+        cross-paper comparison is confound-free.
+  \item \textbf{Three downstream uses, divided across papers} (see
+        Section~\ref{sec:thesis}): use~1 proven in Art.~1, use~2 mechanism in
+        Art.~3, use~3 future work.
+  \item \textbf{The narrative arc.} Art.~1: specs are verifiable and pay off
+        downstream. Art.~3: inference must be compositional to be complete, and
+        that compositionality enables library-compatibility checking.
+\end{itemize}
+
+%==================================================================
+\section{Anticipated panel questions with model answers}
+\label{sec:qa}
+
+\begin{qbox}{Q. What is the actual contribution beyond ``LLMs + specs''?}
+(1) First effect-sized, mutation-tested evidence that \emph{inferred} (not
+hand-written) specs improve LLM test quality, with P2 isolating that it's the
+specification, not generic prompting; (2) a verifiable, deterministic inference
+engine (92.9\% discharge, 99\% coverage); (3) the probe-and-backport
+methodology; and in Art.~3, evidence that inference must be compositional, plus
+the mechanism for library-compatibility checking.
+\end{qbox}
+
+\begin{qbox}{Q. Why mutation score, not coverage or bug count?}
+Coverage rewards executing code; the oracle problem is about \emph{asserting}
+the right thing. Mutation score is the standard proxy for assertion strength
+(injected faults the tests catch). P2 vs.\ P3 is the proof that test count and
+coverage would mislead --- 100\% coverage can coexist with 4\% mutation score.
+\end{qbox}
+
+\begin{qbox}{Q. The specs are heuristic and incomplete --- why trust them?}
+We don't ask for trust; we verify. OpenJML ESC discharges 92.9\% of clauses
+against the implementation; flagged clauses (3.8\%) go to a review queue and
+are excluded from P3 prompts; unsupported clauses (3.4\%) are three
+categorically identified SMT-tractability limits, not unsound inference.
+\end{qbox}
+
+\begin{qbox}{Q. Isn't single-pass propagation already standard and enough?}
+That is Art.~3's question; the answer is no on all five libraries --- 45{,}740
+new preconditions, 23--43\% of methods refined. Two shapes (branch-conditional,
+polymorphic disjunction) are structurally beyond single-pass reach, and the
+reported gain is a \emph{lower bound} (53--75\% arity-pass).
+\end{qbox}
+
+\begin{qbox}{Q. Does Article 3 disprove the thesis? (it does not --- be crisp)}
+It confirms it. The thesis needs compositionality to be non-redundant; Art.~3
+shows single-pass is not subsuming anywhere, and the version step shows
+callee-spec changes propagate into caller specs --- the exact signal a
+compatibility checker consumes. The open question (future work) is whether the
+richer specs \emph{also} improve downstream outcomes, not whether
+compositionality matters.
+\end{qbox}
+
+\begin{qbox}{Q. How is probe-and-backport different from prompting an LLM for JML?}
+The verifier-in-the-loop. Direct LLM inference shows 72.4\% run-to-run
+consistency and proposes clauses Z3 rejects. In probe-and-backport, OpenJML is
+a non-negotiable filter: only discharged clauses become probe tests, and the
+inferrer is extended deterministically until those probes pass. The output is a
+deterministic engine, not a sampled one.
+\end{qbox}
+
+\begin{qbox}{Q. Why only Gemini 2.0 / why not multiple models?}
+Budget: 6{,}240 generations per full run, $\approx$25{,}000 incl.\ pilots. The
+defended contribution is the \emph{ordering} P1$<$P2$<$P3$<$P4, not absolute
+scores; the literature reports consistent qualitative orderings across
+GPT/Claude/Gemini. Multi-model replication is parameterised in the package and
+named as a limitation.
+\end{qbox}
+
+\begin{qbox}{Q. ICSE or SANER for Article 3?}
+ICSE 2027 is the target (A*, strongest placement). Body is SANER-sized; plan is
+to tighten to ICSE's 10-page limit, with SANER as fallback if the Guava run
+and a second version step don't land in time.
+\end{qbox}
+
+\begin{qbox}{Q. What is the through-line to submission / what's next?}
+Art.~1: reconcile the P2/P3 inconsistency, then submission-ready for JSEP
+(replication package, CRediT, ORCIDs, data statement all present). Art.~3:
+Guava inclusion + a second version-step diff + a corpus-scale mutation re-run
+move it from ``structural prerequisite'' to ``downstream-impact.'' Longer term:
+the agentic-programming use case and a compatibility checker built on the
+version-step artefact.
+\end{qbox}
+
+%==================================================================
+\section{Hostile-examiner playbook}
+\label{sec:hostile}
+
+You have flagged that one panellist is hostile. Treat that as a known input,
+not a threat: hostile questions are usually \emph{predictable}, and a calm,
+prepared answer to a sharp question is the single most credibility-building
+thing you can do in the room. The goal is not to ``win'' against the person ---
+it is to show the rest of the panel that you know exactly where your own work
+is strong and where it is bounded.
+
+\begin{okboxx}{How to handle the person (not just the questions)}
+\begin{itemize}[leftmargin=1.2em,itemsep=0.1em]
+  \item \textbf{Separate the attack from the argument.} Answer the technical
+        point; ignore the tone. Never mirror hostility.
+  \item \textbf{Concede fast and precisely when they are right.} ``Yes, that is
+        a real limitation --- here is exactly how far it extends, and here is
+        why it does not sink the contribution.'' Conceding a true point
+        \emph{costs you nothing} and removes their momentum. Over-defending a
+        weak point is what loses panels.
+  \item \textbf{Bridge.} ``That is a fair challenge. The way I would frame it
+        is\dots'' --- acknowledge, then redirect to what you \emph{did} show.
+  \item \textbf{Know your boundary line.} For every weakness, have the
+        one-sentence statement of \emph{what you claim} vs \emph{what you do
+        not claim}. Hostile examiners win by making you defend a claim you
+        never actually made.
+  \item \textbf{Slow down.} Pause, restate the question in your own words
+        (``So the concern is whether\dots''), then answer. This buys thinking
+        time and stops you answering a harder question than was asked.
+  \item \textbf{Don't bluff.} If you don't know, say ``I haven't measured that;
+        my expectation is X because Y, and it's a clean follow-up.'' A
+        fabricated answer to a hostile expert is fatal; an honest boundary is
+        not.
+\end{itemize}
+\end{okboxx}
+
+\subsection{The hardest questions, with honest answers}
+
+\begin{qbox}{Q. State your thesis contribution in one sentence. (The classic opener --- have it memorised verbatim.)}
+``I show that JML specifications can be inferred automatically by deterministic,
+verifier-gated static analysis, that those inferred specifications measurably
+improve a concrete downstream task (LLM test generation), and that the
+inference must be compositional --- which both completes the specifications and
+yields the artefact a library-compatibility checker consumes.'' Say it the same
+way every time.
+\end{qbox}
+
+\begin{qbox}{Q. Did your heuristics overfit? Were any of the 312 evaluation methods in your probe/development corpus? (The most dangerous question --- know the exact answer before Thursday.)}
+\textbf{This is the attack to pre-empt.} The probe-and-backport loop \emph{tuned}
+the heuristics on examples; if those examples overlap the 312-method evaluation
+set, the 92.9\% discharge and the P3 gain are partly measuring fit to your own
+training data. \textbf{You must walk in able to state precisely:} (a) the probe
+corpus is minimal, hand-reduced example methods, \emph{not} Commons Lang
+methods [confirm this is true]; (b) whether any Commons Lang method seeded a
+probe. If there is clean separation, say so plainly --- it neutralises the
+attack. If there is partial overlap, concede it and fall back to: the
+heuristics are \emph{structural patterns} (null-guard, range-check,
+accumulator), not method-specific rules, so generalisation is to the pattern,
+not the instance; and the cross-library result in Article~3 (21{,}052 methods,
+four idiom families the heuristics were never tuned on) is your
+generalisation evidence. \emph{Action: verify the probe/eval separation and
+write the one-line answer now.}
+\end{qbox}
+
+\begin{qbox}{Q. Your 312 methods come from 11 classes --- they are not independent. Isn't this pseudoreplication, and aren't your confidence intervals too narrow?}
+Concede the statistical point honestly: methods within a class share structure,
+so treating all 312 as independent overstates the effective sample size, and a
+linear mixed-effects model with class as a random effect would be the textbook
+analysis. Then redirect on magnitude: the design is \emph{paired} (P1 vs P3 on
+the same method), which removes method-level variance; and the effect is so
+large (40.7 pp, $d>2$) that no plausible clustering correction reverses the
+direction or significance --- clustering widens intervals, it does not flip a
+40-point gap. Offer the mixed-effects re-run as a cheap robustness check for
+the camera-ready. \emph{Do not pretend the independence assumption was
+correct.}
+\end{qbox}
+
+\begin{qbox}{Q. Cohen's d above 2 (up to 3.07) is implausibly large for empirical SE. Isn't that a red flag for a confound?}
+It is large, and you should not act surprised by the question. The reason it is
+large is structural, not artefactual: P1 (signature only) has \emph{no oracle
+at all}, so its mutation score floor (27.5\%) reflects near-absent assertions,
+while P3 supplies explicit postconditions --- the contrast is closer to
+``oracle vs no oracle'' than to two competing techniques, which is exactly when
+huge effect sizes are expected. The honest framing: the effect size is large
+\emph{because the baseline is weak by construction}, and that is why the more
+informative comparison in the paper is P3-vs-P4 (input density), not P3-vs-P1
+(absolute). Concede that d-against-a-null-baseline is not the headline a
+careful reader should anchor on.
+\end{qbox}
+
+\begin{qbox}{Q. OpenJML discharge checks the spec against the same code you inferred it from. That's circular --- you've proven nothing about correctness.}
+Agree with the precise version of the claim and reject the overstatement.
+\emph{Agree:} discharge is a soundness/consistency check (``no clause is
+inconsistent with the implementation''), not a completeness or intent-matching
+check --- you say this explicitly in the threats section, and the canonical
+counterexample (sort stability for duplicate keys) is one you raise yourself.
+\emph{Reject:} ``proven nothing'' is wrong --- consistency is a real and
+non-trivial property (it catches the 3.8\% flagged clauses that were
+syntactically valid but semantically false, e.g.\ integer-overflow boundaries),
+and it eliminates rater subjectivity. The boundary line: ``I claim the inferred
+clauses are sound against the implementation and useful as oracles; I do not
+claim they recover documented intent --- that is the underdetermined-by-code
+limitation I state.''
+\end{qbox}
+
+\begin{qbox}{Q. Better mutation score just means the tests kill more mutants. Did the specification-guided tests find any real bugs?}
+Concede the gap directly: mutation score is the standard \emph{proxy} for
+oracle strength, and you measure the proxy, not real-fault detection on a
+curated bug set (e.g.\ Defects4J). Redirect: the proxy is the field's accepted
+instrument (PIT, Papadakis survey), and the literature shows 100\% coverage can
+coexist with 4\% mutation score, so mutation score is precisely the metric that
+distinguishes behavioural assertions from coverage padding --- which is the
+distinction your P2-vs-P3 result turns on. A Defects4J real-fault study is the
+clean, honest follow-up, and you should name it as such rather than claim
+bug-finding you didn't measure.
+\end{qbox}
+
+\begin{qbox}{Q. This looks like three thin papers sliced from one project (you cite your own predecessor work). Where is the thesis-level contribution?}
+Don't get defensive about self-citation --- a cumulative thesis is normal.
+Frame the arc as one argument in three movements: (1) inference is possible and
+verifiable [predecessor]; (2) it delivers measurable downstream value
+[Article~1]; (3) it must be compositional, and that compositionality is what
+enables the library-compatibility application [Article~3]. The unifying
+contribution is not any single paper --- it is the claim that
+\emph{deterministic, verifier-gated, compositional spec inference is a viable
+foundation for both LLM tooling and compatibility checking.} Each paper is a
+necessary premise; remove any one and the thesis claim is unsupported.
+\end{qbox}
+
+\begin{qbox}{Q. You used LLMs and an agentic coding assistant to build and evaluate the tool. What is your own intellectual contribution?}
+Answer it head-on; in 2026 this is a fair and increasingly common question.
+The intellectual contribution is the \emph{method and the framing}, not the
+keystrokes: the WP/SP organisation of the heuristics, the
+\emph{verifier-as-non-negotiable-filter} design (the insight that the LLM's
+plausibility judgement is insufficient and must be gated by discharge), the
+experimental design that isolates specifications from generic prompting (P2),
+and the compositional-refinement formulation. The LLM is an instrument inside a
+loop \emph{you} designed; the determinism result (100\% vs 72.4\%) is precisely
+the evidence that the engine is not ``an LLM in a trench coat.''
+\end{qbox}
+
+\begin{qbox}{Q. Article 3's analyser is 414 lines. That's a weekend script, not a research contribution.}
+Reject the LOC-equals-contribution premise calmly. The contribution is the
+\emph{measurement and the structural claim}, not the artefact size: that a
+deployed single-pass inferrer is provably non-subsuming on 21{,}052 methods
+across four idiom families, with a categorical explanation (two clause shapes
+unreachable by construction). A small, auditable pass is a \emph{virtue} for a
+measurement study --- it isolates the variable. Add: the run also surfaced two
+real bugs the unit suite missed, which is itself a methodological point about
+corpus-scale evaluation.
+\end{qbox}
+
+\begin{qbox}{Q. You disabled the tests that failed (for-each, array-mutation). Isn't that hiding negative results?}
+Own it as documented scientific bookkeeping, not concealment. The disabled
+cases are categorically characterised (for-each translation, Z3 array-theory
+timeouts) and reported \emph{as limitations in the paper}, with the reason each
+fails --- they are solver/translation tractability limits, not inferrer
+unsoundness, and you state which is which. The distinction that protects you:
+you disabled tests for \emph{known external-tool limits you documented}, you did
+not delete tests because the inferrer was wrong. If anything it strengthens the
+honesty of the discharge numbers, which exclude rather than fudge them.
+\end{qbox}
+
+\begin{qbox}{Q. Show me the 86/576 number. Is the raw log in the replication package?}
+Be precise and unflustered: the 86/576 endpoint is author-validated, the suite
+is reproducible via a single Maven invocation on JDK~21, and the figure is
+suite-composition-dependent (it is not a clean cross-time metric, so don't let
+them bait you into plotting it against differently-sized historical suites).
+\emph{Action before Thursday: confirm the raw submission-run log is in the
+replication package or be ready to say exactly where it is and regenerate it on
+request.} Not being able to produce data on demand is what a hostile examiner
+is fishing for.
+\end{qbox}
+
+\begin{qbox}{Q. Is this computer science or just software engineering plumbing?}
+Don't be provoked. The science is the empirical claims and the structural
+arguments: a controlled, effect-sized result that specification \emph{content}
+(not prompt verbosity) drives oracle strength; a categorical proof that
+single-pass propagation cannot express two clause shapes; a corpus-scale
+measurement of how often that gap bites. The tool is the instrument that makes
+those claims testable --- the same relationship empirical SE has always had to
+its artefacts.
+\end{qbox}
+
+\subsection{Traps not to walk into}
+\begin{itemize}[leftmargin=1.4em,itemsep=0.1em]
+  \item \textbf{Don't over-claim correctness.} Every time you are tempted to
+        say the specs are ``correct'', say ``sound against the implementation''.
+        The gap between those is the underdetermined-by-code limit and you
+        should reach it first, not be pushed to it.
+  \item \textbf{Don't defend the P2/P3 inconsistency on the fly.} If they open
+        Table~4, do not improvise --- say ``that is a transcription error I am
+        correcting; the intended claim is X'' (after you have decided which way
+        it goes, weakness~\#1). Fix it before the meeting so this never arises.
+  \item \textbf{Don't claim multi-model generality.} You ran one model. Claim
+        the \emph{ordering}, not absolute scores, and cite the cross-model
+        corroboration in the literature.
+  \item \textbf{Don't let ``compositional refinement is necessary'' be
+        overstated.} You showed the deployed single pass is non-subsuming; you
+        did \emph{not} show no single pass could ever close the
+        branch-conditional half. Hold that line (weakness~\#3).
+  \item \textbf{Don't accept ``you measured the input not the output'' as
+        fatal.} It is the scoped claim, by design --- structural prerequisite,
+        downstream impact is future work (weakness~\#2).
+\end{itemize}
+
+%==================================================================
+\section{Mock-defence drill (rapid-fire)}
+\label{sec:drill}
+
+Cover the right column and answer from memory.
+
+\begin{center}
+\begin{longtable}{>{\raggedright\arraybackslash}p{6.4cm}>{\raggedright\arraybackslash}p{8.2cm}}
+\toprule
+\textbf{Prompt} & \textbf{One-line answer}\\
+\midrule
+\endhead
+P3 over P1, test count? & +272\% (CI 245--299).\\
+P3 over P1, mutation? & +40.7 pp ($d=2.41$).\\
+P4 absolute mutation? & 94.8\%; P3 closes $\approx$60\% of the gap.\\
+Why is P2 in the design? & Control: isolates spec vs.\ generic guidance.\\
+Discharge rate? & 92.9\% of 985 clauses.\\
+Coverage vs.\ Jdoctor? & 99.0\% vs.\ 45.2\%.\\
+Determinism vs.\ LLM? & 100\% vs.\ 72.4\% consistency.\\
+Probe-suite progress? & 188 $\to$ 86 of 576 (67.3$\to$85.1\%).\\
+Three non-discharge limits? & recursive mult.; array-mutation invariants; for-each translation.\\
+Underdetermined-by-code case? & sort stability for duplicate keys.\\
+Statistics correction? & Bonferroni, 24 contrasts, $\alpha'\approx0.0021$.\\
+\midrule
+Art.~3 RQ1 result? & Strictly extends on all 5 libs; +45{,}740 preconditions.\\
+\% methods refined? & 23--43\% (median 35.53\%).\\
+Dominant shape? & branch-conditional, 46--67\% (4/5 libs).\\
+Polymorphic share? & 1.8--9.8\% (every lib; peak Vavr).\\
+Two shapes single-pass can't do? & guard-lifted implications; dispatch disjunctions.\\
+Runtime? & 34 s total, 1.62 ms/method; no fixpoint firing.\\
+Why lower-bound result? & arity-pass 53--75\%; unresolved sites only add or reject.\\
+Version-step numbers? & 525/3{,}188 changed; 144 strengthened preconditions.\\
+Why Guava excluded? & parsing budget (harness), not analyser correctness.\\
+Two bugs found at scale? & \texttt{lastIndexOf('.')} on dotted param types $\times$2.\\
+\bottomrule
+\end{longtable}
+\end{center}
+
+%==================================================================
+\section{Cheat sheet --- numbers, glossary, pitches}
+\label{sec:cheat}
+
+\subsection{Article 1 numbers}
+\begin{itemize}[leftmargin=1.4em,itemsep=0.02em]
+  \item Corpus 312 methods, Commons Lang 3.14, 11 classes; 4 phases; 5 runs;
+        6{,}240 generations.
+  \item Tests +272\% (CI 245--299). Mutation P1 27.5 / P2 81.8 / P3 68.2 /
+        P4 94.8 (\textbf{weakness \#1}); +40.7 pp, $d=2.41$.
+  \item $\approx$60\% of sig-to-source gap; 5--12 vs 30--150 lines.
+  \item Engine 99.0\% coverage; 92.9\% discharge (985 clauses); 100\% vs 72.4\%.
+  \item Categories: Control +47.1, Utility +40.6, State +36.6, Factory +19.5,
+        Acc/Mut +19.1.
+  \item Config: Gemini 2.0, temp 0.3, top-$p$ 0.95, 4096 tokens; PIT 1.15.3.
+\end{itemize}
+
+\subsection{Article 3 numbers}
+\begin{itemize}[leftmargin=1.4em,itemsep=0.02em]
+  \item 5 libraries, 1{,}712 files, 21{,}052 methods.
+  \item Refined 23--43\% (median 35.53\%); +45{,}740 pre, +24{,}895 post.
+  \item Shapes: branch-conditional 46--67\% (4/5); disjunctive 1.8--9.8\% (all).
+  \item Cost 34 s, 1.62 ms/method; no fixpoint; arity-pass 53--75\%.
+  \item Version step: Lang 3.12$\to$3.14, 525/3{,}188 changed, 144 strengthened.
+  \item Downstream probe: +9.1\% mean test count (preliminary, $n=11$).
+\end{itemize}
+
+\subsection{Glossary (terms the panel may use)}
+\begin{itemize}[leftmargin=1.4em,itemsep=0.02em]
+  \item \textbf{WP / SP} --- weakest precondition / strongest postcondition;
+        the backward/forward predicate transformers organising inference.
+  \item \textbf{Discharge} --- OpenJML ESC verifying a clause against the
+        implementation; soundness check, not completeness.
+  \item \textbf{Mutation score} --- \% of injected faults (mutants) the test
+        suite kills; proxy for oracle strength.
+  \item \textbf{SCC} --- strongly-connected component of the call graph;
+        mutual recursion forms a cyclic SCC requiring fixpoint iteration.
+  \item \textbf{Branch-conditional clause} --- \texttt{guard ==> obligation};
+        the dominant Art.~3 addition.
+  \item \textbf{Polymorphic-dispatch disjunction} --- \texttt{(p\_1 || ... ||
+        p\_k)} over candidate callee contracts.
+  \item \textbf{Probe-and-backport} --- draft JML $\to$ verify $\to$ pin as
+        probe test $\to$ agent extends inferrer until it passes.
+\end{itemize}
+
+\subsection{30-second pitches}
+\textbf{Article 1:} ``Heuristically inferred JML specifications make
+LLM-generated unit tests substantially better --- 272\% more tests and 40.7
+mutation points over signatures alone --- and a control phase shows it's the
+specification doing the work, not generic prompting. The specs are produced
+automatically and 93\% verify under OpenJML.''
+
+\textbf{Article 3:} ``The standard way to fold callee contracts into a caller
+--- single-pass propagation --- is not enough. A top-down WP refinement pass
+adds 45{,}740 new preconditions across five libraries, in shapes single-pass
+structurally cannot produce. And on a real version step those changes
+propagate, giving the candidate-breaking set a compatibility checker needs.''
+
+\vspace{1em}
+\hrule
+\vspace{0.5em}
+\small\itshape Built from the current sources in \texttt{journal/article1/} and
+\texttt{journal/article3/}. The discrepancy in weakness~\#1 reflects the source
+as it stands today and should be resolved before the meeting.
+
+\end{document}

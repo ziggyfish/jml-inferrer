@@ -1,0 +1,170 @@
+commons-io-2.13.0 (compositional refinement)
+  sourceFiles=245 methodsInferred=2111 methodsInCache=2111
+  refineWallTimeMs=654.25
+  sccsVisited=3994 refinementsApplied=711 iterationsTotal=3994
+  methodsRefined=711 (33.68% of cache)
+  methodsWithNewPrecondition=448 totalNewPreconditionClauses=1329
+    avgNewPrePerRefinedMethod=2.97 maxNewPreOnOneMethod=16
+  methodsWithNewPostcondition=626 totalNewPostconditionClauses=1664
+  shapeCategories of newly-added preconditions:
+    nullCheck=485  (!= null / == null)
+    rangeOrBound=250  (<, <=, >, >=)
+    branchConditional=526  (==>)
+      vacuousBranchConditional=9  (1.71% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=34  (||)
+    other=34
+
+commons-lang3-3.14.0 (compositional refinement)
+  sourceFiles=246 methodsInferred=3494 methodsInCache=3494
+  refineWallTimeMs=2141.72
+  sccsVisited=6223 refinementsApplied=1367 iterationsTotal=6223
+  methodsRefined=1367 (39.12% of cache)
+  methodsWithNewPrecondition=885 totalNewPreconditionClauses=2632
+    avgNewPrePerRefinedMethod=2.97 maxNewPreOnOneMethod=192
+  methodsWithNewPostcondition=1111 totalNewPostconditionClauses=3540
+  shapeCategories of newly-added preconditions:
+    nullCheck=816  (!= null / == null)
+    rangeOrBound=403  (<, <=, >, >=)
+    branchConditional=1185  (==>)
+      vacuousBranchConditional=50  (4.22% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=179  (||)
+    other=49
+
+commons-math3-3.6.1 (compositional refinement)
+  sourceFiles=990 methodsInferred=6645 methodsInCache=6645
+  refineWallTimeMs=12853.23
+  sccsVisited=13342 refinementsApplied=2203 iterationsTotal=13342
+  methodsRefined=2203 (33.15% of cache)
+  methodsWithNewPrecondition=1652 totalNewPreconditionClauses=8966
+    avgNewPrePerRefinedMethod=5.43 maxNewPreOnOneMethod=168
+  methodsWithNewPostcondition=1610 totalNewPostconditionClauses=4633
+  shapeCategories of newly-added preconditions:
+    nullCheck=3785  (!= null / == null)
+    rangeOrBound=1216  (<, <=, >, >=)
+    branchConditional=2969  (==>)
+      vacuousBranchConditional=8  (0.27% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=815  (||)
+    other=181
+
+jool-0.9.14 (compositional refinement)
+  sourceFiles=130 methodsInferred=3691 methodsInCache=3691
+  refineWallTimeMs=2646.58
+  sccsVisited=5403 refinementsApplied=784 iterationsTotal=5403
+  methodsRefined=784 (21.24% of cache)
+  methodsWithNewPrecondition=664 totalNewPreconditionClauses=4262
+    avgNewPrePerRefinedMethod=6.42 maxNewPreOnOneMethod=208
+  methodsWithNewPostcondition=383 totalNewPostconditionClauses=838
+  shapeCategories of newly-added preconditions:
+    nullCheck=2571  (!= null / == null)
+    rangeOrBound=23  (<, <=, >, >=)
+    branchConditional=1606  (==>)
+      vacuousBranchConditional=0  (0.00% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=52  (||)
+    other=10
+
+vavr-0.10.4 (compositional refinement)
+  sourceFiles=101 methodsInferred=5111 methodsInCache=5111
+  refineWallTimeMs=31533.31
+  sccsVisited=7610 refinementsApplied=1541 iterationsTotal=7610
+  methodsRefined=1541 (30.15% of cache)
+  methodsWithNewPrecondition=939 totalNewPreconditionClauses=1665
+    avgNewPrePerRefinedMethod=1.77 maxNewPreOnOneMethod=17
+  methodsWithNewPostcondition=1140 totalNewPostconditionClauses=1936
+  shapeCategories of newly-added preconditions:
+    nullCheck=517  (!= null / == null)
+    rangeOrBound=92  (<, <=, >, >=)
+    branchConditional=724  (==>)
+      vacuousBranchConditional=1  (0.14% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=309  (||)
+    other=23
+
+commons-io-2.13.0 (compositional refinement)
+  sourceFiles=245 methodsInferred=2111 methodsInCache=2111
+  refineWallTimeMs=688.35
+  sccsVisited=3994 refinementsApplied=711 iterationsTotal=3994
+  methodsRefined=711 (33.68% of cache)
+  methodsWithNewPrecondition=448 totalNewPreconditionClauses=1329
+    avgNewPrePerRefinedMethod=2.97 maxNewPreOnOneMethod=16
+  methodsWithNewPostcondition=626 totalNewPostconditionClauses=1664
+  shapeCategories of newly-added preconditions:
+    nullCheck=485  (!= null / == null)
+    rangeOrBound=250  (<, <=, >, >=)
+    branchConditional=526  (==>)
+      vacuousBranchConditional=9  (1.71% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=34  (||)
+    other=34
+
+commons-lang3-3.14.0 (compositional refinement)
+  sourceFiles=246 methodsInferred=3494 methodsInCache=3494
+  refineWallTimeMs=2153.39
+  sccsVisited=6223 refinementsApplied=1367 iterationsTotal=6223
+  methodsRefined=1367 (39.12% of cache)
+  methodsWithNewPrecondition=885 totalNewPreconditionClauses=2632
+    avgNewPrePerRefinedMethod=2.97 maxNewPreOnOneMethod=192
+  methodsWithNewPostcondition=1111 totalNewPostconditionClauses=3540
+  shapeCategories of newly-added preconditions:
+    nullCheck=816  (!= null / == null)
+    rangeOrBound=403  (<, <=, >, >=)
+    branchConditional=1185  (==>)
+      vacuousBranchConditional=50  (4.22% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=179  (||)
+    other=49
+
+commons-math3-3.6.1 (compositional refinement)
+  sourceFiles=990 methodsInferred=6645 methodsInCache=6645
+  refineWallTimeMs=14438.47
+  sccsVisited=13342 refinementsApplied=2203 iterationsTotal=13342
+  methodsRefined=2203 (33.15% of cache)
+  methodsWithNewPrecondition=1652 totalNewPreconditionClauses=8966
+    avgNewPrePerRefinedMethod=5.43 maxNewPreOnOneMethod=168
+  methodsWithNewPostcondition=1610 totalNewPostconditionClauses=4633
+  shapeCategories of newly-added preconditions:
+    nullCheck=3785  (!= null / == null)
+    rangeOrBound=1216  (<, <=, >, >=)
+    branchConditional=2969  (==>)
+      vacuousBranchConditional=8  (0.27% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=815  (||)
+    other=181
+
+jool-0.9.14 (compositional refinement)
+  sourceFiles=130 methodsInferred=3691 methodsInCache=3691
+  refineWallTimeMs=3160.83
+  sccsVisited=5403 refinementsApplied=784 iterationsTotal=5403
+  methodsRefined=784 (21.24% of cache)
+  methodsWithNewPrecondition=664 totalNewPreconditionClauses=4262
+    avgNewPrePerRefinedMethod=6.42 maxNewPreOnOneMethod=208
+  methodsWithNewPostcondition=383 totalNewPostconditionClauses=838
+  shapeCategories of newly-added preconditions:
+    nullCheck=2571  (!= null / == null)
+    rangeOrBound=23  (<, <=, >, >=)
+    branchConditional=1606  (==>)
+      vacuousBranchConditional=0  (0.00% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=52  (||)
+    other=10
+
+vavr-0.10.4 (compositional refinement)
+  sourceFiles=101 methodsInferred=5111 methodsInCache=5111
+  refineWallTimeMs=31103.71
+  sccsVisited=7610 refinementsApplied=1541 iterationsTotal=7610
+  methodsRefined=1541 (30.15% of cache)
+  methodsWithNewPrecondition=939 totalNewPreconditionClauses=1665
+    avgNewPrePerRefinedMethod=1.77 maxNewPreOnOneMethod=17
+  methodsWithNewPostcondition=1140 totalNewPostconditionClauses=1936
+  shapeCategories of newly-added preconditions:
+    nullCheck=517  (!= null / == null)
+    rangeOrBound=92  (<, <=, >, >=)
+    branchConditional=724  (==>)
+      vacuousBranchConditional=1  (0.14% of branch-conditional; antecedent entails consequent)
+      illFormedEntryScope=0  (0.00% of branch-conditional; guard references a method-local)
+    disjunctive=309  (||)
+    other=23
+

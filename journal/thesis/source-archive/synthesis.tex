@@ -1,0 +1,627 @@
+\chapter{Synthesis: Integrating Formal Specifications into the Development Lifecycle}\label{ch:synthesis}
+
+\section{The arc of the thesis}
+
+The preceding five chapters were written, and in most cases submitted, as
+self-contained studies. Read in isolation, each answers a bounded question:
+whether inferred contracts help a language model write tests
+(\cref{ch:article1}); whether such contracts can travel with the artefacts and
+interfaces developers exchange (\cref{ch:article2}); whether a compositional
+second pass recovers specifications a local pass misses (\cref{ch:article3});
+whether inference can run unobtrusively in continuous integration
+(\cref{ch:article4}); and what an end-to-end, verification-centric pipeline for
+agentic development might look like (\cref{ch:article5}). This chapter is the
+intellectual centre of the thesis. Its purpose is to show that the five studies
+are not five papers stapled together but a single, cumulative argument, and to
+answer the programme-level research questions with evidence marshalled across
+chapters rather than within any one of them.
+
+The thesis statement is this: \emph{formal specifications can be made cheap
+enough, through automated inference, to serve as the always-present verification
+spine of modern software development---including the AI-native, language-model-agent
+lifecycle now emerging---and the same inferred contracts, when propagated
+compositionally across a call graph, give a practical, sound (if incomplete)
+account of behavioural version-compatibility between a library and its clients.}
+Two concerns are entangled in that sentence by design. The first is the
+classical adoption problem of formal methods: specifications are valuable but
+expensive to write, so they are not written, so the value is never realised. The
+second is the library/version-compatibility problem: a change to a dependency can
+silently break a client whose behaviour depended on the old contract, and the
+field has no cheap, behavioural account of when this happens. The thesis argues
+that a single instrument---heuristic specification \emph{inference}, made
+trustworthy by formal verification and made compositional by
+weakest-precondition propagation---addresses both, because the act of inferring a
+contract cheaply is also the act of producing the artefact whose change can be
+propagated and checked.
+
+The instrument is concrete throughout. Specifications are written in the Java
+Modeling Language~\citep{leavens2006jml}, a behavioural-interface
+specification language in the design-by-contract tradition~\citep{meyer1992dbc}.
+They are inferred from source by a heuristic engine, the JML-Inferrer, that
+reasons over the abstract syntax tree. They are verified by OpenJML's extended
+static checker~\citep{cok2014openjml}, which discharges proof obligations through
+the Z3 satisfiability-modulo-theories solver~\citep{demoura2008z3}. Every claim
+about whether an inferred specification is \emph{correct} is grounded in this
+verification path rather than in inspection, and this matters for the integrity
+of the whole programme: a heuristic that guesses a contract is only as useful as
+the mechanism that can certify the guess.
+
+\subsection{How the five studies compose}
+
+The studies compose as a single pipeline of claims, each chapter discharging a
+precondition for the next.
+
+\Cref{ch:article1} establishes that inference is \emph{worth doing}. It is the
+foundational premise: that automatically inferred specifications, although
+heuristic and partial, are good enough to be useful downstream. Supplying
+inferred JML contracts to a language model improves the unit tests it generates,
+converting the abstract value of specifications into a measured, downstream
+benefit. Without this result, the rest of the programme would be an exercise in
+producing artefacts of unproven worth.
+
+\Cref{ch:article2} establishes that inference is \emph{deployable}. A
+specification that lives in a separate document goes stale; to become part of a
+lifecycle it must travel with the code. This chapter shows that JML contracts can
+be embedded into compiled Java artefacts and into OpenAPI interface documents and
+recovered again at full round-trip fidelity, giving inferred contracts a carriage
+mechanism through the very artefacts teams already exchange.
+
+\Cref{ch:article3} establishes that inference is \emph{extensible and
+compositional}. Single-pass heuristic inference is local by construction: it
+reasons about a method in isolation. A second, compositional pass that propagates
+weakest-precondition obligations across method boundaries strictly extends the
+local pass, recovering a substantial number of additional well-formed
+preconditions on a large corpus. This result is load-bearing twice over. It
+strengthens the inference instrument, and it supplies the mechanism on which
+version-compatibility analysis later rests, because the reasoning that recovers a
+caller's obligation from a callee's contract is exactly the reasoning that
+propagates a contract \emph{change} across a call graph.
+
+\Cref{ch:article4} establishes that inference is \emph{a process, not a tool}. It
+integrates the pipeline into continuous integration---GitHub Actions, GitLab CI,
+and Jenkins---under three principles: per-pull-request, diff-only analysis with
+content-hash caching; fail-open semantics so inference never blocks a merge; and
+persistent, in-place reporting. This is the step from an executable into a
+routine, low-friction part of the development cycle.
+
+\Cref{ch:article5} is the capstone. It draws the four threads---cheap, deployable,
+compositional, routine---into a single verification-cen\-tric reference pipeline
+for the lan\-guage-model-agent lifecycle, in which a machine-check\-able contract
+is the pivot between ambiguous human intent and precise machine verification,
+serving simultaneously as the input an agent builds against and the oracle its
+output is checked against.
+
+The shape of the argument, then, is: inference made cheap (\cref{ch:article1})
+$\rightarrow$ shown useful and deployable (\cref{ch:article1,ch:article2})
+$\rightarrow$ carried with artefacts and run in continuous integration
+(\cref{ch:article2,ch:article4}) $\rightarrow$ compositionally refined and
+propagated (\cref{ch:article3}) $\rightarrow$ integrated as the verification spine
+of the lifecycle (\cref{ch:article5}). The remainder of this chapter answers the
+research questions against this arc, presents the integrated reference lifecycle
+as the synthesis, draws the explicit link between compositional propagation and
+behavioural version-compatibility, articulates the development-process
+contribution, and closes with a programme-wide treatment of validity and
+limitations.
+
+It is worth dwelling briefly on why this particular ordering is the right one,
+because the dependency between the chapters is logical and not merely
+chronological. A reader sympathetic to formal methods might ask why the programme
+did not begin with the compositional analysis, which is its most technically
+ambitious component. The answer is that compositional propagation is only
+meaningful if the local contracts it propagates are themselves worth having, and
+the worth of an \emph{inferred} contract---as opposed to a hand-written one---is
+exactly what \cref{ch:article1} had to establish first. A sceptic of the whole
+enterprise is entitled to doubt that a heuristic, machine-generated contract
+carries enough information to be useful at all; until that doubt is answered,
+every later result rests on sand. Equally, the carriage and continuous-integration
+results (\cref{ch:article2,ch:article4}) are not optional engineering footnotes but
+necessary conditions for the central thesis claim: a contract that cannot survive
+the journey from where it is inferred to where it is needed, or that cannot be
+produced without a developer stopping to invoke a tool, will never become the
+\emph{always-present} spine the thesis argues for. The phrase ``always present''
+does real work in the thesis statement, and it is the carriage and process chapters
+that earn it. Only once a contract is cheap, useful, durable, and routinely
+produced does it make sense to ask, as the capstone does, what an entire lifecycle
+built around such contracts would look like.
+
+\section{Answering the research questions}
+
+The programme is organised around five research questions. Each is answered below
+with evidence drawn from the relevant chapters, and each answer is qualified
+honestly by the \emph{kind} of evidence that supports it: a measurement, a
+feasibility demonstration, or a design validated by instantiation rather than by a
+controlled effect size.
+
+\subsection{RQ1: inference fidelity and compositional reach}
+
+\emph{How faithfully can specifications be inferred from unannotated code, and how
+far can a compositional pass extend that reach?}
+
+The fidelity claim is anchored to formal verification rather than to inspection.
+Across the corpora used in \cref{ch:article1,ch:article3}, a meaningful fraction
+of inferred contracts are not merely plausible but \emph{machine-checked}: OpenJML
+discharges them against the implementation via extended static checking. This is a
+stronger guarantee than the inductive-invariant detection of dynamic tools such as
+Daikon~\citep{ernst2007daikon}, whose candidate invariants are likelihoods over
+observed runs rather than proved properties. The fidelity is partial---the engine
+is heuristic and emits no contract where it cannot recognise a pattern---but
+where it emits one and verification accepts it, the contract is sound with respect
+to the code.
+
+The compositional-reach claim is the central quantitative result of
+\cref{ch:article3}: a compositional pass that propagates weakest-precondition
+obligations across call boundaries strictly extends single-pass inference,
+yielding a substantial number of additional well-formed preconditions on a large
+corpus that the local pass could not recover. Crucially, the figures reported are
+the \emph{well-formedness-filtered} figures: preconditions are admitted only when
+their entry-state scope is satisfiable, which is why the headline count is the
+conservative one rather than the raw, unfiltered total.
+
+A second dimension of fidelity deserves emphasis because it distinguishes this
+work from the broad family of specification-mining techniques. Dynamic invariant
+detection observes a program running over a test suite and reports the properties
+that held on every observed run; the resulting invariants are \emph{empirical
+generalisations}, true of the executions seen and conjectured of the rest. The
+JML-Inferrer's contracts, by contrast, are subjected to extended static checking,
+which reasons over \emph{all} executions symbolically. The two approaches are
+complementary rather than competing---a dynamic tool will propose richer
+candidate properties, while a static checker certifies a narrower set
+unconditionally---but the thesis deliberately stakes its fidelity claim on the
+stronger, exhaustive guarantee, because the downstream uses (an oracle that judges
+generated code, a contract that bounds a version-compatibility analysis) require
+properties that are true rather than merely probable. The cost of that choice is
+silence: the engine emits nothing where it cannot find a pattern the checker will
+accept, and so RQ1's fidelity is necessarily reported as a rate over emitted
+contracts, not as a coverage of all behaviours.
+
+Strength of evidence: this RQ is answered by \emph{measurement}. The fidelity and
+reach numbers are counts and rates over real corpora, verified by an independent
+checker. The principal caveat is corpus dependence, addressed under threats to
+validity below.
+
+\subsection{RQ2: downstream utility for test generation}
+
+\emph{Do inferred specifications make a language model a better test author?}
+
+\Cref{ch:article1} answers in the affirmative through a controlled comparison:
+supplying inferred JML contracts to a language model improves the unit tests it
+generates relative to the same model without them. The mechanism is the
+test-oracle problem~\citep{barr2015oracle}---a generated test exercises code but
+needs an independent statement of intended behaviour to judge the result---and an
+inferred contract supplies exactly that statement. This connects to a live concern
+in language-model code generation: models hallucinate
+behaviour~\citep{zhang2025hallucination} and generate plausible but unfounded
+oracles~\citep{liu2026oracle}, and benchmarks such as
+EvalPlus~\citep{liu2023evalplus} show that surface-passing generated code often
+fails under strengthened tests. A contract gives the model a fixed point against
+which to anchor.
+
+Strength of evidence: this RQ is answered by a \emph{controlled measurement}---a
+direct comparison with and without the treatment---but the effect is demonstrated
+on a bounded set of programs and one family of models, so it establishes
+direction and plausibility rather than an industry-wide effect size.
+
+\subsection{RQ3: carriage and process integration}
+
+\emph{Can inferred specifications be carried with the artefacts developers exchange
+and integrated into the development process without disrupting it?}
+
+This question has two halves, answered by two chapters. The carriage half
+(\cref{ch:article2}) demonstrates full round-trip embedding of JML into compiled
+Java artefacts and into OpenAPI interface documents: a contract inferred at one
+point in the lifecycle survives compilation, distribution, and recovery without
+loss. The process half (\cref{ch:article4}) demonstrates that inference runs as a
+first-class continuous-integration step under fail-open, diff-only, cached,
+in-place-reporting discipline, so that specification recovery becomes a routine
+event on every pull request rather than a special activity.
+
+Strength of evidence: this RQ is answered by \emph{feasibility demonstration with
+fidelity measurement}. The round-trip fidelity is measured exactly (specifications
+recovered are identical to those embedded); the CI integration is demonstrated to
+work across three platforms. What is \emph{not} claimed is a measured improvement
+in team outcomes, which would require a field study and is left as future work.
+
+\subsection{RQ4: compositional behavioural version-compatibility}
+
+\emph{Can compositional propagation of inferred contracts give a behavioural
+account of when a library change breaks a client?}
+
+This is the half of the thesis core concerned with library/version compatibility,
+and it is answered by combining the mechanism of \cref{ch:article3} with the
+propagation analysis developed in \cref{ch:article5}. The argument is: if a
+callee's contract can be inferred, and the weakest-precondition obligation it
+imposes on a caller can be computed compositionally, then a \emph{change} to the
+callee's contract has a computable \emph{behavioural blast-radius}---the set of
+callers whose obligations the change would now violate. A dependency upgrade
+becomes a contract-diff event whose effect on clients can be checked rather than
+discovered in production. This is a behavioural notion of compatibility, distinct
+from and finer-grained than the syntactic, library-maintainer-declared semantics
+of version numbers~\citep{preston2013semver}; it sits alongside empirical accounts
+of how breaking changes actually arise~\citep{ochoa2022breaking,mostafa2017behavioral}
+and how developers reason about them~\citep{jayasuriya2024understanding}.
+
+Strength of evidence: this RQ is answered by a \emph{design validated by
+instantiation}, with an important honesty qualification. The propagation is
+\emph{sound in flagging breaks}: when it reports that a contract change violates a
+caller's obligation, the violation is real with respect to the inferred contracts.
+It is \emph{not complete}: it will miss breaks when a third-party contract is
+inferred too weakly to capture the depended-upon behaviour, or when a Z3 timeout
+prevents discharge of the relevant obligation. A missed break is therefore always
+possible; the analysis raises an alarm reliably but cannot guarantee silence means
+safety.
+
+\subsection{RQ5: lifecycle integration}
+
+\emph{Can inferred, verified, compositional specifications serve as the contract
+layer and verification loop of an AI-native development lifecycle?}
+
+This is the synthesising question, answered by \cref{ch:article5} drawing on all
+that precedes it. The capstone proposes a reference pipeline in which a formal
+contract is the dual-role pivot of the lifecycle---input and oracle at once---and
+identifies the three things that current agentic, specification-driven lifecycles
+lack: a machine-checkable contract (rather than prose intent), a closed
+counterexample-guided verification loop, and an independent authority for the
+oracle so that the agent does not grade its own work. The pipeline supplies all
+three, and reuses the validated instruments of the earlier chapters as its trusted
+components: inference for the contract, embedding for its carriage, compositional
+propagation for change analysis, and continuous integration as its execution
+substrate.
+
+Strength of evidence: this RQ is answered by a \emph{design validated by
+instantiation rather than by a controlled trial}. The architecture is concrete and
+partially implemented, and its components are individually evidenced by the earlier
+chapters; the end-to-end lifecycle is demonstrated for feasibility and realism, not
+established by a controlled effect size. The industrial pilot that would supply
+such an effect size is explicitly future work.
+
+\section{The integrated reference lifecycle as the synthesis}
+
+The synthesis is best stated as a single picture of how the parts fit together
+once they are composed. The organising idea is the \emph{dual-role
+specification}: one machine-checkable formal contract that plays two roles at once.
+As \emph{input}, it is the precise statement of intent against which a generative
+agent (or a human) writes an implementation. As \emph{oracle}, it is the property
+against which that implementation is verified. The contract is therefore the pivot
+between two registers that have never sat comfortably together: the ambiguous,
+natural-language intent of a human request, and the precise, decidable obligation a
+verifier can discharge. Specification-driven agent toolkits already gesture at this
+pivot---GitHub's Spec Kit~\citep{githubspeckit}, AWS's specification-driven
+agentic development~\citep{awsaidlc}, and the Kiro environment~\citep{awskiro} all place a
+specification at the centre---but they keep the specification in prose, which a
+machine cannot check, so the loop never closes~\citep{ozkaya2023llmse}.
+
+Three further properties make the lifecycle work, and each is inherited from an
+earlier chapter. \emph{Inference is the bootstrap.} The dual-role contract is only
+viable if it is cheap to obtain; the authoring cost that has always blocked
+design-by-contract adoption is removed by inferring the contract from existing code
+(\cref{ch:article1,ch:article3}) rather than asking a developer to write it. This
+is the adoption half of the thesis core, discharged. \emph{Carriage makes the
+contract durable.} The contract must survive the round-trip through build and
+distribution to be available at every lifecycle stage (\cref{ch:article2}).
+\emph{Assurance is tiered.} Not every contract is verified to the same depth: some
+are machine-checked end to end, some are runtime-checkable only, and some are
+heuristic suggestions awaiting ratification. The lifecycle is explicit about which
+tier a given contract occupies, so that trust is calibrated rather than uniform.
+
+\subsection{The independent-authority constraint and its honest limit}
+
+The most delicate property is the \emph{independent authority} of the oracle. The
+hazard in any self-improving generative loop is circularity: if the same model
+both writes the code and judges it, the judgement inherits the author's blind
+spots, and the system can certify its own mistakes. Recent work on closing the
+language-model verification loop confronts exactly this---Clover couples code,
+documentation, and tests into a consistency check~\citep{sun2024clover}, and oracle
+soundness for generated assertions is an active concern~\citep{liu2026oracle}. The
+reference pipeline addresses circularity by deriving the oracle from an authority
+independent of the code-writing agent: a contract inferred and \emph{verified} by
+the formal toolchain, not asserted by the generator.
+
+It is important to state precisely what this does and does not buy. The
+independent-authority constraint removes \emph{self-grading and authorship
+circularity}: the entity that proves the code correct is not the entity that wrote
+the code, and the proof is a re-checkable artefact rather than the author's
+assurance. What it does \emph{not} remove is \emph{shared-misreading correlation}.
+If a single model is used both to help recover the contract and to write the code,
+and that model misreads the underlying intent in the same way in both roles, the
+contract and the code can be consistently wrong together, and an independent
+verifier will happily certify their agreement. The pipeline's answer to this
+residual risk is not a technical one but a procedural one: \emph{human
+ratification} of the contract at the tier boundary, so that a person confirms the
+contract states the intended behaviour before it is promoted to an authoritative
+oracle. The thesis is candid that this is a mitigation of a correlated-error risk,
+not its elimination.
+
+\Cref{fig:synthesis-lifecycle} summarises the lifecycle at a high level.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=9mm and 14mm,
+  box/.style={draw, rounded corners, align=center, inner sep=4pt,
+              minimum height=8mm, font=\small},
+  contract/.style={box, draw=black, very thick, fill=black!6},
+  arr/.style={-{Stealth[length=2.2mm]}, thick},
+]
+  \node[box] (intent) {Human intent\\(ambiguous,\\natural language)};
+  \node[contract, right=of intent] (spec) {Formal contract\\(dual role:\\input \& oracle)};
+  \node[box, right=of spec] (code) {Implementation\\(agent / human)};
+  \node[box, below=14mm of code] (verify) {Verifier\\(OpenJML + Z3)};
+  \node[box, below=14mm of spec] (infer) {Inference\\(bootstrap)};
+
+  \draw[arr] (intent) -- (spec);
+  \draw[arr] (spec) -- node[above,font=\scriptsize]{input} (code);
+  \draw[arr] (code) -- (verify);
+  \draw[arr] (spec.south) |- (verify.east) node[pos=0.75,below,font=\scriptsize]{oracle};
+  \draw[arr] (infer) -- (spec);
+  \draw[arr] (infer.west) -| (intent.south);
+  % counterexample-guided loop
+  \draw[arr] (verify.west) -| ($(code.south)+(0,-9mm)$) -- ++(0,0)
+        coordinate (cx) ;
+  \draw[arr] (verify) -- ++(-3.2,0) |- (code.south)
+        node[pos=0.25,left,font=\scriptsize]{counterexample};
+  \begin{scope}[on background layer]
+    \node[draw, dashed, rounded corners, fit=(spec)(code)(verify)(infer),
+          inner sep=8pt, label={[font=\scriptsize]above:verification-centric loop}] {};
+  \end{scope}
+\end{tikzpicture}
+\caption[The integrated reference lifecycle]{The integrated reference lifecycle.
+Inference bootstraps a machine-checkable formal contract from existing code and
+ambiguous intent; the contract then plays a dual role---input to the implementing
+agent and oracle for the verifier---and the verifier returns counterexamples that
+close the loop. Independent authority (the verifier is not the code author) and
+tiered, human-ratified assurance govern when a contract is trusted.}
+\label{fig:synthesis-lifecycle}
+\end{figure}
+
+\Cref{fig:synthesis-lifecycle} makes the closed loop visible: the same contract
+node feeds both the implementer and the verifier, the verifier returns
+counterexamples to the implementer, and inference is the off-ramp that seeds the
+contract in the first place. This is the structural difference from prose-centred
+agentic toolkits, in which there is an analogous box but no edge from a verifier
+back to the implementer, because prose intent admits no verifier.
+
+\section{Compositional propagation as behavioural version-compatibility}
+
+The two halves of the thesis core---adoption and version-compatibility---meet at a
+single mechanism, and it is worth stating the link explicitly because it is the
+claim that makes the thesis one argument rather than two.
+
+The mechanism is the compositional, weakest-precondition propagation of
+\cref{ch:article3}. In that chapter it is used \emph{statically}, within a single
+version of a codebase, to recover a caller's precondition from a callee's contract.
+\Cref{ch:article5} reuses the identical mechanism \emph{differentially}, across two
+versions of a dependency: given the old and new inferred contracts of a callee, the
+propagation computes which callers' obligations the change disturbs---the
+behavioural blast-radius. The same arrow that, run forwards within a version,
+strengthens a caller's inferred specification, when run across versions becomes the
+edge that carries a breaking change from a library to its clients. This is the
+concrete bridge: compositional refinement is not merely \emph{analogous} to
+compatibility analysis; it is the \emph{same computation} applied to a contract
+delta.
+
+A worked intuition makes the bridge concrete. Suppose a utility method
+\texttt{clamp(int x, int lo, int hi)} is inferred, in version one of a library, to
+carry the precondition \texttt{lo <= hi} and the postcondition that the result lies
+in $[\mathtt{lo},\mathtt{hi}]$. A client that calls \texttt{clamp} and then indexes
+an array with the result has, through compositional propagation, an inferred
+obligation that the array is at least \texttt{hi+1} long---an obligation the local
+pass over the client alone could never have produced, because it depends on the
+callee's postcondition. Now suppose version two of the library relaxes
+\texttt{clamp} so that it may return \texttt{lo} when \texttt{lo > hi} rather than
+requiring the precondition. Run differentially, the same propagation machinery
+observes that the client's array-bounds obligation, which was discharged under the
+old contract, is no longer guaranteed under the new one, and flags the client as
+within the blast-radius. No new analysis was invented for the differential case;
+the version-one and version-two contracts were fed to the identical
+weakest-precondition propagation, and the disturbance fell out of the comparison.
+This is what it means to say compatibility analysis \emph{is} compositional
+refinement applied to a contract delta.
+
+The honesty of the claim turns on soundness versus completeness, and the thesis is
+deliberate about which it has. The propagation is \emph{sound in flagging breaks}.
+When it reports that a client's obligation is violated by a dependency change, the
+violation is a genuine logical consequence of the inferred contracts; there are no
+false alarms relative to those contracts. The propagation is \emph{not complete}.
+It will fail to flag a real break in two well-characterised circumstances. First,
+when the third-party callee's contract is inferred too weakly---the heuristic
+recovered a vacuous or partial contract that does not capture the behaviour the
+client actually depended on---the change to that behaviour is invisible because the
+contract never expressed it. Second, when discharging the relevant obligation
+exceeds the solver's reach---a Z3 timeout, a multiplicative or array-theory query
+the solver cannot decide within budget---the obligation is left unproved and the
+potential break unflagged. The practical reading is therefore asymmetric and must
+be stated as such to users: an alarm is trustworthy, but silence is not a
+guarantee of compatibility. This is the correct and defensible posture for a tool
+built on heuristic inference and an undecidable underlying logic, and it is
+preferable to a tool that claims completeness it cannot deliver.
+
+\section{The development-process contribution}
+
+Beyond the instruments, the thesis advances a claim about how software
+\emph{development} itself changes when verified, inferred contracts are always
+present. The contribution is a shift in the unit of review and the nature of
+trust.
+
+\paragraph{From code review to specification review.} Today, a change is reviewed
+as a diff of code, and a reviewer reconstructs intent from the implementation. When
+every change carries an inferred, verified contract, the reviewable unit becomes
+the \emph{specification delta plus its proof}: the reviewer reads what the
+behaviour is now required to be, and the verifier certifies that the code meets it.
+Review shifts from inferring intent out of code to confirming intent stated as a
+contract. This does not abolish code review---a reviewer may still object to
+\emph{how} something is done---but it relocates the question of \emph{what} the code
+must do into a checkable artefact.
+
+\paragraph{Transferable trust.} The proof that a contract holds is a re-checkable
+certificate, not the reviewer's eyeballing. Trust becomes transferable: a
+downstream consumer of a library need not re-read its source to believe a property;
+they can re-run the check. This is the property that makes the version-compatibility
+half of the thesis operationally meaningful---a client trusts a dependency's
+contract because the contract is certified, and a dependency upgrade becomes a
+\emph{spec-diff event} whose blast-radius is computed, not a leap of faith mediated
+by a version number.
+
+\paragraph{A process-mining analogue.} The shape of this change has a precedent in
+the business-process world, and naming it sharpens the contribution. Where process
+mining discovers a model from event logs and conformance
+checking~\citep{rozinat2008conformance,vanderaalst2016processmining,dumas2018bpm}
+measures the fit between recorded behaviour and that model, the present programme
+\emph{infers} a behavioural contract from code and then \emph{checks conformance}
+of the implementation---and of its callers, across versions---against it. Inference
+is the discovery step; OpenJML verification and compositional propagation are the
+conformance-checking step. The analogy is not decorative: it places this work in a
+recognised lineage of \emph{discover-then-conform} methods and clarifies that the
+novelty is the medium (formal contracts over source code, machine-checked) rather
+than the overall epistemic move.
+
+\paragraph{An organisational note.} Insofar as it is relevant, the
+version-compatibility result touches Conway's observation that systems mirror the
+communication structures of the organisations that build them~\citep{conway1968committees}:
+a contract-diff at a module boundary is, in effect, a coordination event between
+the teams on either side of that boundary, and making the blast-radius computable
+turns an implicit, cross-team coordination cost into an explicit, checkable one.
+The thesis does not pursue the organisational dimension empirically---that would be
+a different study---but notes that the mechanism it builds operates precisely at
+the boundaries where Conway's law predicts coordination friction. Whether such a
+mechanism is actually adopted is, in turn, a question of diffusion of
+innovations~\citep{rogers2003diffusion}: the design choices of fail-open CI
+integration (\cref{ch:article4}) and zero-authoring-cost inference are deliberate
+reductions of the adoption barriers that diffusion theory identifies, namely
+relative disadvantage and complexity.
+
+\section{Threats to validity across the programme}
+
+Each constituent study states its own threats; this section addresses those that
+operate at the \emph{programme} level, where a weakness in one study could
+compromise the cumulative argument. They are grouped by the standard construct,
+internal, external, and conclusion categories~\citep{runeson2009casestudy,yin2018case},
+and each is paired with its mitigation.
+
+\subsection{Construct validity}
+
+The central construct risk is that \emph{``a verified inferred contract'' may not
+measure ``correct behaviour''}. A contract can be verified yet trivially weak: an
+inference that emits \texttt{ensures true} is vacuously verifiable and says nothing.
+The programme mitigates this in two ways. First, the well-formedness filtering of
+\cref{ch:article3} excludes contracts whose entry-state scope is unsatisfiable, and
+the headline reach figures are the filtered ones, so vacuous contracts are not
+counted as wins. Second, the downstream-utility study (\cref{ch:article1}) measures
+contracts by an \emph{external} effect---improved generated tests---which a vacuous
+contract cannot produce, providing a check on construct validity that does not
+depend on the contract's internal form. A residual risk remains: a contract can be
+non-vacuous yet still under-specify intent, which is precisely why human
+ratification sits at the tier boundary of the lifecycle.
+
+\subsection{Internal validity}
+
+Two internal threats dominate. The first is \emph{heuristic inference skew}: the
+engine recognises patterns it was built to recognise and is silent elsewhere, so
+the population of inferred contracts is biased toward the tractable. This could
+inflate apparent fidelity if the easy cases are also the verifiable ones. The
+mitigation is that fidelity is reported as a rate \emph{conditioned on emission and
+verification}, and the silence of the engine is reported honestly rather than
+counted as success; the thesis does not claim coverage it does not have. The second
+is \emph{language-model non-determinism}: the test-generation result of
+\cref{ch:article1} and any agentic-loop demonstration depend on a stochastic model
+whose output varies run to run. The mitigation is the controlled, paired design of
+the comparison---the same prompts with and without the contract treatment---so that
+non-determinism is shared across conditions and the treatment effect is isolated;
+the limitation is that a single model family was used, so the result is a direction,
+not a universal constant.
+
+\subsection{External validity}
+
+The principal external threat is \emph{single-corpus generalisability}. Much of the
+quantitative evaluation, especially the compositional-reach measurement, leans on
+Apache Commons Lang and similarly structured Java libraries. A library written in a
+markedly different idiom---heavy reflection, dynamic proxies, concurrency-dominated
+control flow---may expose patterns the heuristics do not recognise and contracts the
+solver cannot discharge. The mitigation is partial: the studies use real,
+widely-depended-upon code rather than synthetic benchmarks, so the result is at
+least representative of an important class of production Java; but the thesis does
+\emph{not} claim that the reach figures transfer unchanged to arbitrary corpora, and
+it identifies multi-corpus replication as the obvious next step. A second external
+threat is that the AI-native lifecycle of \cref{ch:article5} targets a fast-moving
+ecosystem; the specific agent toolkits it positions against~\citep{githubspeckit,awskiro,awsaidlc}
+may evolve. The mitigation is that the architectural claims---dual-role contract,
+closed loop, independent authority---are stated at a level above any particular
+toolkit.
+
+\subsection{Conclusion validity}
+
+The dominant conclusion threat is \emph{solver decidability and scalability}. The
+verification spine rests on Z3, and the underlying logic is undecidable; the
+programme repeatedly encounters timeouts on multiplicative arithmetic, array-theory
+queries, and rich preconditions. This bounds the generalisability of every claim
+built on verification: where the solver cannot decide, the pipeline neither
+confirms nor refutes. The mitigation is twofold and honest. Operationally, the
+configuration is tuned (bigint specification arithmetic, safe code arithmetic, a
+chosen solver version) to maximise the fraction discharged within budget, and the
+fail-open and soundness-not-completeness postures ensure that an undecided
+obligation degrades to ``unflagged/unverified'' rather than to a false guarantee.
+Epistemically, the thesis states plainly that \emph{characterisation is not a
+correctness proof}: where a result is a measurement of how the heuristics and
+solver behave on a corpus, it is reported as such and not elevated to a theorem
+about all programs.
+
+\subsection{The capstone's deferred validation}
+
+A final, cross-cutting threat is specific to \cref{ch:article5}: the integrated
+lifecycle is \emph{partially built, with end-to-end validation deferred}. Its
+components are individually evidenced by the earlier chapters, but the composed
+system has not been subjected to a controlled trial. The mitigation is to claim
+exactly what is demonstrated---feasibility and architectural coherence, with each
+component validated in isolation---and to label the controlled lifecycle evaluation
+as future work rather than as a completed result. The thesis would be weaker, not
+stronger, if it overstated this.
+
+There is also a subtler composition risk worth naming: the validity of a composed
+system is not the conjunction of the validities of its parts. Each chapter's result
+holds under that chapter's assumptions, and those assumptions are not identical. The
+test-generation study assumes a particular interaction protocol with a language
+model; the carriage study assumes a build toolchain that preserves embedded
+metadata; the compositional study assumes that callee contracts are available and
+non-vacuous; the continuous-integration study assumes a fail-open policy that some
+organisations may reject. When these are stacked into one lifecycle, an assumption
+satisfied in isolation may be violated in combination---for instance, a contract
+strong enough to drive a verifier may be too verbose to embed efficiently, or a
+fail-open CI policy may admit a weak contract that then under-constrains a
+downstream blast-radius analysis. The thesis does not resolve these interaction
+effects empirically; it identifies them as exactly the questions a future
+end-to-end evaluation must measure, and treats the per-component evidence as
+necessary but not sufficient for a claim about the whole. Naming the gap is itself
+part of the contribution: it tells a future evaluator where to look.
+
+\section{What the thesis does and does not claim}
+
+It is worth closing the synthesis by drawing the boundary of the contribution
+explicitly, because the value of a candid thesis is partly in its restraint.
+
+The thesis \emph{claims}: that heuristic inference can produce formal contracts
+cheaply enough to remove the authoring barrier to design-by-contract adoption; that
+such contracts, although partial, verifiably hold against their code and are useful
+downstream; that they can be carried with artefacts and run routinely in continuous
+integration; that compositional propagation of inferred contracts gives a sound (if
+incomplete) behavioural account of library/version compatibility; and that these
+parts compose into a coherent, verification-centric reference lifecycle for
+AI-native development in which a dual-role formal contract is the pivot between
+human intent and machine verification.
+
+The thesis \emph{does not claim} a controlled, industry-scale effect size for any
+of this. The test-generation result is a controlled comparison on a bounded
+program set and one model family, establishing direction and plausibility rather
+than a population parameter. The carriage and continuous-integration results are
+feasibility-and-fidelity demonstrations, not measurements of team productivity. The
+version-compatibility analysis is sound in alarm but admittedly incomplete in
+silence, bounded by weak third-party contracts and solver timeouts. The capstone
+lifecycle is a design validated by instantiation, with its end-to-end controlled
+evaluation---the industrial pilot---explicitly future work. And throughout,
+characterisation of how the instruments behave on real corpora is reported as
+characterisation, not as a proof of correctness over all programs.
+
+What unifies these claims and disclaimers is the thesis's single move: making
+formal specifications cheap by inferring them, trustworthy by verifying them, and
+useful by carrying and propagating them through the lifecycle---so that the same
+contract that lowers the barrier to formal methods also becomes the instrument for
+reasoning about how software changes break the programs that depend on it. That
+move is the contribution, and the five studies are its cumulative evidence.

@@ -1,0 +1,61 @@
+\subsection{Preliminary downstream signal: LLM test generation}
+\label{sec:downstream-prelim}
+
+The structural extension reported in Section~\ref{sec:empirical} is a
+prerequisite for downstream impact, not a demonstration of it. As a
+preliminary downstream probe we compare two configurations of an
+LLM-based test generator: \emph{P3} (the isolated baseline spec is
+attached to the class under test as JML) and \emph{P3C} (the
+compositionally-refined spec is attached instead). Both feed the
+class source plus the spec into \texttt{gemini-2.5-flash} with
+temperature $0.3$, $5$ generation runs per class. The 11-class
+subset is the same Commons Lang 3 fa\c{c}ade used in the
+predecessor LLM study~\cite{edmonds2026inference}.
+
+Table~\ref{tab:downstream} reports the mean number of test methods
+the LLM emits per run, for each class. Three classes
+(\texttt{NumberUtils}, \texttt{MutableDouble}, \texttt{Range})
+produced no extractable code in either phase (the model's response
+exceeded our 16{,}384-token output budget before the closing markdown
+fence, and the extractor reports zero tests in that case); these
+rows are honest zeros, not failures of the comparison.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Mean test methods extracted per generation run per Commons Lang class. P3: isolated baseline spec; P3C: compositionally-refined spec. Six of the eight classes with extractable tests show P3C $>$ P3.}
+\label{tab:downstream}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Class} & \textbf{P3} & \textbf{P3C} & \textbf{$\Delta$} \\
+\midrule
+BooleanUtils  & 40.0 & 51.0 & \textbf{+11.0 (+27.5\%)} \\
+CharUtils     & 58.0 & 44.6 & $-13.4$ ($-23.1\%$) \\
+MutableInt    & 21.0 & 21.6 & $+0.6$ ($+2.9\%$) \\
+MutableBoolean & 43.2 & 44.4 & $+1.2$ ($+2.8\%$) \\
+Pair          & 56.0 & 63.4 & $+7.4$ ($+13.2\%$) \\
+MutablePair   & 40.6 & 38.6 & $-2.0$ ($-4.9\%$) \\
+Validate      & 39.8 & 61.6 & \textbf{+21.8 (+54.8\%)} \\
+Mutable       & 24.0 & 26.8 & $+2.8$ ($+11.7\%$) \\
+\midrule
+\textbf{Mean (8 classes)} & \textbf{40.3} & \textbf{44.0} & \textbf{+3.7 (+9.1\%)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Interpretation.} This is a \emph{preliminary} signal only. The
+refined context yields more test methods on six of eight classes
+(largest gains on validation-heavy code, where branch-conditional
+clauses add case structure), with one substantial regression
+(\texttt{CharUtils}, $-23\%$, where disjunctive obligations appear to
+be read as a single assertion). Per-class variance is high and
+$n{=}11$ precludes a significance test. Crucially we report extracted
+test \emph{count}, not mutation-killing rate: the generated tests did
+not compile cleanly in our environment (un-stripped markdown fences;
+surrogate-pair \texttt{char} literals from Gemini-2.5), so the
+mutation-coverage comparison --- the measurement that would actually
+establish downstream value --- is deferred, with the generated tests
+committed to the replication package for independent
+PIT~\cite{coles2016pitest} analysis. This subsection establishes only
+that the P3 vs P3C delta is non-zero; it is not itself evidence of
+downstream improvement.

@@ -1,0 +1,64 @@
+\section{Platform Implementations}
+\label{sec:platforms}
+
+The CLI is invoked by three platform-specific workflow templates, one per major CI system. The templates follow the same structure: restore cache, build inferrer, run \texttt{infer}, optionally run \texttt{verify}, render \texttt{summary}, post in-place PR comment, archive reports.
+
+\subsection{GitHub Actions reusable workflow}
+
+Filed as {\tt .github/workflows/jml-verify.yml}, declared {\tt on: workflow\_call} so consumer repos use it via:
+
+\begin{lstlisting}[language={}]
+jobs:
+  jml:
+    uses: jml-inferrer/.github/workflows/jml-verify.yml@v1
+    with:
+      java-version: '21'
+\end{lstlisting}
+
+Cache is restored via {\tt actions/cache@v4} keyed on {\tt hashFiles('src/**/*.java')}; restore-keys allows partial reuse on cache miss. The PR-comment in-place update is implemented via {\tt actions/github-script@v7}, which iterates existing comments, finds one whose body starts with {\tt \#\# JML inference summary}, and either updates it or creates a new one. Reports are archived as artefacts with a 14-day retention.
+
+The workflow is dogfooded against the inferrer's own repository: a sibling workflow {\tt .github/workflows/self-test.yml} invokes {\tt jml-verify.yml} on every push to main and every PR. Section~\ref{sec:selftest} reports the timing.
+
+\subsection{GitLab CI template}
+
+Filed as {\tt .gitlab/ci/jml-verify.yml}, included via:
+
+\begin{lstlisting}[language={}]
+include:
+  - project: 'jml-inferrer/jml-inferrer'
+    file: '/.gitlab/ci/jml-verify.yml'
+\end{lstlisting}
+
+Adapts the GitHub Actions logic to GitLab's CI surface. Cache uses the built-in {\tt cache:} directive keyed on the same hashFiles equivalent. PR-comment posting requires the consumer to expose a {\tt JML\_GITLAB\_TOKEN} CI/CD variable with note-write scope; if absent, the template logs the summary as a job artefact and continues. The {\tt allow\_failure: true} flag enforces fail-open semantics at the GitLab level.
+
+\subsection{Jenkins declarative pipeline}
+
+Filed as {\tt Jenkinsfile} at the repo root. Designed for a Multibranch Pipeline job pointing at the consumer repo. PR detection via {\tt env.CHANGE\_ID} (set by the GitHub Branch Source or Bitbucket Branch Source plugin); diff-only inference via {\tt env.CHANGE\_TARGET}. Caching uses {\tt stash}/{\tt unstash} so the cache survives across builds on the same agent.
+
+PR-comment posting is plugin-dependent: the {\tt pullRequest.comment(body)} method works for the GitHub Branch Source plugin and Bitbucket Branch Source plugin; for other VCS integrations, the summary is logged to the build log and archived as an artefact.
+
+The {\tt unstable} build status is set when inference reports issues but no hard error has occurred --- this is the Jenkins idiom for ``pipeline succeeded but produced warnings worth surfacing''. A consumer's downstream stages can read this status if they want to gate based on it.
+
+\subsection{Coverage of the three triggers}
+
+Table~\ref{tab:trigger-coverage} summarises trigger coverage across the three platforms.
+
+\begin{table}[ht]
+\centering
+\caption{Trigger coverage across the three CI platforms.}
+\label{tab:trigger-coverage}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Trigger} & \textbf{GitHub Actions} & \textbf{GitLab CI} & \textbf{Jenkins} \\
+\midrule
+Per-commit (push) & \checkmark & \checkmark & \checkmark \\
+Per-PR (open / update) & \checkmark & \checkmark (MR) & \checkmark (PR via plugin) \\
+Per-merge (to main) & \checkmark (push to main) & \checkmark & \checkmark \\
+In-place PR comment & native & via API & via plugin \\
+Cache restore & \texttt{actions/cache} & native & \texttt{stash}/\texttt{unstash} \\
+Fail-open by default & \checkmark & \texttt{allow\_failure: true} & \texttt{unstable} status \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All three platforms cover the three triggers; PR-comment integration is the most platform-divergent concern, which is why the templates externalise it to a final stage that can be replaced or skipped without affecting the rest of the pipeline.

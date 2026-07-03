@@ -1,0 +1,212 @@
+\section{The Inference Instrument}
+\label{sec:approach}
+
+The empirical study in Section~\ref{sec:results} requires specifications to be available for every method in the corpus. Since manual specification at that scale is infeasible, the study is enabled by JML-Inferrer, a static analysis system developed alongside the experiment (Figure~\ref{fig:architecture}). This section describes JML-Inferrer at the level of detail required to interpret the empirical results; full implementation details, algorithm pseudocode, and the standard library specification database are provided in the Supplementary Material (Appendix~A--C).
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.6cm and 0.8cm,
+    component/.style={rectangle, draw, rounded corners, minimum width=2cm, minimum height=0.8cm, align=center, font=\footnotesize},
+    subcomponent/.style={rectangle, draw, minimum width=1.6cm, minimum height=0.5cm, align=center, font=\scriptsize},
+    data/.style={rectangle, draw, dashed, minimum width=1.4cm, minimum height=0.5cm, align=center, font=\scriptsize},
+    arrow/.style={->, >=stealth, thick},
+    phase/.style={rectangle, draw=gray, dashed, rounded corners, inner sep=0.2cm}
+]
+
+    % Input
+    \node[data, fill=lightblue!50] (input) {Java\\Source};
+
+    % Phase 1: Parsing
+    \node[component, fill=lightyellow, right=1cm of input] (parser) {JavaParser};
+    \node[data, right=0.6cm of parser] (ast) {AST};
+
+    % Phase 2: Analysis
+    \node[component, fill=lightgreen, right=0.6cm of ast] (analyzer) {Spec\\Analyser};
+
+    % Sub-components of analyzer (below)
+    \node[subcomponent, below=0.4cm of analyzer, xshift=-1cm] (wp) {WP};
+    \node[subcomponent, below=0.4cm of analyzer, xshift=1cm] (sp) {SP};
+    \node[subcomponent, below=0.4cm of wp] (loop) {Loop Inv.};
+    \node[subcomponent, below=0.4cm of sp] (simp) {Simplify};
+
+    % Phase 3: Output
+    \node[component, fill=lightpurple, right=1cm of analyzer] (formatter) {JML\\Format};
+    \node[data, fill=lightblue!50, right=0.6cm of formatter] (output) {Annotated\\Source};
+
+    % Arrows - main flow
+    \draw[arrow] (input) -- (parser);
+    \draw[arrow] (parser) -- (ast);
+    \draw[arrow] (ast) -- (analyzer);
+    \draw[arrow] (analyzer) -- (formatter);
+    \draw[arrow] (formatter) -- (output);
+
+    % Arrows - subcomponents
+    \draw[arrow] (analyzer) -- (wp);
+    \draw[arrow] (analyzer) -- (sp);
+    \draw[arrow] (wp) -- (loop);
+    \draw[arrow] (sp) -- (simp);
+    \draw[arrow, <->] (wp) -- (sp);
+    \draw[arrow] (loop) -- (wp);
+    \draw[arrow] (simp) -- (sp);
+
+    % Phase labels
+    \node[above=0.1cm of parser, font=\scriptsize\bfseries] {Phase 1};
+    \node[above=0.1cm of analyzer, font=\scriptsize\bfseries] {Phase 2};
+    \node[above=0.1cm of formatter, font=\scriptsize\bfseries] {Phase 3};
+
+\end{tikzpicture}%
+}
+\caption{System architecture. Phase~1 parses Java source into an AST. Phase~2 performs WP- and SP-organised inference with loop invariant heuristics and expression simplification. Phase~3 emits inferred specifications as JML annotations.}
+\label{fig:architecture}
+\end{figure}
+
+JML-Inferrer is implemented in Java~21 (approximately 20{,}000 lines of code at the time of submission) and uses JavaParser~\cite{javaparser} for AST construction. The pipeline comprises three phases: parsing, specification inference, and formatting. Source files are processed recursively, with annotations inserted in place, at an average of 88\,ms per file. The system is released under the Apache License 2.0; the present section describes only Phase~2, which contains the core inference logic. Phase~1 and Phase~3 are standard.
+
+\subsection{Specification Inference}
+
+The inference engine applies the visitor pattern over AST nodes, with pattern matching organised by the WP/SP correspondences described in Section~\ref{sec:background}. Symbolic execution~\cite{king1976symbolic, cadar2008klee} and full WP/SP computation are avoided deliberately; both require an SMT decision procedure and a complete operational semantics for Java, neither of which scales to arbitrary code. Pattern matching trades formal completeness for scalability and broad applicability, an established trade-off in industrial static analysis~\cite{calcagno2015infer}. Algorithm~\ref{alg:inference} sets out the inference procedure; the paragraphs that follow describe its principal components.
+
+\begin{algorithm}[t]
+\caption{Specification Inference via Pattern Matching}
+\label{alg:inference}
+\begin{algorithmic}[1]
+\REQUIRE Method AST node $M$
+\ENSURE Preconditions $Pre$, Postconditions $Post$, LoopInvariants $LI$
+\STATE $Pre \gets \emptyset$; $Post \gets \emptyset$; $LI \gets \emptyset$
+\STATE \COMMENT{Infer preconditions from early guards}
+\FOR{each statement $S$ in $M$.body}
+    \IF{$S$ is null check \texttt{if (p == null) throw/return}}
+        \STATE $Pre \gets Pre \cup \{\texttt{p != null}\}$
+    \ELSIF{$S$ is range check \texttt{if (p < 0 || p >= n) throw}}
+        \STATE $Pre \gets Pre \cup \{\texttt{p >= 0}, \texttt{p < n}\}$
+    \ENDIF
+\ENDFOR
+\STATE \COMMENT{Infer postconditions from return statements}
+\FOR{each \texttt{return $e$} in $M$.body}
+    \IF{$e$ is field access \texttt{this.f}}
+        \STATE $Post \gets Post \cup \{\texttt{\textbackslash result == this.f}\}$
+    \ELSIF{$e$ is new object \texttt{new T(...)}}
+        \STATE $Post \gets Post \cup \{\texttt{\textbackslash result != null}\}$
+    \ELSIF{$e$ involves \texttt{\textbackslash old} pattern}
+        \STATE $Post \gets Post \cup \{$derive relationship$\}$
+    \ENDIF
+\ENDFOR
+\STATE \COMMENT{Infer branch-conditional postconditions via symbolic paths}
+\FOR{each return $r$ reached under path condition $\pi$ (if/else or ternary)}
+    \STATE simplify $\pi$ algebraically
+    \STATE $Post \gets Post \cup \{\pi \Longrightarrow \text{spec}(r)\}$
+\ENDFOR
+\FOR{each conditional field assignment \texttt{this.f = $e$} under path $\pi$}
+    \STATE $Post \gets Post \cup \{\pi \Longrightarrow \mathtt{this.f} == e[\backslash\mathit{old}/\cdot]\}$
+\ENDFOR
+\STATE \COMMENT{Infer loop invariants}
+\FOR{each loop $L$ in $M$.body}
+    \STATE $LI \gets LI \cup \text{InferLoopInvariant}(L)$
+\ENDFOR
+\RETURN $(Pre, Post, LI)$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Loops, procedure summaries, and branching.}
+Loop invariant inference proceeds through four complementary heuristics: bound-based invariants for counter loops, accumulator pattern detection, monotonicity inference from update expressions, and bounded symbolic unrolling as a fallback. When all four fail, a conservative weak invariant is emitted. Across the 68 loops in 48 methods of the evaluation corpus, the non-trivial-invariant rate was 85.3\%; the four heuristics apply uniformly to \texttt{for}, \texttt{while}, and \texttt{for-each} constructs (Supplementary Material, Appendix~B).
+
+Method calls are handled in two passes. The first analyses methods in dependency order and caches the inferred specification of each; the second propagates these specifications across call sites. Calls into unannotated methods are treated as uninterpreted (the callee may throw, may modify accessible state, and returns an unconstrained value). Calls into the Java standard library are resolved against a curated specification database covering common operations on \texttt{String}, \texttt{Math}, \texttt{List}, \texttt{Map}, and utility classes (Supplementary Material, Appendix~C).
+
+A lightweight symbolic executor records a \emph{path condition} for each return statement, enabling branch-conditional postconditions of the form $\texttt{cond} \Longrightarrow \texttt{post}$. Both \texttt{if}/\texttt{else} and ternary branches are decomposed into per-path symbolic returns rather than collapsed into disjunctions, preserving the link between each return value and its enabling condition. Path conditions are simplified algebraically before emission. Heuristics that would be unsound under Java's two's-complement integer semantics (for instance, $\texttt{\textbackslash result} \ge 0$ for $x*x$ or $\texttt{Math.abs}(x)$ on \texttt{int} or \texttt{long}) are gated by return type, ensuring that inferred clauses can withstand formal verification.
+
+\subsection{Formal Validation}
+\label{subsec:validation}
+
+To distinguish heuristic plausibility from semantic correctness, JML-Inferrer integrates with OpenJML's Extended Static Checker (ESC)~\cite{openjml}. Following inference, OpenJML may be invoked on the annotated source (via the \texttt{--validate} and \texttt{--validate-only} command-line flags); each clause is discharged independently, and clauses that fail verification are flagged rather than silently retained. The validation pipeline is distributed as a containerised toolchain to support reproducibility across operating systems, and provides the substrate for a regression test suite of 576 end-to-end verification tests over the inference pipeline that gates engine changes against the formal oracle.
+
+The discharge layer uses a forked OpenJML build that emits SMT-LIB \texttt{define-fun-rec} for the \texttt{\textbackslash sum}, \texttt{\textbackslash product}, and \texttt{\textbackslash num\_of} quantifiers; upstream OpenJML reports these as \emph{not yet supported}, which would otherwise leave loop accumulator postconditions undischargeable. The fork is bundled with the toolchain to keep the validation pipeline reproducible. The strictness configuration is fixed at four flags: \texttt{-{}-code-math=safe} (operational integer semantics with overflow checks), \texttt{-{}-spec-math=bigint} (mathematical integers in specifications), \texttt{-{}-arithmetic-failure=hard} (arithmetic exceptions are verification failures rather than warnings), and \texttt{-{}-nullable-by-default} (unannotated reference types are treated as potentially null). The default solver is z3~4.13.4; z3~4.7.1 and z3~4.16.0 are bundled and selectable through an environment variable. cvc5 is also available for cross-checking but is not used by default because it does not consistently terminate on the project's preamble within the per-test timeout.
+
+\subsection{Method Categorisation}
+\label{subsec:categorization}
+
+To enable systematic evaluation across diverse implementations, the analysis assigns each method to one of six categories, extending Dragan et al.'s method stereotypes~\cite{dragan2006reverse} (inter-rater reliability: Cohen's $\kappa = 0.87$). The categories are: \emph{accessors and mutators} (field read or write), \emph{control flow} (conditionals and loops), \emph{factory and delegate} (object construction and forwarding), \emph{utility} (static helpers), \emph{state modification} (field modification under logic), and \emph{other} (event handlers, callbacks). When multiple patterns match, the most specific category is selected.
+
+\subsection{Engine Development: Probe-and-Backport}
+\label{subsec:probe-backport}
+
+The heuristic repertoire described in the preceding subsections was not specified in advance. It was extended incrementally over the course of the project by a development loop that pairs an LLM with the OpenJML verifier and an agentic coding assistant. The loop has four steps, applied whenever a new code pattern is encountered for which the engine fails to emit a discharged specification (Figure~\ref{fig:probe-backport}):
+
+\begin{enumerate}
+    \item \emph{Specify by example.} A failing pattern is reduced to a minimal Java method. An LLM (or, for harder cases, the authors by hand) drafts a candidate JML contract for the method.
+    \item \emph{Verify with the SMT oracle.} OpenJML's Extended Static Checker is invoked on the annotated method under the strictness configuration of Section~\ref{subsec:validation}. Clauses that discharge are accepted as ground truth for the pattern; clauses that fail are revised and reverified, or discarded if they cannot be made to discharge under the present solver/strictness budget. The verifier acts as a non-negotiable filter on what the LLM is permitted to propose: a clause that the LLM finds plausible but Z3 rejects is not allowed to enter the development corpus.
+    \item \emph{Encode the validated example as a probe test.} The minimal method and the discharged contract are committed to the verification regression suite (576 tests at submission) as a probe: a test that asserts that the inferrer, given the bare method, emits a specification that OpenJML then discharges.
+    \item \emph{Backport via an agentic coding assistant.} The agent is given the failing probe, the engine source, and the WP/SP framing of Section~\ref{sec:background}, and is tasked with extending the appropriate analyser (one of the WP, SP, loop-invariant, or simplification components) until the probe passes without regressing any other probe in the suite. The strictness configuration is fixed throughout, so any regression is a real one.
+\end{enumerate}
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.6cm and 0.9cm,
+    pbstep/.style={rectangle, draw, rounded corners, minimum width=2.6cm, minimum height=1.0cm, align=center, font=\footnotesize},
+    artefact/.style={rectangle, draw, dashed, minimum width=2.2cm, minimum height=0.7cm, align=center, font=\scriptsize},
+    arrow/.style={->, >=stealth, thick},
+]
+    \node[pbstep, fill=lightyellow] (s1) {1. LLM drafts\\candidate JML};
+    \node[pbstep, fill=lightgreen, right=of s1] (s2) {2. OpenJML ESC\\discharges or rejects};
+    \node[pbstep, fill=lightblue!50, right=of s2] (s3) {3. Validated example\\$\rightarrow$ probe test};
+    \node[pbstep, fill=lightpurple, right=of s3] (s4) {4. Agent extends\\inferrer until probe passes};
+
+    \node[artefact, below=of s1] (a1) {Minimal\\Java method};
+    \node[artefact, below=of s2] (a2) {Discharged\\JML clauses};
+    \node[artefact, below=of s3] (a3) {Regression\\suite (+1)};
+    \node[artefact, below=of s4] (a4) {Updated\\heuristic};
+
+    \draw[arrow] (s1) -- (s2);
+    \draw[arrow] (s2) -- (s3);
+    \draw[arrow] (s3) -- (s4);
+    \draw[arrow, dashed] (s4.south east) to[bend left=20] node[below, font=\scriptsize] {next pattern} (s1.south west);
+
+    \draw[arrow] (a1) -- (s1);
+    \draw[arrow] (s2) -- (a2);
+    \draw[arrow] (s3) -- (a3);
+    \draw[arrow] (s4) -- (a4);
+
+    \draw[arrow, dashed] (s2.south) -- ++(0,-0.3) -| node[pos=0.25, above, font=\scriptsize] {revise/discard} (s1.south);
+\end{tikzpicture}%
+}
+\caption{Probe-and-backport development loop. An LLM proposes candidate JML for a target code pattern; OpenJML's ESC discharges or rejects each clause under the fixed strictness configuration of Section~\ref{subsec:validation}; validated examples are pinned as probe tests in the verification regression suite; an agentic coding assistant then extends the appropriate inference component until the probe passes without regressing existing probes. The verifier is the non-negotiable filter on what the LLM is allowed to teach the inferrer.}
+\label{fig:probe-backport}
+\end{figure}
+
+The verifier-in-the-loop is the load-bearing element. It is what distinguishes the loop from direct LLM-driven specification inference, which, evaluated as a baseline in Section~\ref{sec:results}, exhibits only 72.4\% run-to-run \emph{consistency} --- the same method, prompted identically, yields non-identical contracts across runs at the configured temperature, and the variance includes clauses that the verifier would reject. The probe-and-backport workflow instead forces every clause that enters the engine's repertoire to be one that OpenJML has actually discharged on an example, and the discharged examples then anchor the engine's structural heuristics by regression.
+
+The effect of the loop is measured directly on the end-to-end verification regression suite, which runs each inferred specification through OpenJML's ESC under the fixed strictness configuration (Section~\ref{subsec:validation}). Over the development period the loop reduced the suite from 188 failing tests at the start of the recorded window to 86 of 576 at submission --- a pass rate rising from 67.3\% to 85.1\% (Figure~\ref{fig:loop-progress}). Within the recorded fixed-suite window the descent is visible iteration by iteration, with occasional upward steps where a candidate heuristic regressed the suite and was reverted before the next iteration; because the strictness configuration is held fixed throughout, every such regression is a real one. Measured at the finer granularity of individual clauses rather than whole methods, the engine discharges 92.9\% of all emitted clauses (Section~\ref{sec:results}). The residual failures concentrate in a small number of method-level patterns (nested-quantifier accumulators and array-mutation frames) that exceed the present solver budget rather than indicating unsound inference.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.88\textwidth,
+    height=6.2cm,
+    xlabel={Development progression (fix iteration $\rightarrow$ submission)},
+    ylabel={Failing tests (of ${\approx}576$)},
+    xmin=9, xmax=31,
+    ymin=70, ymax=200,
+    xtick={10,13,16,19,22,25,27,30},
+    xticklabels={10,13,16,19,22,25,27,subm.},
+    ytick={80,100,120,140,160,180,200},
+    grid=both,
+    grid style={gray!18},
+    tick label style={font=\footnotesize},
+    label style={font=\small},
+]
+\addplot+[color=blue!65!black, mark=*, mark size=1.3pt, thick] coordinates {
+    (10,188) (11,174) (12,172) (13,179) (14,172) (15,171) (16,172) (17,171)
+    (18,171) (19,170) (20,169) (21,169) (22,168) (23,168) (24,168) (25,168) (26,168) (27,170) (30,86)
+};
+\node[anchor=west, font=\scriptsize] at (axis cs:29.6,96) {86 (submission)};
+\end{axis}
+\end{tikzpicture}
+\caption{Effect of the probe-and-backport loop on the end-to-end verification suite. Solid markers are per-iteration runs over a recorded development window at a fixed 575-test suite (fix10--fix27); the upward steps at iterations~13 and~27 are candidate heuristics that regressed the suite under the fixed strictness configuration and were reverted before the next iteration. The dashed segment denotes further iterations beyond the recorded window, ending at the submission run (square marker): 86 failing tests of 576, an 85.1\% pass rate. The suite size is essentially constant across this span (575 vs.\ 576 tests), so failing-test counts are directly comparable. Each test asserts that the inferrer, given a bare method, emits a specification that OpenJML's ESC discharges.}
+\label{fig:loop-progress}
+\end{figure}
+
+The same loop is also the recommended user workflow for extending JML-Inferrer to a previously unrecognised pattern in a downstream codebase: write the minimal method, draft the contract, verify, and either upstream the probe and the heuristic, or carry it as a local extension.

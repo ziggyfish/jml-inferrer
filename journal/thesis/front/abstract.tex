@@ -1,0 +1,40 @@
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+Formal specifications make software behaviour machine-checkable, yet they are
+rarely written in practice because authoring them by hand is costly and demands
+expertise most development teams lack. The machinery for \emph{checking} programs
+against contracts is mature; what has been missing is an economical supply of the
+contracts. This thesis argues that the obstacle is not the value of specifications
+but their cost of acquisition, and that specifications inferred automatically from
+code---once cheap enough to be useful---can be composed to reason about library
+compatibility and integrated as the verification layer of the AI-native
+development lifecycles now emerging around large language models.
+
+The work is built on a single instrument: the JML-Inferrer, a static analysis
+tool that derives Java Modeling Language contracts---preconditions,
+postconditions, loop and class invariants, and frame conditions---from Java source
+by heuristics over the abstract syntax tree, and holds them to the demanding
+standard of discharge by the OpenJML extended static checker and the Z3 SMT
+solver. The thesis develops three connected results. First, it establishes that
+heuristic, partial, automatically inferred specifications are of high enough
+fidelity to be useful, and that supplying them to a large language model
+measurably improves the unit tests the model generates, converting the abstract
+value of a contract into a measured downstream benefit. Second, it shows that a
+compositional weakest-precondition pass over the call graph strictly extends
+single-pass inference, recovering a substantial number of additional well-formed
+preconditions and enabling behavioural version-compatibility to be treated as a
+static, run-free analysis: a change to a callee's contract can be propagated to
+its callers to compute the blast radius of the change, turning semantic
+versioning from an asserted convention into a checkable property. Third, it shows
+how inferred, machine-checkable contracts supply what current agentic,
+specification-driven lifecycles lack---a contract layer that is machine-checkable
+rather than natural language, and a closed verification loop rather than an open
+generate-and-review cycle---with the same contract serving as both the input an
+agent builds against and the oracle its output is checked against.
+
+Throughout, the thesis is scrupulous to distinguish \emph{verified}
+specifications, which the checker has discharged, from those that are merely
+\emph{well-formed}. Taken together, the results trace a single arc from
+inference---making specifications cheap---to integration---making them
+load-bearing in how software is built.

@@ -1,0 +1,88 @@
+\subsection{Deductive verification and verified program synthesis}
+\label{subsec:rw5}
+
+The proposal in this article rests on a long tradition of deductive program
+verification, in which a program is proved to satisfy a contract written in a
+machine-checkable specification language. The foundational idea is Hoare
+logic~\cite{hoare1969axiomatic} and Dijkstra's weakest-precondition
+calculus~\cite{dijkstra1975guarded}, which reduce correctness to the discharge
+of verification conditions, and design-by-contract~\cite{meyer1992dbc}, which
+made pre/postconditions and class invariants a unit of software construction.
+The Java Modeling Language (JML)~\cite{leavens2006jml} is the direct descendant
+of this lineage for Java, and is the contract language this article adopts.
+Practical tooling clusters into two families. \emph{Extended static checking}
+trades completeness for automation: ESC/Java~\cite{flanagan2002escjava} and its
+successor OpenJML~\cite{cok2011openjml,cok2014openjml} translate annotated Java
+into verification conditions discharged by a Satisfiability Modulo Theories
+(SMT) solver such as Z3~\cite{demoura2008z3} or
+cvc5~\cite{barbosa2022cvc5}. \emph{Auto-active verifiers} ask the programmer to
+supply more annotation but aim at full functional correctness: Dafny embeds
+specifications, loop invariants, and termination metrics in a programming
+language designed for verification~\cite{leino2010dafny}; Frama-C with its ACSL
+contract language targets industrial C~\cite{kirchner2015framac}; KeY uses an
+interactive/symbolic-execution prover for Java~\cite{ahrendt2016key}; and the
+recent Verus reuses Rust's linear types and borrow checker to verify systems
+code at scale~\cite{lattuada2023verus}. This article reuses the OpenJML--Z3
+combination, including a custom fork that adds recursive function definitions
+for \verb|\sum|, \verb|\product|, and \verb|\num_of|, as a \emph{trusted oracle}
+rather than proposing a new prover; the deliberate constraint is that the
+verifier never grades artefacts of its own authorship.
+
+A parallel tradition concerns the synthesis of programs that are correct by
+construction. Counterexample-guided inductive synthesis
+(CEGIS)~\cite{solarlezama2006sketching,solarlezama2008thesis} is the canonical
+loop: a candidate is proposed, a verifier searches for a counterexample, and
+the witness is fed back to refine the next candidate. The SyGuS
+formulation~\cite{alur2013sygus} standardized the syntax-guided variant. This
+generate--check--refine structure is precisely the shape the present article
+gives to its synthesis--verification loop, with two adaptations: the candidate
+generator is a large language model (LLM) rather than an enumerative search, and
+the SMT counterexample is surfaced as a concrete behavioural witness for the
+synthesis agent. The proposal also lifts the CEGIS idea \emph{above} the
+implementation layer into \emph{adversarial elaboration}, where a second,
+independent agent searches for scenarios consistent with the natural-language
+intent but violating the proposed contract---a counterexample search against
+specification weakening rather than against code.
+
+The most active recent strand couples LLMs with verifiers so that generated
+code or proofs are machine-checked rather than merely sampled and inspected.
+Clover reduces correctness to consistency among code, docstrings, and formal
+annotations, checked with Dafny and an LLM, and notably tolerates no false
+positives on adversarial inputs~\cite{sun2024clover}. Other work synthesizes
+verified Dafny methods directly~\cite{misu2024dafny}, repairs proofs in Verus by
+reasoning over counterexamples~\cite{yang2025verus}, drives Dafny verification
+with inference-time feedback loops~\cite{mugnier2025dafnypro}, and benchmarks the
+broader task of generating verified code from formal specifications
+(``vericoding'')~\cite{vericoding2026}. In adjacent territory, LLM-guided
+interactive theorem proving over Lean has reached competition-level mathematics
+via retrieval~\cite{yang2023leandojo} and reinforcement
+learning~\cite{deepmind2024alphaproof}. These systems share an architectural
+commitment this article endorses: a sound external checker, not the generator's
+own judgment, is the arbiter of correctness. They differ from the present
+proposal in three respects that define its gap. First, almost all of them assume
+the formal specification is \emph{given}---hand-written by the user, or, as in
+Clover and Self-Spec-style approaches, authored by the same model that writes
+the code, which reintroduces the circularity (the same agent grading its own
+output) that the proposed \emph{independent authority constraint} forbids.
+Second, they operate almost exclusively in the \emph{greenfield} setting of
+small, self-contained benchmark methods (CloverBench, DafnyBench, MBPP-DFY),
+whereas most real software is brownfield: the contract must be \emph{recovered}
+from existing code, issue tickets, and documentation, with disagreements between
+those streams treated as candidate bugs rather than as noise to be smoothed
+away. Third, they verify a single method against a fixed contract and stop;
+none treats a callee-specification change as a lifecycle event that
+\emph{recomputes caller obligations} and flags which call sites break without
+running them.
+
+It is this last capability that connects deductive verification to the thesis of
+the programme. Specification inference can lower the authoring cost that has
+historically limited adoption---Daikon recovers likely invariants
+dynamically~\cite{ernst2007daikon}, and the present authors' JML-Inferrer
+recovers JML contracts statically by AST heuristics and shows that a second
+weakest-precondition pass adds compositional preconditions a single pass
+misses~\cite{edmonds_article3}. The contribution of this article is to assemble
+these threads---a trusted SMT-backed oracle, a CEGIS-shaped synthesis loop, an
+LLM generator held at arm's length from the contract, brownfield
+multi-source characterisation, and compositional change propagation---into a
+single verification-centric reference pipeline in which the machine-checkable
+contract, not the disposable code, is the durable source of truth.

@@ -1,0 +1,100 @@
+\section{Brownfield Characterisation and Multi-Source Intent Triangulation}
+\label{sec:brownfield}
+
+The reference pipeline described in the preceding sections presumes that a machine-checkable contract exists before an agent writes code, so that the contract can act simultaneously as the synthesizing agent's input and as the oracle against which its output is verified. For a new method written from scratch, that contract is \emph{elaborated}: natural-language (NL) intent is lifted across the formal pivot through a human-confirmed dialogue. The overwhelming majority of real software, however, is not new. It is a pre-existing codebase carrying years of accreted behaviour, an issue tracker recording the bugs and edge cases that behaviour has provoked, and documentation declaring what the behaviour was intended to be. In this brownfield setting the contract cannot be authored; it must be \emph{recovered}. This section develops the startup phase that performs that recovery before any user input is solicited, and it is at pains to state precisely---and without overclaiming---what the verification performed during that phase does and does not establish.
+
+The defining difficulty of the brownfield case is that the existing code occupies two roles at once. It is the single best evidence of what the system actually does, and it is simultaneously the prime suspect, because whatever bugs the system contains are encoded in exactly that code. A contract inferred from the code alone therefore describes the implementation faithfully, including its defects. Verifying the implementation against such a contract is consequently \emph{characterisation} rather than validation, and the remainder of this section is organised around that distinction: \cref{subsec:bf-streams} describes the three evidence streams and the disagreement detection that is the real source of value; \cref{subsec:bf-proves} states what the verification proves; \cref{subsec:bf-report} defines the characterisation report and the retroactive-then-prospective loop reordering; and \cref{subsec:bf-limits} records the honest limitations.
+
+\subsection{Three Evidence Streams and Disagreement Detection}
+\label{subsec:bf-streams}
+
+The startup phase ingests three artefact families and treats each as an independent stream of evidence about intent (\cref{fig:triangulation}). The first stream is the \emph{code} itself, which answers the question of \emph{what the system does}. From it the JML-Inferrer of our prior work~\cite{edmonds_article1,edmonds_article3} derives a draft contract by abstract-syntax-tree heuristics---preconditions from parameter null checks and bounds guards, postconditions from return-value patterns, loop invariants for the max/min, linear-search, and summation shapes the tool already handles, and class invariants and assignable clauses---and the compositional second pass of Article~3~\cite{edmonds_article3} strengthens that draft with the additional preconditions a single pass misses. The second stream is the \emph{issue tracker}, typically Jira, which answers the question of \emph{why}: it records reported defects, the edge cases users actually exercised, and the rationale for past changes. The third stream is the \emph{documentation}, principally Javadoc but also design notes and API references, which answers the question of \emph{declared intent}---what the authors claimed the code should do. Intent claims are extracted from the latter two streams by an LLM augmented with retrieval over the relevant artefacts, building on the demonstrated capability of models to translate code-adjacent NL into formal postconditions~\cite{endres2024nl2postcond,ma2025specgen} and, more broadly, into formal contracts~\cite{lahiri2025nl2contract,cosler2023nl2spec}.
+
+These three streams are then reconciled into a single candidate contract in which every clause carries a \emph{provenance} tag recording the stream it came from: \texttt{code-inferred}, \texttt{ticket-stated}, or \texttt{doc-stated}, alongside the elaboration-time tags (\texttt{human-ratified}, \texttt{inherited-default}, \texttt{inferred-unconfirmed}, \texttt{example-pinned}) introduced earlier in the pipeline. The reconciliation is deliberately not a merge that smooths away conflict. Its primary product is \emph{disagreement detection}: the points at which the three streams make incompatible claims about the same clause. Recovering a clean, consistent contract is the unremarkable case; the engineering value of triangulation lies in the inconsistent cases, because each one is a hypothesis that something is wrong---either the code, or the documentation, or the recorded understanding of the system. This reframing of conflict-as-signal mirrors the long tradition of detecting comment--code inconsistency~\cite{tan2012tcomment,wen2019codecomment} and of mining specifications from heterogeneous sources~\cite{ammons2002mining,ernst2007daikon}, but it elevates the inconsistency itself, rather than any one reconciled artefact, to the role of primary output.
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    font=\small,
+    src/.style={draw, rounded corners, align=center, text width=3.0cm,
+                minimum height=11mm, fill=white, inner sep=2pt},
+    mid/.style={draw, rounded corners, align=center, text width=2.7cm,
+                minimum height=15mm, fill=blue!10, inner sep=2pt},
+    outbox/.style={draw, align=center, text width=3.3cm, minimum height=15mm,
+                fill=green!10, inner sep=3pt},
+    arr/.style={-{Latex[length=2mm]}, semithick},
+  ]
+    \node[src] (code) {\textbf{Code}\\\footnotesize \emph{what it does}\\\footnotesize JML-Inferrer};
+    \node[src, below=6mm of code] (tick) {\textbf{Issue tracker}\\\footnotesize \emph{why} (defects, edge cases)\\\footnotesize LLM $+$ retrieval};
+    \node[src, below=6mm of tick] (doc) {\textbf{Documentation}\\\footnotesize \emph{declared intent}\\\footnotesize LLM $+$ retrieval};
+    \node[mid, right=15mm of tick] (rec) {reconcile \& triangulate\\\footnotesize per-clause provenance};
+    \node[outbox, right=15mm of rec] (rep) {\textbf{Characterisation report}\\\footnotesize provenance/assurance-tagged contract\\[1pt]\footnotesize $+$ candidate bugs (stream disagreements)};
+
+    \draw[arr] (code.east) -- (rec.west);
+    \draw[arr] (tick.east) -- (rec.west);
+    \draw[arr] (doc.east) -- (rec.west);
+    \draw[arr] (rec) -- node[above,font=\footnotesize]{disagreement} node[below,font=\footnotesize]{$=$ candidate bug} (rep);
+  \end{tikzpicture}
+  \caption{Multi-source intent triangulation in the brownfield startup phase. Three evidence streams---code (\emph{what it does}), the issue tracker (\emph{why}), and documentation (\emph{declared intent})---are reconciled into a single provenance-tagged candidate contract. The primary product is not the merged contract but the \emph{disagreements} between streams, each a hypothesis that the code, the documentation, or the recorded understanding is wrong.}
+  \label{fig:triangulation}
+\end{figure}
+
+\Cref{tab:bf-triangulation} gives a small worked example drawn from the kind of method the demonstration corpus contains. Each row is a single recovered clause, shown beside what the code implies, what the documentation states, and what the issue tracker records, together with the verdict the triangulation assigns. The rows illustrate the three outcomes the phase can reach: agreement across streams (a clause the recovery is confident in), silence in the intent streams (a code-inferred clause that no human source confirms or denies, which therefore remains unconfirmed and drives the dialogue), and outright disagreement (a candidate bug).
+
+\begin{table}[t]
+\centering
+\caption{Worked example of multi-source intent triangulation for a string-trimming utility, in the style of an Apache Commons Lang \texttt{StringUtils} method. Each clause is recovered independently from the three streams; the verdict records whether they agree, and a disagreement is recorded as a candidate bug rather than suppressed.}
+\label{tab:bf-triangulation}
+\small
+\begin{tabular}{@{}p{0.20\linewidth}p{0.18\linewidth}p{0.18\linewidth}p{0.18\linewidth}p{0.18\linewidth}@{}}
+\toprule
+\textbf{Clause} & \textbf{Code-inferred} & \textbf{Doc-stated} & \textbf{Ticket-stated} & \textbf{Verdict} \\
+\midrule
+Null input handling &
+\texttt{\textbackslash result == null} on null input &
+returns \texttt{null} for null input &
+(no mention) &
+\emph{Agreement}: confidence clause \\[2pt]
+Empty-string result &
+\texttt{\textbackslash result.isEmpty()} when input is blank &
+returns the empty string for blank input &
+(no mention) &
+\emph{Agreement}: confidence clause \\[2pt]
+Unicode whitespace &
+trims only \texttt{c <= 0x20} (ASCII) &
+``removes whitespace'' (unqualified) &
+LANG-ticket requests Unicode-aware trimming &
+\emph{Disagreement}: candidate bug \\[2pt]
+Idempotence &
+\texttt{trim(trim(s)) == trim(s)} holds &
+(no mention) &
+(no mention) &
+\emph{Unconfirmed}: drives dialogue \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{What the Startup-Phase Verification Actually Proves}
+\label{subsec:bf-proves}
+
+It is essential to be exact about the epistemic status of any verification performed during characterisation, because the phrase ``the code verified'' invites a far stronger reading than is warranted. When the recovered contract is dominated by \texttt{code-inferred} clauses, verifying the code against that contract is \emph{nearly circular}: the specification was derived from the very implementation it is now used to grade, so a successful proof establishes only that the implementation is self-consistent and that the toolchain---the JML-Inferrer, \texttt{AnnotationToJMLConverter}, OpenJML, and Z3---is operating correctly~\cite{cok2014openjml,demoura2008z3}. This is a genuine and useful outcome: it furnishes a faithful-description baseline and a sanity check on the instrument, in the same spirit as the characterisation tests that legacy-code practitioners write to pin existing behaviour before changing it~\cite{feathers2004legacy}. It is emphatically \emph{not} a proof that the code is free of bugs. A defect that the code implements consistently will be faithfully described by a code-inferred clause and will verify without complaint.
+
+Bugs surface, instead, as \emph{disagreements}, and they do so by two distinct mechanisms. The first is internal: the code violates a pattern that the inference over-generalised from the rest of the code, so that the proof of a too-strong inferred clause fails. Here the failure is a known hazard of heuristic inference---an over-strong clause~\cite{flanagan2001houdini}---but the location of the failure is also a plausible anomaly worth a human's attention. The second, and more valuable, mechanism is external: the code disagrees with a \texttt{ticket-stated} or \texttt{doc-stated} clause. Because the intent streams encode what the system was \emph{supposed} to do, a clause that the code cannot satisfy is direct evidence of a code-versus-intent gap, exactly the productive disagreement that intent-derived oracles have been shown to expose against real historical defects~\cite{endres2024nl2postcond}. Correctness relative to intent, then, never comes from the code stream; it comes from the intent streams and, ultimately, from the human ratification that the elaboration layer provides. Nothing the startup phase emits is a trusted oracle: a clause translated from documentation or a ticket without a human in the loop remains \texttt{*-unconfirmed} and is used to \emph{drive} the dialogue, not to gate any decision.
+
+A direct consequence is that the startup phase cannot be gated on the absence of verification errors. In a greenfield synthesis loop a failed proof is a defect to be repaired before proceeding; in brownfield characterisation a code-versus-intent violation is the \emph{success outcome}, because the phase has done its job of locating a candidate bug. Demanding zero errors would amount to demanding that the recovery find nothing, which is precisely the wrong objective for a phase whose purpose is to expose the discrepancies that a subsequent human dialogue will adjudicate.
+
+\subsection{The Characterisation Report and Loop Reordering}
+\label{subsec:bf-report}
+
+The output of the startup phase is therefore not a green build but a \emph{characterisation report}. The report has three parts. The first is the recovered contract itself, with every clause carrying its provenance tag and an \emph{assurance} tag (\texttt{proved}, \texttt{bounded-checked}, \texttt{tested}, or \texttt{unchecked}) recording how far verification got, so that the strength of each claim is auditable and the degradation from full proof to bounded check to test under Z3's decidability limits is recorded rather than hidden. The second part is the agenda of candidate bugs: the $N$ disagreements detected across streams, each presented as a concrete clause with its conflicting evidence and, where verification produced one, a counterexample witness. The third part is the coverage statement---what could be specified and verified, and what could not, whether because no clause could be inferred, because verification did not terminate, or because the module lay outside the specified frontier. These discrepancies become the \emph{opening agenda} of the human dialogue: the brownfield phase does not silently absorb the codebase, it hands the engineer a prioritised list of places where code, documentation, and recorded intent fail to agree.
+
+This reframing forces a reordering of the verification loop relative to the greenfield case. In greenfield use the loop is purely \emph{prospective}: a new feature is elaborated, synthesized, and verified. In brownfield use the \emph{first} pass over an existing system is \emph{retroactive}. Before the pipeline changes anything, it resolves the recovered discrepancies---confirming intent where the streams agreed, fixing the bugs the disagreements exposed, and correcting documentation that the code has outgrown---and in doing so it establishes a trusted, ratified baseline contract for the touched surface. Only once that baseline exists do subsequent passes become prospective, elaborating and verifying new changes against it. The ordering is deliberate and has a process rationale: the tool earns trust on the existing code, by surfacing real defects and producing a contract the team has ratified, before it is permitted to author or verify any change. A pipeline that began by generating new code against an unratified, code-derived contract would inherit every latent bug as a ``verified'' obligation.
+
+Because a whole legacy application cannot be formally specified---verification does not scale to hundreds of thousands of lines, and the decidability limits documented for the underlying solver are real---the startup phase adopts a \emph{frontier} adoption strategy. It specifies only the module currently being touched, the public API surface, and the modules referenced by the active tickets, treating the remainder as unspecified and governed only by weak inherited-default contracts. The boundary of the specified frontier is exactly where the compositional change-propagation machinery of our prior work~\cite{edmonds_article3} plugs in: the contracts on the boundary methods are the interface across which caller obligations are recomputed when a callee contract changes, so that growing the frontier and propagating a version-compatibility change are, mechanically, the same operation~\cite{edmonds_article4}. Frontier adoption thus makes the brownfield phase tractable without abandoning the compositional thesis that motivates the programme.
+
+\subsection{Honest Limitations}
+\label{subsec:bf-limits}
+
+The characterisation phase rests on two inference steps that are individually imperfect, and their limitations must be stated plainly. The first is that specifications inferred from code skew \emph{weak}: they describe what the code does, not what it should do, and a weak contract is a poor oracle. This is why the intent streams and human ratification are load-bearing, and why the phase prioritizes the public API surface and leans on inherited-default contracts to keep the ratification labor bounded rather than attempting to ratify every inferred clause. The same inference is occasionally \emph{wrong} in the opposite direction, over-generalising into a clause the code does not satisfy and so producing a \emph{false} candidate bug; the report mitigates this by labelling every entry on the agenda a \emph{candidate}, to be confirmed or dismissed by the human, never an asserted defect.
+
+The second imperfect step is the translation of tickets and documentation into formal clauses. Done without a human, NL-to-formal translation is unreliable~\cite{cosler2023nl2spec,lahiri2025nl2contract}, which is exactly why those clauses are retained as \texttt{*-unconfirmed} and used only to drive dialogue. Compounding this, linking a ticket or a documentation fragment to the precise code element it concerns is a noisy traceability problem: issue references, commit links, and path heuristics are partial, and the information-retrieval and learned approaches to traceability recovery~\cite{antoniol2002recovering,borg2014recovering,lin2021tbert} are credible only on a curated module, not across an arbitrary repository. The phase therefore claims realism on a well-scoped frontier, not coverage of an entire production system. Finally, the verifier's own scalability and decidability limits---Z3 timeouts on multiplicative reasoning, array theory, and rich preconditions---bound what can be proved rather than merely tested, and the assurance tags make that boundary visible in the report. Taken together, these limitations are the reason the brownfield phase is designed to produce an \emph{agenda} for a human dialogue rather than a verdict: a wrong contract verified against would be worse than no contract at all, and the provenance tagging, the independent authority constraint, and the human ratification of behaviour are precisely the safeguards that keep an unconfirmed recovered clause from being mistaken for a trusted oracle.

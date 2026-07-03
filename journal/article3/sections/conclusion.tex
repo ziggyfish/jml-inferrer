@@ -1,0 +1,4 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We asked whether single-pass callee-precondition propagation captures what a top-down compositional refinement would. Across five libraries (21{,}052 methods) it does \emph{not} subsume on any: refinement adds a clause to 21--39\% of methods --- 18{,}854 new preconditions and 12{,}611 new postconditions, every one entry-state-expressible. Branch-conditional implications (33--45\% of new clauses) and polymorphic-dispatch disjunctions appear on every library --- both beyond the single pass, for 50 seconds total. A two-year Commons Lang version step (Section~\ref{sec:empirical-version}) further surfaces 525 changed inferred specifications, 144 with strengthened preconditions: the candidate-breaking set a compatibility checker consumes.

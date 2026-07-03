@@ -1,0 +1,12 @@
+\section{Related Work}
+\label{sec:related}
+
+The closest existing systems and approaches:
+
+\paragraph{CI integration of static-analysis tools.} SonarQube, SpotBugs, and Checkstyle are all routinely integrated into PR-comment workflows similar to the one described here. These tools differ in two ways: they target style and bug-pattern detection rather than specification inference; and they emit findings that are rule-keyed rather than method-keyed, so caching is shallower. The workflow here adapts the deployment pattern these systems established (PR comment, fail-open, cache hit on unchanged source) to the specification-inference setting. None of those systems compose specifications across method boundaries the way Article~3's compositional analyzer does, so the cache-invalidation property described in Section~\ref{sec:workflow} is new.
+
+\paragraph{Formal-verification CI integration.} Existing OpenJML / Frama-C / Why3 deployments in CI are rare, and where they exist they are typically gating: a verification failure blocks the merge. This article's fail-open default is a deliberate departure that trades hard-guarantee gating for adoption-tolerance. The planned empirical study includes a comparison with a gating configuration to quantify the trade-off in detection rate versus PR-cycle time.
+
+\paragraph{Refactoring-tooling CI integration.} Tools like Error Prone (Google) and Refaster operate similarly to this workflow: per-PR analysis, in-place comment update, fail-open by default. The cache key design here generalises Error Prone's per-file caching with the compositional dependency on callee specs, which Error Prone does not need.
+
+\paragraph{Agile / continuous-integration empirical work.} The empirical study planned in Section~\ref{sec:empirical} draws on the methodological tradition of CI-evolution studies in software engineering: replaying historical commits, measuring per-commit overhead, and gathering developer-experience feedback. The metrics chosen (build-time overhead p50/p95/p99, cache hit rate, spec churn rate) are standard in this literature; the present article is contributing the artefact, not new methodology.

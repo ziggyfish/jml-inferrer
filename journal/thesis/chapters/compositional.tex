@@ -1,0 +1,367 @@
+\chapter{Compositional Specifications for Version Compatibility}\label{ch:compositional}
+
+\section{From a local pass to a compositional one}
+\label{sec:comp-motivation}
+
+The inference instrument of \cref{ch:inferrer} reasons about one method at a
+time. Its heuristics read the syntax of a single method body---a parameter
+dereferenced without a guard, an array indexed by a loop variable, an early
+\texttt{throw} that validates an argument---and emit a contract for that method
+alone. This locality is what makes the instrument cheap and deterministic, but
+it is also its ceiling. A method's true precondition is rarely a property of its
+own body only; it is inherited from the methods it calls. When a caller invokes
+a callee whose contract requires something of its arguments, that requirement
+becomes, after substituting the actual arguments, an obligation on the caller.
+Recovering such inherited obligations is the business of \emph{compositional},
+rather than local, inference.
+
+The inference instrument already performs a limited form of this cross-method
+reasoning. During its single local pass it consults an
+\texttt{InterproceduralAnalyzer}: when it infers a method \texttt{m} that
+contains a call \texttt{n(args)}, it looks up \texttt{n}'s cached contract,
+substitutes the formal parameters of \texttt{n} with the actual arguments at the
+call site, and appends the substituted preconditions to \texttt{m}'s set. This
+is \emph{single-pass propagation}: each method is visited once, each callee is
+read once, and its contract is pulled into the caller atomically. It is sound
+for the simple case---an obligation the callee requires \emph{unconditionally}
+must hold wherever the callee is called---and it is fast and order-independent
+provided callees are inferred before callers.
+
+The question this chapter answers, and the question that anchors the thesis's
+second contribution, is whether that single pass captures everything a genuinely
+compositional analysis would, or whether a second, deliberately compositional
+pass recovers obligations the first structurally cannot express. The answer
+matters twice over. If a second pass adds nothing, the simpler architecture is
+vindicated and the engineering cost of a second pass is unjustified. If it adds
+a great deal, then the instrument of \cref{ch:inferrer} was leaving recoverable
+specifications on the table, and---more consequentially---the same machinery
+that lifts a callee's contract into its caller is exactly what lets a
+\emph{change} to a callee's contract be propagated across a call graph, which is
+the mechanism on which behavioural version-compatibility reasoning rests
+(\cref{sec:comp-versioning}).
+
+\section{The weakest-precondition intuition}
+\label{sec:comp-wp}
+
+Where the single pass is blind is at call sites that are not reached
+unconditionally. Dijkstra's weakest-precondition calculus
+\citep{dijkstra1976discipline}, resting on the axiomatic foundations of Hoare
+\citep{hoare1969axiomatic}, gives the correct account: to compute what must hold
+at a method's entry, one walks the body backwards, accumulating the guard
+context that governs each program point. A statement reached only when a
+condition \texttt{g} holds contributes not its raw obligation \texttt{p} but the
+implication \texttt{g \(\Rightarrow\) p}. A small example makes the gap visible.
+Consider a callee with an inferred, verified precondition and a caller that
+invokes it on one branch only:
+
+\begin{lstlisting}[language=Java,basicstyle=\ttfamily\small,frame=none]
+//@ requires divisor != 0;
+static int safeDivide(int a, int divisor) { return a / divisor; }
+
+static int scale(int value, int factor) {
+    if (factor != 0) {
+        return safeDivide(value, factor);
+    }
+    return value;
+}
+\end{lstlisting}
+
+At the call site \texttt{safeDivide(value, factor)}, substitution yields the
+clause \texttt{factor != 0}. The single pass now faces a dilemma with no correct
+resolution. Conjoining \texttt{factor != 0} unconditionally into \texttt{scale}'s
+precondition would forbid the very call \texttt{scale(value, 0)} that the method
+explicitly and correctly handles on its other branch; skipping the clause to
+avoid that error loses the obligation entirely on the path where the division
+does fire. A compositional walk resolves the dilemma by lifting the substituted
+clause through the enclosing guard, producing the branch-conditional clause
+\texttt{factor != 0 \(\Rightarrow\) factor != 0}. Here the guard happens to
+entail the obligation, so the lifted clause is a tautology and the example is
+deliberately trivial; in real code the guard and the callee's requirement
+differ, and a call to a method requiring a non-empty list, guarded by a size
+check, lifts to \texttt{size > 0 \(\Rightarrow\) list.size() > 0}---a clause
+that carries genuine information the single pass cannot state in any form.
+
+A second structural class is equally out of reach. When a caller invokes
+\texttt{x.n()} on a receiver whose declared type has several implementations of
+\texttt{n}, runtime dispatch may select any of them, each with its own inferred
+precondition. Single-pass propagation resolves the call to one nominal callee
+and sees only that one. A compositional pass, aware of the class hierarchy,
+enumerates the candidates and emits the disjunction
+\texttt{(p\(_1\) || \dots\ || p\(_k\))} of their substituted preconditions.
+This is a deliberate \emph{weakening} of the caller's obligation rather than a
+sound safety guarantee---the heuristically inferred per-override contracts need
+not respect behavioural subtyping \citep{mostafa2017behavioral}, so the strictly
+sound conjunction is frequently spuriously strong---but it is a shape a single
+nominal resolution cannot produce at all.
+
+\section{The compositional refinement pass}
+\label{sec:comp-pass}
+
+The realised design is a lifting step layered over the existing local result,
+not a full weakest-precondition transformer. A complete transformer would
+require a decision procedure and a precise operational semantics for every Java
+construct, which is the province of full verifiers such as OpenJML's static
+checker \citep{cok2014openjml,leavens2006jml}, not of a heuristic inferrer. The
+pass instead takes as input the populated specification cache from
+\cref{ch:inferrer}, a call graph over the same methods, and the abstract syntax
+tree of each declaration, and it mutates the cache in place.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize\sffamily,
+  >={Stealth[length=1.6mm,width=1.4mm]},
+  node distance=7mm and 12mm,
+  box/.style={rectangle, rounded corners=1.5pt, draw=black!60,
+    minimum height=6mm, minimum width=16mm, inner sep=3pt, align=center},
+]
+  \node[box] (leaf) {leaf callee\\(refined first)};
+  \node[box, right=of leaf] (mid) {intermediate\\caller};
+  \node[box, right=of mid] (root) {entry-point\\caller};
+  \draw[->] (mid) -- node[above,font=\tiny]{calls} (leaf);
+  \draw[->] (root) -- node[above,font=\tiny]{calls} (mid);
+  \draw[->, dashed, bend left=32] (leaf.north) to
+    node[above,font=\tiny]{contract lifts to} (mid.north);
+  \draw[->, dashed, bend left=32] (mid.north) to
+    node[above,font=\tiny]{contract lifts to} (root.north);
+\end{tikzpicture}
+\caption{Refinement direction. The driver visits strongly-connected components
+of the call graph in reverse topological order, so each callee is refined before
+any of its callers; a callee's refined contract then lifts into the caller as a
+substituted, guard-conditioned obligation.}
+\label{fig:comp-callgraph}
+\end{figure}
+
+A driver iterates the strongly-connected components of the call graph in reverse
+topological order, so that callees are refined before their callers
+(\cref{fig:comp-callgraph}). A component with no recursion is refined in a single
+sweep; a mutually recursive component is refined repeatedly until no method gains
+a new clause, or until a configurable cap (sixteen iterations) bounds the runtime
+on pathological graphs. The two-tier treatment is forced by the graph rather than
+chosen for convenience: on an acyclic graph one reverse-topological sweep already
+refines every method against fully refined callees, but a cycle admits no such
+order, so a method first visited against a still-stale callee must be revisited
+once that callee is itself refined. The iteration terminates because each
+method's clause set only grows and is bounded above by the finitely many
+substituted callee clauses reachable in the component.
+
+For each method the refiner walks every call expression in the body and, at each
+call site, resolves the callee, substitutes the actual arguments for the callee's
+formal parameters, lifts the substituted clause through the conjunction of any
+enclosing \texttt{if} or ternary guards (with \texttt{else} branches
+contributing the negated guard), detects polymorphic dispatch and emits a
+disjunction over candidates where it occurs, and conjoins the result into the
+caller's set if it is not already present. Substitution is textual with word
+boundaries, so a formal parameter \texttt{s} does not clobber a substring of
+\texttt{this.size}. Two soundness gates reject unsafe substitutions outright:
+a call whose arguments or whose enclosing guards are side-effecting (an
+increment, a decrement) is skipped, because substituting an expression whose
+evaluation changes state does not preserve meaning. Postconditions are propagated
+by the same machinery but gated on a termination flag---a non-terminating
+callee's postcondition describes a state established only if the callee returns,
+so propagating it unconditionally would be unsound.
+
+\section{Entry-state well-formedness}
+\label{sec:comp-wellformed}
+
+A lifted clause is only admissible if it can be \emph{stated} at the caller's
+entry. A JML \texttt{requires} clause may reference only entry-state names---the
+method's parameters and the fields visible to it---and never a body-local such as
+a loop index or a temporary, because a precondition is evaluated before the body
+runs and body-locals do not yet exist. Two routes threaten this discipline.
+Lifting a guard that tests a body-local (\texttt{if (i < n) \dots}, where
+\texttt{i} is a loop variable) would drag \texttt{i} into a \texttt{requires}
+clause; and substituting a caller-local argument into a callee's precondition
+would do the same by the other route. Either produces a clause that is
+syntactically ill-formed as a precondition, no matter how faithful it is to the
+program's meaning.
+
+The pass therefore checks every candidate clause against the caller's entry scope
+before emitting it, discarding any clause that mentions a name not in scope at
+entry. This filter---realised as the \texttt{EntryScopeFilter} component---is not
+cosmetic. Enforcing it materially lowered the recovered count: an earlier,
+unfiltered version of the analysis reported on the order of forty-five thousand
+new preconditions, but many of those referenced body-locals and were not
+legitimate entry-state obligations at all. With the filter enforced, the pass
+yields roughly \textbf{18{,}854 additional well-formed preconditions} across the
+study corpus (\cref{sec:comp-measurement}), and a post-hoc re-scan confirms that
+none of the emitted clauses references a body-local on any library. The corrected
+figure is the one this thesis reports and defends.
+
+The distinction that governs the whole chapter must be stated plainly here. A
+\emph{well-formed} clause is syntactically valid JML and scope-correct: it names
+only entry-state values and could, in principle, be handed to a verifier. A
+\emph{verified} clause is one an SMT-backed checker has actually discharged
+\citep{cok2014openjml,demoura2008z3}. The compositional pass produces the former,
+not the latter. It is a structural transformation over already-cached contracts:
+given the callee specifications, whatever their semantic quality, it produces new
+caller clauses and confirms they are expressible at entry. It does not run
+OpenJML on them, and it makes no claim that the 18{,}854 clauses are individually
+sound against the code's intent---that is the inference instrument's
+responsibility, discharged by the verification discipline of \cref{ch:inferrer},
+not the compositional pass's. Throughout this chapter, therefore, the headline
+number is a count of \emph{well-formed} preconditions, not verified ones, and the
+two are never conflated.
+
+\section{Measurement study}
+\label{sec:comp-measurement}
+
+The pass was measured, not proved. The study asks how many additional well-formed
+preconditions the second pass recovers, over what fraction of the call graph, on
+real Java. The corpus is the source of five open-source libraries chosen to span
+four idiom families: Apache Commons Lang and Commons IO (imperative
+utility-class and I/O idioms), Commons Math (numerical algorithms), and jOOL and
+Vavr (higher-order, generics-heavy functional idioms). Commons Lang and Commons
+IO are shared with the studies of \cref{ch:inferrer}, which keeps cross-chapter
+comparisons free of corpus-difference confounds. Combined, the corpus is 1{,}712
+source files and 21{,}052 methods that carry a non-empty local baseline contract.
+For each library the harness parses every source file, builds the call graph,
+runs the local inference (including its single-pass interprocedural propagation)
+to snapshot the baseline, invokes the compositional pass, and diffs each method's
+refined contract against its baseline, counting and categorising the newly added
+clauses. Every measurement is deterministic given the inputs and is reported
+once.
+
+The second pass strictly extends the baseline on every library
+(\cref{tab:comp-headline}). It adds at least one clause to between roughly 21 and
+39 per cent of cached methods---median about a third---and in total recovers
+\textbf{18{,}854 new, well-formed precondition clauses} (together with a further
+body of new postcondition clauses) across the five libraries. The effect is a
+population-level one rather than the artefact of a few enormous methods: the mean
+number of new preconditions per refined method is modest, in the low single
+digits on every library, well below the per-library maxima, which are therefore
+deep-tail outliers. Crucially, this gap persists even though every library's
+baseline already invokes single-pass interprocedural propagation; the second pass
+discovers obligations the first cannot express, not obligations the first simply
+failed to compute.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Effect of the compositional pass over the local baseline, per library.
+``Refined'' methods gained at least one new clause; every emitted clause is
+well-formed (entry-state-expressible), not separately verified.}
+\label{tab:comp-headline}
+\begin{tabular}{lrrrrr}
+\toprule
+& \textbf{Lang} & \textbf{IO} & \textbf{Math} & \textbf{jOOL} & \textbf{Vavr} \\
+\midrule
+Methods in cache        & 3{,}494 & 2{,}111 & 6{,}645 & 3{,}691 & 5{,}111 \\
+Methods refined         & 1{,}367 & 711     & 2{,}203 & 784     & 1{,}541 \\
+\hspace{1em}\% of cache & 39.1    & 33.7    & 33.2    & 21.2    & 30.2 \\
+New precondition clauses & 2{,}632 & 1{,}329 & 8{,}966 & 4{,}262 & 1{,}665 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The shape of the additions explains \emph{why} the single pass falls short.
+Categorising each new precondition by its syntactic form, the two shapes that lie
+outside the single pass's reach by construction---branch-conditional implications
+(\texttt{guard \(\Rightarrow\) obligation}) and disjunctions from polymorphic
+dispatch---are present on every library and together account for between two-fifths
+and three-fifths of new clauses on each. Branch-conditional clauses are the
+single largest shape on three of the five libraries, exceeding two-fifths on
+Commons Lang and on Vavr, and remain at least a third on the other two, where
+pervasive input validation instead pushes plain null checks to the plurality (the
+matrix and array arguments of Commons Math, the lambda pinch-points of jOOL).
+Disjunctive clauses, the polymorphic-dispatch signal, peak on Vavr, the library
+with the deepest interface-inheritance chains. Null and range obligations also
+appear, but these are shapes the single pass \emph{would} have produced at an
+unguarded call site; the second pass adds them only because the call site was
+guarded by a condition the single pass would not lift. A syntactic vacuity test
+confirms that the branch-conditional counts are not inflated by tautologies of
+the \texttt{g \(\Rightarrow\) g} form: such vacuous clauses are a negligible
+fraction of the branch-conditional total on every library.
+
+The pass is cheap. Across all five libraries the refinement runs in around fifty
+seconds in total---on the order of a couple of milliseconds per method---an
+addition of seconds to a local inference that already takes minutes on libraries
+of this size. The fixpoint iteration never fired: under the analyser's
+signature-matching scheme all five call graphs are acyclic, so each method is
+refined exactly once and the sixteen-iteration cap is never approached. This is a
+statement about precondition propagation along the call graph specifically, and
+it does not generalise to every specification a compositional inferrer might
+produce; class invariants, whose inference is a greatest-fixpoint driven by
+shared-state coupling rather than by call edges, are a genuinely harder problem
+left to future work and revisited in \cref{ch:discussion}. Two caveats bound the
+headline. Callee resolution uses simple-name matching, which rejects some
+overloaded call sites on arity mismatch, so unmatched sites can only ever add
+clauses the count omits; the reported figure is thus a \emph{lower bound} on the
+true compositional gain. And clause equality is syntactic, so the count is an
+upper bound on the number of distinct \emph{logical} obligations. Both caveats
+concern the count's precision, not the qualitative finding, which is robust: the
+single pass is not subsuming on any library measured.
+
+\section{Behavioural version compatibility}
+\label{sec:comp-versioning}
+
+The mechanism that recovers a caller's obligations from a callee's contract is,
+turned around, a mechanism for propagating a \emph{change} in a callee's contract
+to everything that depends on it. This is the pivot from measurement to
+application, and it is the concern that led the thesis from the outset: library
+and version compatibility.
+
+Modern software is assembled from libraries, and the contract between a library
+and its clients is signalled by a version number under the convention of semantic
+versioning \citep{preston2013semver}, which promises that a compatible release
+will not break existing callers. The convention is honoured unevenly: breaking
+changes are routinely shipped in releases whose version number declares them
+compatible \citep{raemaekers2017semver}, precisely because the contract being
+versioned is implicit. There is no machine-checkable statement of what a release
+guarantees, and hence no mechanical way to decide whether a new release still
+honours what the old one promised. The consequence falls hardest on exactly the
+systems whose behaviour is least understood---the legacy systems that most matter
+\citep{feathers2004legacy}---and it is amplified by any lifecycle that regenerates
+components against informal descriptions, where every regeneration is a potential
+silent breaking change.
+
+Inferred, compositional contracts turn this asserted convention into a checkable
+property. Given two consecutive releases of a library, the instrument infers a
+contract for each method in each release; diffing the contracts method by method
+yields the set of methods whose behavioural interface has changed, and the
+compositional pass then propagates each change across the call graph to compute
+its \emph{blast radius}---the set of callers whose own obligations shift as a
+consequence. A precondition that a release has \emph{strengthened} is the sharp
+case: client code that satisfied the old requirement may now violate the new one,
+which is a breaking change in behaviour whether or not the version number admits
+it. The analysis is entirely static and run-free---no client is executed, no test
+is run---and so it applies to a release exactly as it sits in a repository.
+
+A concrete version step demonstrates the mechanism operating at scale. Inferring
+contracts across two consecutive Commons Lang releases separated by roughly two
+years, and diffing them, isolates a tractable candidate-breaking set: of the
+3{,}188 methods present in both releases, around 525 (some 16.5 per cent) have an
+inferred contract that differs---exactly the set a behavioural-compatibility
+checker should surface. Of these, on the order of 144 have a \emph{strengthened}
+precondition, the class of change most likely to break an existing caller; a spot
+check finds a mixture of real precondition tightenings, such as added non-null
+guards on the instance fields of several classes, together with some inferrer
+noise. Two properties make this output useful even before each candidate is
+validated against the release notes. It is the right \emph{size}---hundreds of
+candidates out of thousands of methods, small enough for a human or a
+downstream tool to triage---and it is the right \emph{shape}, classified into
+strengthened, weakened, and mixed changes on both the precondition and
+postcondition sides, so the class of each change is legible.
+
+The reasoning is behavioural rather than syntactic, and this is the substance of
+the contribution. A textual diff of two releases reports that a line changed; it
+cannot say whether the change tightens what a caller must guarantee. A contract
+diff, propagated compositionally, reports that a caller's obligation shifted and
+in which direction---the semantics of the change, not its surface. This is what
+it means to turn semantic versioning from a convention a maintainer asserts into
+a property a tool can check, and it is the mechanism on which the AI-native
+verification pipeline of \cref{ch:integration} relies to keep regenerated
+components compatible with the callers that depend upon them.
+
+The claim must be stated at its true strength, and no stronger. What the study
+establishes is that the compositional pass recovers a large body of additional
+\emph{well-formed}---not separately verified---preconditions, and that the same
+propagation machinery yields a candidate-breaking set of the right size and shape
+to make behavioural-compatibility triage tractable on a real version step. It
+does not establish that every candidate is a true breaking change, nor that the
+recovered clauses are individually verified; validating the candidate set against
+release notes, and discharging the recovered clauses through OpenJML at corpus
+scale, are the natural next steps set out in \cref{ch:conclusion}. The
+contribution is a measured extension of the inference instrument and a working
+static analysis for behavioural compatibility, presented as evidence rather than
+as a proof of correctness.

@@ -1,0 +1,98 @@
+% ============================================================================
+%  MPhil Thesis (traditional monograph) — Brendan Edmonds, The University of
+%  Queensland.  Uses the standard `report` class styled to UQ HDR requirements;
+%  swap for the official uqthesis class before final submission if desired.
+%  Target: <= 50 pages of body (supervisor directive, 2026-07-02).
+% ============================================================================
+\documentclass[12pt,a4paper,oneside]{report}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{mathptmx}                 % Times
+\usepackage[a4paper,left=20mm,right=20mm,top=20mm,bottom=20mm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage[british]{babel}
+\usepackage[autostyle,english=british]{csquotes}
+\MakeOuterQuote{"}
+
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{makecell}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.geometric}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{pdfpages}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue]{hyperref}
+\usepackage{cleveref}
+\usepackage{emptypage}
+
+% Listing style (shared with the articles)
+\definecolor{codeblue}{rgb}{0.0,0.0,0.6}
+\definecolor{codegreen}{rgb}{0,0.5,0}
+\lstdefinestyle{code}{
+  basicstyle=\fontsize{9}{11}\selectfont\ttfamily,
+  numbers=none, showstringspaces=false, frame=single,
+  breaklines=true, breakatwhitespace=true,
+  keywordstyle=\color{codeblue}, commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{red},
+}
+\lstset{style=code}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{1}
+
+\begin{document}
+
+% ---------------------------------------------------------------- front matter
+\pagenumbering{roman}
+\input{front/titlepage}
+\cleardoublepage
+\input{front/abstract}
+\cleardoublepage
+\input{front/declaration}
+\cleardoublepage
+\input{front/publications}
+\cleardoublepage
+\input{front/acknowledgements}
+\cleardoublepage
+
+{\setstretch{1.0}
+\tableofcontents
+\listoffigures
+\listoftables
+}
+\cleardoublepage
+
+% ---------------------------------------------------------------- body
+\cleardoublepage
+\input{front/abbreviations}
+\cleardoublepage
+
+\pagenumbering{arabic}
+
+\input{chapters/introduction}
+\input{chapters/background}
+\input{chapters/inferrer}
+\input{chapters/compositional}
+\input{chapters/integration}
+\input{chapters/discussion}
+\input{chapters/conclusion}
+
+% ---------------------------------------------------------------- back matter
+\cleardoublepage
+\addcontentsline{toc}{chapter}{Bibliography}
+\bibliographystyle{plainnat}
+\bibliography{../article5/references,thesis_additions}
+
+\end{document}

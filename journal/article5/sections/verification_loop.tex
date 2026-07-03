@@ -1,0 +1,116 @@
+\section{The Synthesis--Verification Loop}
+\label{sec:verification_loop}
+
+Below the formal-contract pivot established in the layered model (\cref{sec:pipeline}), the ambiguous human world has been left behind: the contract is a precise, machine-readable artefact, and the agent's task is no longer to interpret intent but to satisfy an obligation. This is the region of the lifecycle in which classical correctness machinery applies without dilution, and it is where the proposed pipeline supplies the verification spine that emerging agentic lifecycles lack. The mechanism is a closed loop shaped like counterexample-guided inductive synthesis (CEGIS)~\cite{solarlezama2006sketching,solarlezama2008sketching}: a synthesis agent proposes an implementation, a sound verifier checks the implementation against the contract over all inputs, and any failure is returned to the synthesis agent not as a verdict but as a concrete counterexample that drives the next attempt. This section sets out the loop, argues why a counterexample is a categorically stronger feedback signal than a failing sampled test, explains how inference supplies loop invariants alongside the body so that the verifier can actually discharge the obligation, and specifies what happens when verification does not converge: a tiered-assurance degradation that records the level of guarantee achieved rather than silently weakening the claim.
+
+\subsection{The loop and its feedback signal}
+\label{subsec:loop_signal}
+
+The structure of the loop is given as \cref{alg:synthloop} and depicted in \cref{fig:cegis}. The synthesis agent receives the contract $C$ for a method---a set of provenance- and assurance-tagged obligations, of which the verification-relevant subset comprises preconditions, postconditions, frame (\texttt{assignable}) clauses, and any class invariants---together with the surrounding type context. It emits a candidate body. The trusted verifier, OpenJML's Extended Static Checking (ESC) discharged by the Z3 SMT solver~\cite{cok2014openjml,demoura2008z3}, then attempts to prove that the body satisfies $C$. The verifier is a Hoare-logic checker~\cite{hoare1969axiomatic} operating by weakest-precondition predicate transformation~\cite{dijkstra1975guarded}: it reduces the verification condition to a logical formula whose validity it asks Z3 to decide. Three outcomes are possible. If the formula is valid, the body is proved correct against $C$ and the loop terminates successfully. If it is invalid, Z3 returns a satisfying assignment to its negation---a concrete input state that drives the implementation into a violation of some obligation. If the solver neither proves nor refutes within the configured resource budget, the obligation is undecided and the loop falls through to degradation (\cref{subsec:tiered}).
+
+\begin{algorithm}[t]
+\caption{The synthesis--verification loop for a single method.}
+\label{alg:synthloop}
+\begin{algorithmic}[1]
+\REQUIRE contract $C$ (tagged obligations); iteration cap $N$; context $\Gamma$
+\ENSURE proved body, or degraded result with recorded assurance level
+\STATE $\mathit{feedback} \gets \emptyset$
+\FOR{$i \gets 1$ \TO $N$}
+  \STATE $b \gets \textsc{Synthesize}(C, \Gamma, \mathit{feedback})$ \COMMENT{implementer agent}
+  \STATE $\mathit{inv} \gets \textsc{InferInvariants}(b, C)$ \COMMENT{JML-Inferrer supplies loop invariants}
+  \STATE $r \gets \textsc{Verify}(b \cup \mathit{inv}, C)$ \COMMENT{OpenJML/Z3, all inputs}
+  \IF{$r = \mathtt{proved}$}
+    \RETURN $(b, \mathtt{proved})$
+  \ELSIF{$r = \mathtt{counterexample}(x)$}
+    \STATE $\mathit{feedback} \gets \mathit{feedback} \cup \{x\}$ \COMMENT{concrete witness, not a verdict}
+  \ELSE
+    \STATE \textbf{break} \COMMENT{undecided: solver timeout/incapacity}
+  \ENDIF
+\ENDFOR
+\RETURN $\textsc{Degrade}(b, C)$ \COMMENT{bounded check, then test; record level}
+\end{algorithmic}
+\end{algorithm}
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    font=\small,
+    proc/.style={draw, rounded corners, align=center, minimum height=8mm,
+                 text width=2.7cm, fill=white, inner sep=2pt},
+    io/.style={draw, align=center, minimum height=8mm, text width=2.4cm,
+               fill=green!10, inner sep=2pt},
+    dec/.style={draw, diamond, aspect=2.2, align=center, inner sep=0pt,
+                fill=blue!10, text width=1.5cm},
+    arr/.style={-{Latex[length=2mm]}, semithick},
+  ]
+    \node[io] (contract) {contract $C$\\\footnotesize tagged obligations};
+    \node[proc, right=12mm of contract] (synth) {synthesise body\\\footnotesize implementer agent};
+    \node[proc, right=12mm of synth] (verify) {verify $b\models C$\\\footnotesize OpenJML+Z3, all inputs};
+    \node[dec, right=11mm of verify] (dec) {result?};
+    \node[io, right=11mm of dec] (out) {output\\\footnotesize proved, or degraded $+$ level};
+    \node[proc, below=11mm of synth] (inv) {infer loop invariants\\\footnotesize JML-Inferrer};
+    \node[proc, below=11mm of dec] (deg) {degrade: bounded $\rightarrow$ tested\\\footnotesize record level};
+
+    \draw[arr] (contract) -- (synth);
+    \draw[arr] (inv) -- (synth);
+    \draw[arr] (synth) -- (verify);
+    \draw[arr] (verify) -- (dec);
+    \draw[arr] (dec) -- node[above]{\footnotesize proved} (out);
+    \draw[arr] (dec) -- node[right]{\footnotesize timeout} (deg);
+    \draw[arr] (deg) -| (out);
+    \draw[arr] (dec.north) -- ++(0,7mm) -| (synth.north)
+      node[pos=0.25,above]{\footnotesize counterexample $x$ (concrete witness)};
+  \end{tikzpicture}
+  \caption{The synthesis--verification loop of \cref{alg:synthloop}. A counterexample is fed back to the synthesiser as a concrete witness rather than a verdict; the JML-Inferrer supplies discharging loop invariants alongside the body; and on solver non-termination the obligation is degraded down the assurance ladder rather than dropped.}
+  \label{fig:cegis}
+\end{figure}
+
+The reason this loop is worth building, rather than the test-and-eyeball loop of current agentic tools, lies entirely in the quality of the feedback signal on the failure path. Contemporary self-improving code agents---Self-Refine~\cite{madaan2023selfrefine}, Reflexion~\cite{shinn2023reflexion}, self-debugging from execution traces~\cite{chen2024selfdebug}, and test-driven flows such as AlphaCodium~\cite{ridnik2024alphacodium}---close their loop with a sampled test suite. When such a suite passes, it certifies only the finitely many inputs it happened to exercise; the weakness of automatically generated suites as correctness oracles is well documented, with EvalPlus showing that a large fraction of code accepted by the original HumanEval and MBPP tests fails under denser inputs~\cite{liu2023evalplus,chen2021codex,austin2021mbpp}. A failing test, moreover, reports only that input $37$ produced the wrong answer; it carries no guarantee that fixing input $37$ does not break input $38$, and it says nothing about the unsampled region. By contrast, a successful ESC proof certifies the obligation over the \emph{entire} input domain, and a failed proof yields a counterexample that is a precise diagnostic: a fully instantiated pre-state in which the current body and invariant cannot discharge the obligation. Under modular checking such a witness may reflect an inadequate loop invariant rather than a reachable bug, but it remains a witnessed cause in the verifier's own logic rather than a sampled symptom. The synthesis agent is therefore handed not a symptom but a witnessed cause, in the same currency the verifier itself reasons in. This is the same discipline that distinguishes verifier-coupled code agents such as Clover~\cite{sun2024clover}, AI-assisted Dafny synthesis~\cite{misu2024dafny,leino2010dafny}, and counterexample-driven proof repair~\cite{yang2025verus,mugnier2025dafnypro} from their test-only counterparts; the present pipeline brings that discipline to mainstream Java through JML and OpenJML~\cite{leavens2006jml,cok2011openjml} rather than to a bespoke verification language.
+
+A further, structural property makes the signal trustworthy: the verifier is never the agent. The contract against which the body is checked is authored by an independent elaborator role and the verifier is the unmodified OpenJML/Z3 toolchain, so no instance that wrote the code also grades it. This independent-authority constraint (\cref{sec:pipeline}) is what separates the loop from the circular, self-grading arrangement in which one model writes both the implementation and the tests that judge it---a hazard increasingly recognised for LLM-generated oracles~\cite{liu2026oracle}. The verifier discharges a contract it did not write, against code it did not write, over all inputs; that is the property that earns the word \emph{verified}.
+
+\subsection{Inferring loop invariants alongside the body}
+\label{subsec:invariants}
+
+A counterexample-guided loop over a sound verifier is only useful if the verifier can in fact discharge the obligations the synthesis agent must meet, and for any method containing a loop this is not automatic. ESC reasons about loops inductively: it requires a loop invariant strong enough to imply the postcondition at loop exit yet preserved by every iteration of the body. A correct body with no invariant, or with too weak an invariant, fails to verify even though it is correct---the proof, not the code, is incomplete. Demanding that the LLM emit both a correct body and a discharging invariant compounds two hard problems, and recent invariant-by-LLM work confirms that invariant generation is itself an error-prone, check-in-the-loop activity~\cite{kamath2023loopy,chakraborty2023ranking,pei2023llminvariants}.
+
+The pipeline sidesteps this by separating the two concerns. The body is synthesized by the agent; the loop invariant is supplied, where possible, by the JML-Inferrer, the AST-heuristic instrument developed across the earlier articles of this programme. The inferrer already emits invariants for exactly the loop families that the proof-of-concept targets first---running maximum and minimum, linear search for an index or a boolean, and accumulating sums---and emits them in the direction-aware, inductively preserved form that ESC needs (for an increasing counter, the bound $i \geq \mathit{init}$ together with the quantified property established so far). \cref{lst:invariant} shows the shape for a running-maximum loop: the inferrer attaches both the frame bound and the universally quantified property that makes the postcondition discharge at exit. Because invariant inference runs on the candidate body the agent just produced (line~4 of \cref{alg:synthloop}), it adapts to whatever loop the agent chose rather than presupposing one, and when the inferred invariant is too weak the verifier's failure is itself a counterexample that re-enters the loop. The division of labor is deliberate: the agent contributes the algorithmic content, in which generative breadth is an asset, while the inferrer contributes the proof scaffolding, in which a sound, deterministic heuristic is more dependable than a sampled guess. This reuses Article~3's compositional inference as a synthesis-time component rather than as a terminal report~\cite{edmonds_article3}.
+
+\begin{lstlisting}[style=code,caption={A loop body synthesized by the agent (running maximum) annotated with the loop invariant supplied by the inferrer; the quantified clause is what lets ESC discharge the postcondition at loop exit.},label={lst:invariant}]
+//@ requires a != null && a.length > 0;
+//@ ensures (\forall int k; 0 <= k && k < a.length; \result >= a[k]);
+int max(int[] a) {
+  int m = a[0];
+  //@ maintaining i >= 1 && i <= a.length;
+  //@ maintaining (\forall int k; 0 <= k && k < i; m >= a[k]);
+  //@ decreasing a.length - i;
+  for (int i = 1; i < a.length; i++)
+    if (a[i] > m) m = a[i];
+  return m;
+}
+\end{lstlisting}
+
+\subsection{Termination, the iteration cap, and tiered assurance}
+\label{subsec:tiered}
+
+The loop must terminate even when synthesis does not converge, for two independent reasons. The synthesis agent may simply fail to produce a satisfying body within a bounded number of attempts, and even when the body is correct the verifier may not decide the verification condition: Z3 is incomplete on the formula classes that arise from nonlinear (multiplicative) arithmetic, array theory, and richly quantified preconditions, and on these it returns neither a proof nor a counterexample but exhausts its resource budget. Both eventualities are bounded by the iteration cap $N$ on the synthesis side and by a per-call solver timeout on the verification side. Neither limit is incidental; both are properties the pipeline reports honestly rather than engineering around, because the decidability and scalability ceiling of SMT-backed verification is real and shared by every tool in this class~\cite{cok2014openjml,demoura2008z3,barbosa2022cvc5}.
+
+On persistent failure the pipeline does not discard the obligation and does not silently lower the bar. It applies \emph{tiered assurance with graceful degradation}: it attempts, in order, full proof, then bounded verification (the same checker restricted to inputs up to a fixed size, which converts an intractable unbounded query into a decidable finite one), then a generated test, and it records on the obligation the highest level actually achieved, drawn from the assurance vocabulary $\langle \texttt{proved}, \texttt{bounded-checked}, \texttt{tested}, \texttt{unchecked}\rangle$ introduced with the provenance- and assurance-tagging mechanism (\cref{sec:pipeline}). \cref{tab:tiers} summarises the ladder. The crucial discipline is that the degradation is \emph{visible}: a method that could only be bounded-checked carries that fact in its contract, so a downstream reader---human or tool---never mistakes a partial guarantee for a total one. An honest \texttt{tested} tag is preferable to a dishonest \texttt{proved} one, and recording \texttt{unchecked} where nothing could be established is preferable to dropping the obligation, because a silently dropped obligation is indistinguishable from one that was never required.
+
+\begin{table}[t]
+\centering
+\caption{The tiered-assurance ladder applied on the verification path. Each obligation is tagged with the highest level achieved; degradation is recorded, never silent.}
+\label{tab:tiers}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Level & Coverage & Triggered when \\
+\midrule
+\texttt{proved} & all inputs & ESC discharges the verification condition \\
+\texttt{bounded-checked} & inputs up to size $k$ & unbounded query times out; bounded query decides \\
+\texttt{tested} & sampled inputs & no proof obtainable; generated tests pass \\
+\texttt{unchecked} & none & not formally specifiable or all checks inconclusive \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+When the loop terminates without a full proof, the pipeline reports the specific failing obligation together with the counterexample or timeout that defeated it, rather than a bare rejection. This keeps the failure actionable: a recorded counterexample documents exactly which behaviour the agent could not realise, a recorded timeout documents a known decidability limit rather than a code defect, and in both cases the obligation remains in the contract at its true assurance level. Read against the broader argument of the article, this is what allows the loop to be deployed against real software at all. Not every intent is formally specifiable and not every specifiable intent is decidable; a lifecycle that insisted on \texttt{proved} for everything would verify only toy programs, whereas one that recorded its assurance level honestly can admit the full spectrum from machine-checked guarantee down to tested baseline while remaining truthful about which is which. The synthesis--verification loop is therefore not a binary gate but a graduated one, and it is precisely this graduation---the willingness to say exactly how strongly each obligation is held---that makes a verification-centric agentic lifecycle realistic rather than aspirational.

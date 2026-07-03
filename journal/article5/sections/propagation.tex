@@ -1,0 +1,292 @@
+\section{Compositional Change Propagation and Version Compatibility}\label{sec:propagation}
+
+The mechanisms developed so far treat a contract as a property of a single
+method: a set of provenance- and assurance-tagged obligations against which one
+implementation is synthesized and verified. Software, however, is not a flat
+collection of independent methods but a graph of callers and callees, and the
+durable value of a machine-checkable contract layer is realised only when that
+graph is exploited. This section promotes the compositional refinement
+established in Article~3 of this programme~\cite{edmonds_article3} from an
+inference-time accuracy gain to a lifecycle capability. The central observation
+is that because formal contracts compose along the call graph, a change to a
+callee's contract mechanically \emph{recomputes} the proof obligations of every
+caller, and the set of callers whose obligations can no longer be discharged is
+exactly the set of callers that the change breaks---provided the compared
+contracts are strong enough to express the relied-upon behaviour and the verifier
+decides each obligation; where either condition fails, a caller is reported as
+undetermined rather than safe, so the analysis is sound in flagging breaks but not
+complete (a limitation made precise later in this section). Critically, this set is
+identified by re-running the verifier, not by re-running the program: it is a
+static, behavioural blast-radius analysis (\cref{fig:propagation}). The same machinery answers two
+questions that the prevailing tooling treats as unrelated---``does this internal
+refactor break any of my call sites?'' and ``does this dependency upgrade break
+any of my call sites?''---because, at the level of contracts, an internal
+refactor and a third-party version bump are the same operation. This identity is
+the concrete link between the two halves of the thesis core: formal-methods
+adoption and library/version compatibility are served by a single underlying
+mechanism.
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    font=\small,
+    callee/.style={draw, very thick, rounded corners, align=center, fill=blue!12,
+                   text width=4.0cm, minimum height=11mm, inner sep=2pt},
+    caller/.style={draw, rounded corners, align=center, text width=2.0cm,
+                   minimum height=9mm, inner sep=2pt},
+    safe/.style={caller, fill=green!14},
+    broke/.style={caller, fill=red!14},
+    arr/.style={-{Latex[length=2mm]}, semithick},
+  ]
+    \node[broke] (A) {caller $A$\\\footnotesize \textbf{breaks}};
+    \node[safe, right=9mm of A] (B) {caller $B$\\\footnotesize safe};
+    \node[broke, right=9mm of B] (D) {caller $D$\\\footnotesize \textbf{breaks}};
+    \node[callee, below=15mm of B] (m)
+      {callee $m$\\\footnotesize contract change $(\mathit{pre}_m,\mathit{post}_m)$};
+
+    \draw[arr] (A) -- node[left=1pt,font=\footnotesize]{calls} (m);
+    \draw[arr] (B) -- (m);
+    \draw[arr] (D) -- node[right=1pt,font=\footnotesize]{calls} (m);
+
+    \node[align=center, below=4mm of m, font=\footnotesize]
+      {re-verify each caller's obligations against the new contract --- \emph{without running any code}};
+  \end{tikzpicture}
+  \caption{Compositional change propagation as behavioural blast-radius analysis. A change to callee $m$'s contract recomputes the proof obligations of its callers; the callers whose obligations the new contract no longer discharges ($A$, $D$) are flagged statically; callers the verifier cannot decide are reported as undetermined. An internal refactor and a third-party version bump are, at the level of contracts, the same operation.}
+  \label{fig:propagation}
+\end{figure}
+
+\subsection{Contracts Compose Along the Call Graph}\label{subsec:compose}
+
+Design by contract~\cite{meyer1992dbc} casts a method specification as a
+two-party agreement: the caller must establish the callee's precondition, and in
+return the callee guarantees its postcondition. Modular deductive verification
+operationalizes this agreement by discharging each method against the
+\emph{contracts} of the methods it invokes rather than against their bodies. When
+the proposed pipeline verifies a caller~$c$ that invokes a callee~$m$, OpenJML
+replaces the body of~$m$ with its contract $(\mathit{pre}_m,
+\mathit{post}_m)$: at the call site it asserts $\mathit{pre}_m$ as a proof
+obligation on~$c$ and assumes $\mathit{post}_m$ for the continuation. The
+correctness of~$c$ therefore depends on~$m$ \emph{only} through
+$(\mathit{pre}_m, \mathit{post}_m)$, never through the implementation of~$m$.
+This is the standard soundness story of modular verification, and it is what
+makes verification scale; here it is repurposed as the engine of change
+analysis. The contract is the abstraction barrier, so any change confined behind
+that barrier---one that preserves $(\mathit{pre}_m, \mathit{post}_m)$---is, by
+construction, invisible to every caller, and any change that crosses the
+barrier---one that alters $(\mathit{pre}_m, \mathit{post}_m)$---propagates to
+callers in a precisely characterizable way.
+
+Article~3 of this programme established that the heuristic inference instrument
+admits a second, weakest-precondition pass that strengthens caller contracts
+using the contracts of their callees, yielding roughly $18{,}854$ additional
+well-formed preconditions on the evaluation corpus beyond a single pass. That
+result was reported as evidence that compositional reasoning recovers
+specification content a local analysis misses. The present article reads the same
+mechanism in the opposite direction. If a downstream change to
+$(\mathit{pre}_m, \mathit{post}_m)$ would have altered the precondition that the
+second pass computed for~$c$, then that change is, by definition, a change that
+affects~$c$'s obligations. The dependency edges that the compositional pass
+traverses to \emph{build} specifications are the same edges along which a change
+\emph{propagates}. Recomputation is thus not new machinery but the existing
+compositional pass re-evaluated under a perturbed callee contract.
+
+\subsection{Change Propagation as Re-Verification}\label{subsec:reverify}
+
+Let $G$ be the contract-level call graph in which an edge $c \rightarrow m$
+records that caller~$c$ invokes callee~$m$ under a known set of call-site
+arguments and path conditions. A proposed change replaces the callee contract
+$(\mathit{pre}_m, \mathit{post}_m)$ with $(\mathit{pre}_m',
+\mathit{post}_m')$. The propagation procedure is then a localized
+re-verification:
+
+\begin{enumerate}
+  \item \textbf{Identify the affected frontier.} Collect the immediate callers
+  of~$m$ in~$G$. Only these methods have a proof that mentions the changed
+  contract directly; deeper callers are reached transitively only if a frontier
+  caller's own contract changes as a result.
+  \item \textbf{Recompute and re-discharge.} For each affected caller~$c$,
+  re-run the modular verification of~$c$ with the callee modelled by
+  $(\mathit{pre}_m', \mathit{post}_m')$. Two failure modes are
+  distinguished. A \emph{precondition break} arises when $c$ established
+  $\mathit{pre}_m$ at the call site but cannot establish the strengthened
+  $\mathit{pre}_m'$; the verifier reports the unprovable call-site assertion. A
+  \emph{postcondition break} arises when $c$'s own postcondition relied on the
+  old $\mathit{post}_m$ and is no longer discharged under the weaker
+  $\mathit{post}_m'$.
+  \item \textbf{Propagate transitively.} If re-verification of~$c$ requires a
+  change to~$c$'s own contract---for example, a strengthened precondition
+  that~$c$ must now impose on \emph{its} callers---enqueue~$c$ as a changed
+  callee and repeat. Because each step either discharges or strengthens a finite
+  contract, and the graph is finite, the procedure terminates at a fixed point:
+  the transitive set of breaking call sites together with the induced contract
+  changes.
+\end{enumerate}
+
+Two properties of this procedure deserve emphasis. First, it never executes the
+code. The decision of whether caller~$c$ is broken is the decision of whether an
+OpenJML proof obligation is discharged by Z3, quantified over \emph{all} inputs
+satisfying the path conditions, rather than over a sampled test suite. Where
+test-based regression detection answers ``did any of the inputs I happened to run
+change behaviour?'', contract re-verification answers ``can any input within the
+specified domain now reach a violated obligation?''. Second, the analysis is
+directional and asymmetric in a way that mirrors the classical theory of
+behavioural subtyping and the contravariance of refinement. \emph{Weakening} a
+precondition or \emph{strengthening} a postcondition is a safe change: every
+caller that satisfied the old contract satisfies the new one, so no call site is
+flagged, and the change is verifiably backward compatible. \emph{Strengthening}
+a precondition or \emph{weakening} a postcondition is a potentially breaking
+change, and the procedure reports exactly which callers it breaks and why. This
+gives a developer not merely a binary compatible/incompatible verdict but a
+ranked, justified work list of call sites, each accompanied by the specific
+obligation that fails---the same concrete-witness signal that drives the
+synthesis--verification loop of \cref{sec:verification_loop}.
+
+\subsection{One Mechanism, Two Lifecycle Events}\label{subsec:onemech}
+
+The procedure of \cref{subsec:reverify} is agnostic to \emph{why}
+$(\mathit{pre}_m, \mathit{post}_m)$ changed. When the changed method is internal
+to the codebase under development, the analysis is an impact analysis for a
+refactor: a developer who tightens a guard, broadens an accepted range, or
+narrows a returned set sees immediately which internal call sites must adapt.
+When the changed method belongs to a third-party library and the change is
+observed by comparing the contract attached to version~$v$ with that attached to
+version~$v'$, the very same analysis becomes a behavioural compatibility check for
+a dependency upgrade. The question ``which of my $N$ call sites does this upgrade
+break behaviourally?'' is thereby promoted to a first-class, machine-answerable
+lifecycle event.
+
+This framing addresses a well-documented and costly gap in current dependency
+practice. Semantic versioning~\cite{preston2013semver} is the dominant
+convention for signalling compatibility, yet large-scale studies of Maven
+Central repeatedly find that version numbers are unreliable predictors of actual
+breakage: a substantial fraction of releases labelled non-breaking introduce
+incompatible changes~\cite{raemaekers2017semver,ochoa2022breaking}, and
+dependency networks evolve fast enough that clients are exposed to such changes
+continually~\cite{decan2019empirical}. The tooling that does exist operates
+predominantly at the level of \emph{signatures}---method removal, parameter-type
+changes, visibility reductions---as exemplified by APIDiff and related
+detectors~\cite{brito2018apidiff,jezek2017magic}. Signature-level analysis,
+however, is blind to \emph{behavioural} breaking changes: a method whose
+signature is untouched but whose contract has shifted, for instance one that
+begins rejecting an input it previously accepted or that stops guaranteeing a
+postcondition a caller relied upon. Such behavioural incompatibilities are both
+prevalent and damaging to clients~\cite{mostafa2017behavioral,jayasuriya2024understanding},
+and static checking of library updates has been pursued precisely because
+recompilation alone does not surface them~\cite{foo2018efficient}. Recent work
+even applies LLMs to \emph{repair} clients broken by dependency
+updates~\cite{islam2025byam}; the contract-propagation analysis proposed here is
+complementary, supplying the precise, per-call-site diagnosis of \emph{what}
+broke and \emph{why} that such a repair step requires as input. By making the
+unit of comparison the formal contract rather than the signature, the pipeline
+detects exactly the behavioural incompatibilities that semantic-versioning labels
+and signature diffs miss, and it does so soundly over the input domain rather
+than over a regression sample. The contract attached to a compiled
+artefact---the embedding mechanism validated in Article~2 of this
+programme~\cite{edmonds_article2}---is what makes the library side of this
+comparison feasible without library source, and the diff-only, cache-backed CI
+integration of Article~4~\cite{edmonds_article4} is what makes re-running the
+analysis on every upgrade economical.
+
+\subsection{A Worked Version Step}\label{subsec:worked}
+
+Consider a utility library that, at version~$v$, exposes an integer-parsing
+helper modelled by the contract in \cref{lst:callee-old}. The method accepts any
+string and returns a sentinel of $-1$ when the argument is not a valid integer;
+its postcondition records both the success and the sentinel cases.
+
+\begin{lstlisting}[caption={Library method \texttt{toInt} at version~$v$ (callee contract).},label={lst:callee-old}]
+//@ requires s != null;
+//@ ensures isParsable(s)  ==> \result == parseInt(s);
+//@ ensures !isParsable(s) ==> \result == -1;
+public static int toInt(String s) { ... }
+\end{lstlisting}
+
+A downstream client contains the call site in \cref{lst:caller}. Its own
+postcondition---that the returned count is non-negative---is discharged against
+version~$v$ because every branch of \texttt{toInt} returns either a parsed value
+guarded by the caller or the sentinel~$-1$, which the caller maps to~$0$.
+
+\begin{lstlisting}[caption={Client call site relying on the version-$v$ contract.},label={lst:caller}]
+//@ ensures \result >= 0;
+public int countOrZero(String s) {
+    int n = LibUtil.toInt(s);   // callee contract assumed here
+    return n < 0 ? 0 : n;
+}
+\end{lstlisting}
+
+At version~$v'$ the library maintainer revises \texttt{toInt} to throw on
+malformed input rather than return a sentinel---a change the maintainer regards
+as a clean-up and ships under a non-breaking version label. The revised contract
+is shown in \cref{lst:callee-new}: the precondition is \emph{strengthened} to
+demand a parsable argument, and the success postcondition is retained while the
+sentinel clause is removed.
+
+\begin{lstlisting}[caption={Library method \texttt{toInt} at version~$v'$ (strengthened precondition).},label={lst:callee-new}]
+//@ requires s != null && isParsable(s);
+//@ ensures \result == parseInt(s);
+public static int toInt(String s) { ... }
+\end{lstlisting}
+
+Running the procedure of \cref{subsec:reverify} with
+$(\mathit{pre}_{\mathtt{toInt}}, \mathit{post}_{\mathtt{toInt}})$ replaced by
+the version-$v'$ contract recomputes the obligations of \texttt{countOrZero}.
+The strengthened precondition $\mathtt{isParsable(s)}$ becomes a call-site proof
+obligation that \texttt{countOrZero} cannot discharge: nothing in the caller
+establishes that \texttt{s} is parsable, so the verifier reports a precondition
+break at the call site. The analysis therefore flags \texttt{countOrZero} as a
+behaviourally broken caller of the upgrade, names the unprovable obligation
+$\mathtt{isParsable(s)}$ as the cause, and---because no contract change to
+\texttt{countOrZero} would discharge the obligation without either adding a guard
+or strengthening \texttt{countOrZero}'s own precondition---surfaces the two
+candidate remediations as the induced contract change to be propagated to
+\emph{its} callers. A signature-level tool would report no break whatsoever,
+since the signature of \texttt{toInt} is unchanged; the contract-level analysis
+correctly identifies the behavioural incompatibility that the non-breaking version
+label conceals. \Cref{tab:propagation-outcomes} summarises how the four
+contract-change directions classify under the analysis.
+
+\begin{table}[t]
+  \centering
+  \caption{Classification of callee-contract changes by the re-verification
+  procedure. Safe changes flag no callers; breaking changes yield a justified
+  per-call-site work list.}
+  \label{tab:propagation-outcomes}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Change to callee contract & Compatibility & Caller effect \\
+    \midrule
+    Weaken precondition    & Safe     & No call site flagged \\
+    Strengthen postcondition & Safe   & No call site flagged \\
+    Strengthen precondition & Breaking & Call-site assertion unprovable \\
+    Weaken postcondition    & Breaking & Caller postcondition undischarged \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Scope, Frontier, and Honest Limits}\label{subsec:proplimits}
+
+The propagation analysis inherits both the strengths and the limits of the
+underlying instrument. Its soundness is the soundness of OpenJML extended static
+checking discharged by Z3: a caller reported as compatible is compatible over the
+entire specified input domain, not merely over a tested sample, but a caller for
+which Z3 times out---on the multiplicative reasoning, array theory, or
+rich-precondition cases known to defeat the solver---must be reported under the
+tiered-assurance scheme as \emph{undetermined} rather than silently passed. The
+analysis is also only as good as the contracts it compares. For first-party code
+the contracts are those the pipeline already maintains; for third-party libraries
+the contract attached to each version is, in the brownfield setting, an
+\emph{inferred} contract recovered from the library's code, and an inferred
+callee contract skews weak, so a genuine behavioural break may be missed when the
+inferred contract failed to capture the guarantee a caller actually relied upon.
+This is the same weak-specification limitation that motivates ratification and
+inherited defaults elsewhere in the pipeline, and it confines the trustworthy
+application of version-compatibility analysis to the API surface and the modules
+within the specified frontier rather than to an entire legacy dependency tree.
+Within that frontier, however, the analysis delivers what semantic-versioning
+labels and signature diffs cannot: a sound, behaviour-level, per-call-site verdict
+on whether a refactor or an upgrade is safe, computed without running a single
+test. Establishing the empirical precision and recall of this analysis against a
+ground-truth corpus of known behavioural breaking changes is left to the
+evaluation; the architectural claim here is that the capability falls directly
+out of compositional contracts and requires no machinery beyond the
+re-verification of an already-built specification graph.

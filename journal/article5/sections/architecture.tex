@@ -1,0 +1,129 @@
+\section{A Verification-Centric Reference Pipeline: Overview and Design Principles}
+\label{sec:architecture}\label{sec:pipeline}
+
+The preceding survey establishes a precise gap: agentic, specification-driven lifecycles have solved the authoring-cost problem that crippled classical synthesis, but in restoring the cheapness of natural-language (NL) intent they discarded the two properties that made synthesis trustworthy---a machine-checkable contract and a closed, counterexample-driven acceptance loop. This section presents the spine of the article's response: a \emph{verification-centric reference pipeline} that reintroduces a machine-checkable formal-specification contract layer and a verification loop into the AI-native lifecycle. The pipeline is offered as a reference architecture---a coherent set of design principles, a layered model, and an end-to-end data flow---validated by instantiation rather than asserted as a proven methodology. The subsequent sections detail each layer; the purpose here is to fix the terminology, the unit of work, and the constraints that the rest of the article respects.
+
+\subsection{The economic inversion and its consequence}
+\label{subsec:inversion}
+
+The architecture rests on a single observation about the changed economics of software production. When an AI agent can regenerate a conforming implementation cheaply and repeatedly, the implementation ceases to be the scarce, durable artefact of the lifecycle and becomes a disposable build output, much as object code is a disposable output of a compiler. What remains scarce, and what must therefore be curated, versioned, and trusted, is the precise statement of what the software is required to do. The lifecycle must consequently be reorganised around a \emph{specification as the durable source of truth}, with code positioned downstream as a derived, regenerable artefact. This is not a rhetorical flourish: it is the load-bearing premise from which every design principle below follows. If the specification is the source of truth, then it must be both precise enough to drive synthesis and trustworthy enough to serve as an acceptance oracle---and those two demands, in tension, generate the architecture.
+
+\subsection{Design principles}
+\label{subsec:principles}
+
+Five principles govern the pipeline. They are stated here in summary and elaborated, with their attendant mechanisms, throughout the article.
+
+\paragraph{The formal contract as pivot.}
+A machine-checkable formal contract sits at the centre of the architecture as the \emph{pivot} between the ambiguous human world and the precise machine world. Above the pivot lies the inherently informal activity of deciding what is wanted; below it lies the mechanically checkable activity of producing and certifying code. The contract is the single point at which informality is converted into formality, and it is the only artefact that crosses that boundary. Concretely, the pivot is expressed in the Java Modeling Language (JML)~\cite{leavens2006jml}, the behavioural interface specification language whose pre/postcondition discipline descends directly from Hoare logic~\cite{hoare1969axiomatic}, Dijkstra's weakest-precondition calculus~\cite{dijkstra1976discipline}, and Meyer's Design by Contract~\cite{meyer1992dbc}.
+
+\paragraph{The dual role of the specification.}
+The contract plays two roles simultaneously. It is the \emph{input}---the precise intent the synthesis agent builds against---and it is the \emph{oracle}---the contract against which the agent's output is formally verified. This duality is what makes the pipeline self-consistent: there is exactly one statement of intent, and code is judged against the very artefact that produced it. The historical obstacle to this arrangement was the cost of authoring formal contracts; the pipeline removes that bootstrap cost by drawing on automated inference to supply draft contracts, building directly on the author's prior work showing that heuristic inference produces specifications useful to downstream LLM tasks~\cite{edmonds_article1,edmonds_article3}.
+
+\paragraph{Independent authority.}
+Because the contract is the oracle, verification is meaningful only if the contract is not authored by the same agent (instance or role) that writes the code. If a single model both proposes the contract and satisfies it, the verifier still soundly proves that the code meets the contract, but that proof certifies nothing about \emph{intent}: a shared misreading is encoded in both the contract and the code, which then agree without exposing it. This is the self-grading circularity that undermines test-suite-based acceptance in current agentic systems and, more acutely, LLM-driven oracle generation~\cite{liu2026oracle}. The \emph{independent authority constraint} therefore partitions the lifecycle into an elaborator role---maximally faithful and strict, never permitted to see the implementation---and an implementer role, whose only task is to satisfy the contract handed to it. The trusted verifier, OpenJML extended static checking discharged by the Z3 SMT solver~\cite{cok2014openjml,demoura2008z3}, never grades its own output.
+
+\paragraph{Tiered assurance and graceful degradation.}
+Not all intent is formally specifiable, and even formalizable obligations do not always verify: deductive verification rests on SMT solving, which is undecidable in general and times out in practice on multiplicative reasoning, array theory, and richly quantified preconditions. The architecture therefore does not treat ``verified'' as binary. It defines a ladder of assurance---full proof, then bounded checking, then testing---and \emph{degrades} an obligation down this ladder when the level above does not terminate, always \emph{recording} the level achieved and never silently dropping the obligation. Graceful degradation is what allows a verification-centric pipeline to remain usable on real code rather than only on the fragment that the solver happens to discharge.
+
+\paragraph{Provenance-tagged obligations.}
+Finally, the architecture makes the independent-authority constraint and the tiered-assurance record \emph{auditable} by attaching, to every obligation, a tag recording where it came from and how strongly it has been checked. This is the mechanism that keeps the word ``verified'' honest: a reader of a verification report can see which obligations are human-owned, which are machine-guessed, and which were proved as opposed to merely tested. The obligation, so tagged, is the architecture's unit of work, and the next subsection defines it precisely.
+
+\subsection{The obligation as the unit}
+\label{subsec:obligation}
+
+A contract in this architecture is not a monolithic block of formal text but a \emph{set of obligations}, each an individually addressable proof goal (a precondition, a postcondition, a loop invariant, a class invariant, or an assignable clause) carrying two orthogonal tags. The first, \emph{provenance}, records the obligation's origin and hence its claim to authority; the second, \emph{assurance}, records the strongest verification level the toolchain has achieved for it. \Cref{tab:tags} enumerates the admissible values.
+
+\begin{table}[t]
+  \centering
+  \caption{The two tags carried by every obligation. Provenance records the origin and thus the authority of an obligation; assurance records the strongest verification level achieved. Together they make a ``verified'' claim auditable and the independent-authority constraint enforceable.}
+  \label{tab:tags}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Tag & Value & Meaning \\
+    \midrule
+    Provenance & \texttt{human-ratified}       & confirmed by a human via a behavioural example \\
+               & \texttt{example-pinned}       & a concrete case the contract must satisfy \\
+               & \texttt{inherited-default}    & from an organisation/codebase policy contract \\
+               & \texttt{ticket-stated}        & extracted from an issue tracker \\
+               & \texttt{doc-stated}           & extracted from documentation or Javadoc \\
+               & \texttt{code-inferred}        & inferred from the implementation by heuristics \\
+               & \texttt{inferred-unconfirmed} & machine-derived, awaiting human adjudication \\
+    \midrule
+    Assurance  & \texttt{proved}          & discharged by OpenJML extended static checking \\
+               & \texttt{bounded-checked} & verified up to a finite bound \\
+               & \texttt{tested}          & exercised by generated/existing tests only \\
+               & \texttt{unchecked}       & recorded but not yet verified at any level \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The two tags do real architectural work. Provenance operationalizes the independent-authority constraint: an obligation that the code is verified against must trace to an authority other than the implementer---ideally \texttt{human-ratified} or \texttt{inherited-default}---and an obligation tagged \texttt{code-inferred} or \texttt{inferred-unconfirmed} is understood to describe what the code \emph{does}, not what it \emph{should} do, and therefore carries no independent authority to certify that same code. Assurance operationalizes tiered degradation: when full proof is unavailable, the obligation is not discarded but retagged \texttt{bounded-checked} or \texttt{tested}, preserving a truthful account of what is and is not known. Taken together, the tags convert ``the system verified the code'' from an opaque assertion into a structured, inspectable claim---which obligations, from which authorities, were established to which level.
+
+\subsection{The layered model}
+\label{subsec:layers}
+
+The pipeline organizes its activity into layers stratified by the pivot. \Cref{fig:layers} depicts the arrangement. Above the pivot sits the \emph{intent} layer and the \emph{elaboration} layer, which together convert human-owned, ambiguous intent into a formal contract; below the pivot sit the \emph{synthesis} layer, which produces code from the contract, and the \emph{verification} layer, which certifies code against it.
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    font=\small,
+    box/.style={draw, rounded corners, align=center, text width=7.0cm,
+                minimum height=0.95cm, fill=white, inner sep=3pt},
+    pivot/.style={draw, very thick, align=center, text width=7.8cm,
+                  minimum height=0.95cm, fill=blue!10, inner sep=3pt},
+    lbl/.style={font=\itshape\footnotesize, align=left},
+    arr/.style={-{Latex[length=2.2mm]}, semithick},
+  ]
+    \node[box] (intent) {\textbf{Intent}\\[1pt]\footnotesize human goals, tickets, docs, existing code};
+    \node[box, below=0.95cm of intent] (elab)
+      {\textbf{Elaboration}\, \footnotesize(elaborator role)\\[1pt]
+       \footnotesize NL intent $\rightarrow$ contract; ratify \emph{behaviour} by example; adversarial check};
+    \node[pivot, below=0.95cm of elab] (contract)
+      {\textbf{Formal contract} --- the \textsc{pivot}\\[1pt]
+       \footnotesize a set of obligations, each $\langle$provenance, assurance$\rangle$-tagged};
+    \node[box, below=0.95cm of contract] (synth)
+      {\textbf{Synthesis}\, \footnotesize(implementer role)\\[1pt]
+       \footnotesize contract $\rightarrow$ code; code is a disposable build output};
+    \node[box, below=0.95cm of synth] (verif)
+      {\textbf{Verification}\\[1pt]
+       \footnotesize code $\models$ contract? OpenJML ESC $+$ Z3, over \emph{all} inputs};
+    \node[box, below=1.05cm of verif] (out)
+      {\textbf{Output}\\[1pt]\footnotesize verified code $+$ provenance/assurance-tagged report};
+
+    \draw[arr] (intent) -- node[right=2pt,lbl]{decisions surfaced} (elab);
+    \draw[arr] (elab) -- (contract);
+    \draw[arr] (contract) -- node[right=2pt,lbl]{contract as \emph{input}} (synth);
+    \draw[arr] (synth) -- (verif);
+    \draw[arr] (verif) -- node[right=2pt,lbl]{pass: ratchet assurance} (out);
+    \draw[arr] (verif.east) -- ++(0.55,0) |- ([yshift=2pt]synth.east)
+      node[pos=0.25,right=1pt,lbl,text width=2.4cm]{fail: counterexample (concrete witness)};
+
+    \begin{scope}[on background layer]
+      \node[fill=orange!10, rounded corners, fit=(intent)(elab), inner sep=7pt,
+            label={[font=\itshape\footnotesize]above:ambiguous, human-owned world}] {};
+      \node[fill=green!10, rounded corners, fit=(synth)(verif)(out), inner sep=7pt,
+            label={[font=\itshape\footnotesize]below:precise, machine-checkable world}] {};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{The layered reference architecture. The formal contract is the pivot between the ambiguous, human-owned world (above) and the precise, machine-checkable world (below). Elaboration converts natural-language intent into a contract under human ratification of behaviour; synthesis and verification form a counterexample-guided loop below the pivot, and the verifier never grades a contract it authored.}
+  \label{fig:layers}
+\end{figure}
+
+The stratification is deliberate and load-bearing. Each layer answers a distinct question and is subject to distinct correctness criteria, and the pivot is the only place where an artefact changes ontological status from informal to formal.
+
+The \emph{intent} and \emph{elaboration} layers, above the pivot, own the problem that informal intent must be rendered as a precise contract without forfeiting human authority over what is wanted. Their central difficulty---the \emph{ratification gap}---is that the human used NL precisely because they cannot or will not author formal contracts, so asking them to confirm formal text they cannot read makes their authority illusory. The architecture's response, developed in the layer's dedicated section, is to never ask the human to confirm logic: the contract is rendered as concrete behavioural examples (``given $x=-1$, this contract yields $\mathit{result}=0$; is that correct?''), and ratified examples become \emph{pinned oracles} the contract must satisfy. Elaboration is further made trustworthy by surfacing the boundary decisions the agent had to resolve---null and empty inputs, overflow, ordering, duplicates, concurrency, error-versus-exception---and by an adversarial second agent that searches for scenarios consistent with the NL intent yet violating the proposed contract, detecting specification weakening before the contract is trusted.
+
+The \emph{synthesis} and \emph{verification} layers, below the pivot, own the mechanical problem of producing code and certifying it. Their loop is counterexample-guided in the manner of CEGIS~\cite{solarlezama2008sketching}: the implementer emits code, OpenJML attempts to verify that the code models the contract over \emph{all} inputs rather than a sample, and on failure the concrete counterexample witness---a far richer signal than ``a test failed''---is returned to the implementer to drive regeneration, capped at a bounded number of iterations, after which the obligation is degraded and reported per the assurance ladder. Because the two roles are separated by the independent-authority constraint, the verifier never certifies an artefact whose contract it also authored.
+
+\subsection{End-to-end data flow}
+\label{subsec:dataflow}
+
+The architecture supports two entry modes that share the same layers but differ in how the contract first comes into being. In the \emph{greenfield} mode, intent originates with a human and flows top-down: NL intent enters the elaboration layer, is converted to a contract under behavioural ratification, crosses the pivot, and drives the synthesis--verification loop. In the \emph{brownfield} mode---the common case for real software---no contract exists and the existing code, documentation, and issue tickets must be mined to \emph{recover} one. A startup characterisation phase, detailed in its own section, runs before any user input: it infers a draft contract from the code, extracts intent claims from tickets and documentation, and reconciles these three evidence streams into a candidate contract with per-clause provenance, flagging the disagreements between streams as candidate bugs. Crucially, verifying code against a code-derived contract is \emph{characterisation}, not a correctness proof---it is nearly circular and establishes only a faithful-description baseline plus toolchain sanity; genuine correctness-relative-to-intent arises only where the ticket- and doc-derived streams disagree with the code and a human ratifies the resolution. The brownfield mode thus reorders the loop: a first, \emph{retroactive} pass resolves recovered discrepancies and establishes a trusted baseline, after which \emph{prospective} passes handle new changes.
+
+A single further capability spans both modes and connects the architecture to the thesis programme's core concern with library and version compatibility. Because the contract is a composition of obligations, a change to one method's contract mechanically recomputes the proof obligations of its callers and flags which callers break \emph{without running them}---and an internal refactor and a dependency version bump are, from the verifier's standpoint, the same operation. The author's prior compositional refinement result~\cite{edmonds_article3} is thereby promoted from an inference technique to a first-class lifecycle event: the question ``which of my call sites does this upgrade break behaviourally?'' becomes a blast-radius analysis the pipeline answers from contracts alone, a capability the broader literature on behavioural breaking changes has long sought~\cite{mostafa2017behavioral,jayasuriya2024understanding}.
+
+\subsection{Reuse of validated components}
+\label{subsec:reuse}
+
+The architecture is realizable today because its trusted core already exists and has been independently validated. The proof-of-concept instantiation, presented later, reuses the JML-Inferrer to bootstrap draft contracts~\cite{edmonds_article1,edmonds_article3}, the custom OpenJML fork with Z3 as the trusted oracle~\cite{cok2014openjml,demoura2008z3}, the artefact-embedding machinery for carrying specifications alongside code~\cite{edmonds_article2}, and the Dockerized verification pipeline already integrated into continuous integration~\cite{edmonds_article4}. The only new software is an orchestrator together with LLM calls for elicitation, contract drafting, and code synthesis; the verifier that grades the result is a pre-existing, independent component that never grades itself. This separation between newly written, untrusted orchestration and reused, trusted verification is the architecture's most important engineering commitment, and it is what permits the article to claim feasibility and realism for the reference pipeline while reserving full empirical validation on external production codebases for future work. The sections that follow take each layer in turn, beginning with the intent and elaboration layer and its ratification gap.

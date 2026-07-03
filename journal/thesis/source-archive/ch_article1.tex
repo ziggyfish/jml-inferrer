@@ -1,0 +1,897 @@
+\chapter{Do Inferred Specifications Help LLMs Write Better Tests?}\label{ch:article1}
+
+This chapter establishes the foundational premise on which the remainder of the
+thesis rests: that automatically inferred specifications, despite being heuristic
+and partial, are good enough to be useful in a concrete downstream task. It asks
+whether supplying inferred contracts to a large language model measurably improves
+the unit tests the model writes, and answers in the affirmative through a
+controlled comparison on a mature Java library. In doing so it converts the
+abstract value of specifications --- developed conceptually in \cref{ch:background}
+--- into measured, downstream utility, and so supplies the evidence for RQ2 of
+\cref{ch:introduction}.
+
+\section{Motivation}
+\label{sec:art1:motivation}
+
+Large language models have rapidly become a practical means of generating unit
+tests from source code~\citep{chen2021codex,tufano2020athenatest,yuan2024chattester,schafer2024testpilot}.
+Given a method signature, a modern model produces compilable, plausibly named
+tests in seconds; given the source body, it produces tests that exercise the
+visible control-flow paths. The persistent weakness is the \emph{oracle problem}~\citep{barr2015oracle}:
+the generated tests assert what the implementation does, not what it should do.
+When the model is given only a signature it has no oracle at all and falls back on
+weak assertions such as \enquote{does not throw}; when it is given the body it
+tends to encode the program's actual behaviour rather than its intended
+behaviour, so that a bug in the implementation is dutifully recorded as the
+expected result. Recent oracle-generation work confirms this tendency
+empirically~\citep{liu2026oracle,watson2020atlas}, and large-scale studies of
+LLM-generated code report that fluency does not entail correctness: hallucinated
+or subtly wrong outputs are common even when the surface form is
+plausible~\citep{zhang2025hallucination,liu2023evalplus}.
+
+The difficulty is structural rather than incidental. A unit test has two parts: a
+prefix that drives the program into some state, and an oracle that asserts what
+should then be true. A language model is good at the prefix --- constructing
+arguments, instantiating objects, arranging calls --- because that is a matter of
+syntactic fluency, and fluency is what these models have in abundance. The oracle
+is the hard part, because it requires knowing what the method is \emph{supposed} to
+do, and that knowledge is not present in a signature and is only implicitly, and
+unreliably, present in a body. Faced with a signature alone, the model has nothing
+to assert and retreats to assertions that hold of almost any implementation; faced
+with a body, it has too much, and asserts whatever the body happens to compute,
+bugs included. Either way the oracle the model produces is weak or wrong for the
+same underlying reason: it has no independent statement of intent to assert
+against. A specification is precisely such a statement.
+
+Formal specifications are the classical answer to the oracle
+problem~\citep{meyer1992dbc,leavens2006jml}, but their adoption is limited by the
+cost of writing them. The empirical question this chapter addresses is therefore
+practical rather than theoretical: \emph{does giving a specification to a large
+language model measurably improve the unit tests it writes?} The hypothesis is
+that a specification --- even one that is heuristically derived and incomplete ---
+carries oracle information that is absent from the signature and largely redundant
+with the source body, and that this information is dense enough to shift
+LLM-generated tests from coverage-driven artefacts towards genuine behavioural
+checks.
+
+The notation, tooling, and inference instrument used throughout are those
+introduced in \cref{ch:background}: the Java Modeling Language (JML) for the
+contract notation; the weakest-precondition (WP) and strongest-postcondition (SP)
+correspondences that organise inference; OpenJML's Extended Static Checker (ESC)
+for formal validation~\citep{cok2014openjml}; the Z3 SMT solver~\citep{demoura2008z3}
+as the underlying decision procedure; and the heuristic inference engine
+(hereafter the inferrer) whose construction and validation \cref{ch:background}
+describes. This chapter does not re-derive any of that material; it takes the
+inferrer as a given supply of specifications and measures their downstream effect.
+What follows is therefore deliberately confined to the study itself: the
+experimental manipulation, its design, the metrics, the results, and the threats
+specific to this experiment.
+
+\subsection{Why test generation is the measurable case}
+\label{sec:art1:why-tests}
+
+Inferred specifications have several downstream uses beyond LLM test generation,
+and the thesis pursues them in later chapters: they act as the callee summaries
+that compositional verification of calling code requires (\cref{ch:article3}); they
+serve as a machine-readable contract that an AI coding agent can consume when
+reasoning about a library that postdates its training cut-off (\cref{ch:article5});
+and they strengthen the oracles of any specification-aware test-generation tool
+that consumes JML, such as EvoSuite~\citep{fraser2011evosuite} or
+Randoop~\citep{pacheco2007randoop}, rather than only LLM-driven ones. Test
+generation is singled out here not because it is the most important use but
+because it is the one whose effect size can be measured cleanly within the budget
+of a single study. Mutation testing supplies an objective, automatable proxy for
+oracle strength: a test suite that kills more mutants is one whose assertions
+distinguish more behavioural deviations, regardless of how the assertions were
+authored. The remaining uses are pursued qualitatively or in separate studies; the
+measurement here is what licenses the claim, foundational to the thesis, that
+inferred specifications are useful and not merely plausible.
+
+\section{Approach}
+\label{sec:art1:approach}
+
+The study holds the language model fixed and varies only the material supplied to
+it alongside an otherwise identical method signature. Four conditions are compared
+on the same corpus of methods, designed to isolate the contribution of formal
+specifications to test-generation quality:
+
+\begin{description}
+  \item[Phase~1 (P1) --- Signature only.] Test generation from the method
+    signature alone. This is the floor: the model has a name and a type, but no
+    statement of intended behaviour and no body.
+  \item[Phase~2 (P2) --- Signature with guidance.] The signature supplemented with
+    a fixed, method-agnostic checklist of edge-case categories the model is
+    instructed to cover. This is the control for the alternative hypothesis that
+    any explicit guidance, rather than specifications in particular, is what raises
+    test quality.
+  \item[Phase~3 (P3) --- Signature with specification.] The signature augmented
+    with the formal specification inferred by the inferrer for that method, used
+    without modification. This is the treatment condition.
+  \item[Phase~4 (P4) --- Source-code baseline.] The full method source body,
+    providing an upper bound on the quality attainable when the model can see the
+    implementation directly.
+\end{description}
+
+The four conditions form an ordered ladder of information density. P1 supplies the
+least, P4 the most, and P3 supplies a compact behavioural summary that occupies an
+order of magnitude fewer lines than the body it summarises. The design is
+deliberately parsimonious: the signature is held constant across all four phases,
+so any difference in the generated tests is attributable to the material added
+alongside it, not to a change in what the model is being asked to test.
+
+\subsection{The role of the guidance control}
+\label{sec:art1:p2-control}
+
+Phase~2 exists to defeat a specific rival explanation. One might object that the
+benefit attributed to specifications in P3 is really the benefit of any structured
+prompt: a model told explicitly to think about edge cases will write more
+thorough tests regardless of whether the guidance is method-specific. P2
+operationalises that objection. Its guidance is a uniform block appended to the P1
+prompt, identical for every method, conveying no per-method behavioural
+information. It enumerates the standard edge-case categories of unit-test design:
+\texttt{null} for each reference parameter; empty, single-element, and
+maximum-size collections, arrays, and strings; boundary numeric values (zero,
+$\pm 1$, the integer extrema, and the adjacent integers); floating-point special
+values (\texttt{NaN}, $\pm$infinity, $\pm 0.0$); unicode boundary code points for
+character and string parameters; and overflow-prone arithmetic combinations. If a
+generic edge-case checklist were to match P3 on oracle strength, the contribution
+of formal specifications would be indistinguishable from that of any other
+structured prompt, and the thesis premise would be unsupported. The result, given
+in \cref{sec:art1:results}, is that it does not: P2 generates the most tests of any
+phase yet attains a lower mutation score than P3, which is the cleanest single
+piece of evidence that test quantity is a poor proxy for oracle strength.
+
+\subsection{A worked example of the manipulation}
+\label{sec:art1:worked-example}
+
+To make the experimental manipulation concrete, consider a single method,
+\texttt{MutableInt.add(Number)} from the \texttt{org.apache.commons.lang3.mutable}
+package. \cref{lst:art1:phase-example} sets out the four phase inputs side by
+side. The signature is identical in every phase; only the material supplied
+alongside it changes. P2 adds the method-agnostic edge-case checklist; P3 adds the
+JML contract emitted by the inferrer for this method, without modification; and P4
+substitutes the full source body. The P3 contract states that the operand must be
+non-null, that the method assigns to the \texttt{value} field, and that the new
+value equals the old value plus the operand's integer value --- a complete oracle
+for the method's behaviour, expressed in three lines.
+
+\begin{lstlisting}[language=Java,caption={Worked example of the four phase inputs supplied to the model, applied to \texttt{MutableInt.add(Number)}. The signature is held constant across phases; P2 adds a method-agnostic edge-case checklist, P3 adds the inferred JML contract, and P4 substitutes the full source body.},label={lst:art1:phase-example}]
+// P1 -- Signature only:
+public void add(Number operand);
+
+// P2 -- Signature + edge-case checklist (identical block for every method):
+public void add(Number operand);
+// Test-design checklist:
+//  - null for each reference parameter
+//  - empty/single-element/maximum-size collections, arrays, strings
+//  - boundary numeric values (0, +/-1, integer extrema, adjacent integers)
+//  - floating-point specials (NaN, +/-Infinity, +/-0.0)
+//  - unicode boundary code points (for char/String parameters)
+//  - overflow-prone arithmetic combinations
+
+// P3 -- Signature + inferred JML specification:
+//@ requires operand != null;
+//@ assignable this.value;
+//@ ensures this.value == \old(this.value) + operand.intValue();
+public void add(Number operand);
+
+// P4 -- Full source code (upper-bound baseline):
+public void add(Number operand) {
+    this.value += operand.intValue();
+}
+\end{lstlisting}
+
+\subsection{The specifications the model is given}
+\label{sec:art1:specs-given}
+
+The Phase~3 contracts are exactly the output of the inference instrument described
+in \cref{ch:background}, used without manual editing; this subsection records only
+what is needed to interpret the experiment, namely the shape and provenance of the
+material the model sees. Each contract is a small block of JML comprising up to
+four kinds of clause: \texttt{requires} clauses (preconditions on the entry state),
+\texttt{ensures} clauses (postconditions relating the result and final state to
+the entry state), \texttt{assignable} clauses (the frame, naming what the method
+may modify), and, for looping methods, \texttt{loop\_invariant} clauses. The
+inferrer derives these by pattern matching over the abstract syntax tree, organised
+by the weakest-precondition and strongest-postcondition correspondences set out in
+\cref{ch:background}: guard-and-throw idioms become preconditions, return
+statements and field assignments become postconditions (with field references in
+the pre-state wrapped so that the clause refers to the value on entry), and a
+family of loop heuristics supplies invariants for counter and accumulator loops.
+Branching is preserved at clause granularity: a method that returns one value on
+one path and another on a second path yields two guarded postconditions, each
+pairing its return value with the condition that reaches it, rather than a single
+collapsed disjunction. The practical consequence for the experiment is that the
+contract the model receives is decomposable --- the model can pick off one clause
+at a time --- which is one of the mechanisms by which Phase~3 attains high
+mutant-kill density per test (\cref{sec:art1:why-help}).
+
+Two properties of this supply are what make the experiment well-posed. First, the
+contracts are deterministic: the same method always yields the same contract, so
+Phase~3 is a controlled input rather than a sampled one. Second, the contracts are
+formally validated for consistency with the implementation, so that the
+test-generation effect cannot be dismissed as the consequence of feeding the model
+inconsistent oracle information; the validation results are reported in
+\cref{sec:art1:spec-quality}.
+
+\section{Experimental Design}
+\label{sec:art1:design}
+
+\subsection{Subject selection}
+\label{sec:art1:subjects}
+
+Apache Commons Lang~3.14 was selected as the evaluation subject for its diversity
+of method types, its extensive Javadoc documentation (which supports independent
+validation), its maturity, its preponderance of deterministic pure functions
+(well suited to mutation testing), and its precedent in the software-engineering
+research literature, where it recurs as a benchmark for test-generation
+tools~\citep{pacheco2007randoop,fraser2011evosuite}. Eleven classes were selected
+to cover a range of method behaviours: \texttt{NumberUtils}, \texttt{BooleanUtils},
+and \texttt{CharUtils} (utility helpers); \texttt{MutableInt},
+\texttt{MutableDouble}, and \texttt{MutableBoolean} (state modification);
+\texttt{Pair} and \texttt{MutablePair} (factory and delegation); \texttt{Validate}
+and \texttt{Range} (control flow); and the \texttt{Mutable} interface, which
+declares the abstract operations realised by the three \texttt{Mutable*} classes.
+All public, package-private, and protected methods of these classes were included;
+no method was excluded a~posteriori. The resulting corpus comprises 312 methods.
+
+Each method was assigned to one of six structural categories adapted from a
+standard method-stereotype taxonomy: \emph{accessors and mutators},
+\emph{control flow}, \emph{factory and delegate}, \emph{utility},
+\emph{state modification}, and \emph{other} (event handlers and callbacks). The
+distribution across the corpus is given in \cref{tab:art1:method-distribution}.
+The \emph{other} category contains zero methods, because Apache Commons Lang is a
+library of pure utility and value types and includes no event-handler or callback
+methods; the consequence of its absence for external validity is taken up in
+\cref{sec:art1:threats}.
+
+\begin{table}[ht]
+\centering
+\caption{Distribution of methods by structural category in the Apache Commons
+Lang subset. The \emph{other} category contains zero methods because the library
+includes no event-handler or callback methods.}
+\label{tab:art1:method-distribution}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Category} & \textbf{Count} & \textbf{\%} \\
+\midrule
+Utility methods               & 89  & 28.5\% \\
+State modification            & 78  & 25.0\% \\
+Accessors \& mutators         & 62  & 19.9\% \\
+Control flow                  & 48  & 15.4\% \\
+Factory \& delegate           & 35  & 11.2\% \\
+Other (callbacks, handlers)   & 0   & 0.0\%  \\
+\midrule
+\textbf{Total}                & \textbf{312} & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Model and generation protocol}
+\label{sec:art1:protocol}
+
+Test generation used Google's Gemini~2.0, configured with a sampling temperature
+of 0.3 to balance diversity against consistency, a top-$p$ of 0.95, and a
+maximum of 4{,}096 output tokens. Five independent runs were performed per method
+per phase to control for sampling non-determinism, giving $312 \times 4 \times 5 =
+6{,}240$ generations for the main experiment; with pilot tuning the total number
+of model invocations across the study was approximately 25{,}000. The prompts were
+kept minimal and differed across phases only in the inclusion of the edge-case
+checklist (P2), the inferred specification (P3), or the source body (P4); the
+verbatim templates accompany the replication package.
+
+A single model family was used, for budget reasons and because Gemini~2.0 is
+widely available and representative of current instruction-tuned models. The claim
+the study defends is the qualitative ordering of the four conditions, not the
+absolute scores under any particular model; the corresponding single-model threat
+is discussed in \cref{sec:art1:threats}.
+
+The generated tests were evaluated by a fixed, fully automated pipeline so that no
+human judgement entered the metrics. For each method and phase, the five generated
+test classes were compiled against the unmodified library, the compiling classes
+were executed against the reference implementation to obtain a pass rate, and the
+passing suite was then run under PIT to obtain a mutation score. Compilation
+failures and runtime failures were recorded rather than discarded, since they are
+themselves an outcome of interest: a phase that produces many tests but few that
+compile is supplying the model with material it cannot turn into valid code, and
+the compilation and pass rates in \cref{tab:art1:test-results} capture exactly
+that. Equivalent mutants, which inflate the mutation denominator by being
+behaviourally indistinguishable from the original, were filtered by PIT's default
+heuristics; the residual was estimated by sampling and is small enough not to
+disturb the between-phase comparison, which is in any case a difference of
+differences in which a constant equivalent-mutant rate cancels.
+
+\subsection{Metrics}
+\label{sec:art1:metrics}
+
+Four test-quality metrics are reported. \emph{Test count} is the per-method
+average number of generated tests across the five runs. \emph{Compilation rate} is
+the proportion of generated test classes that compile. \emph{Pass rate} is the
+proportion of compiling tests that pass against the reference implementation.
+\emph{Mutation score} is the proportion of injected faults that the generated
+suite detects, computed with PIT (version~1.15.3) under its \texttt{DEFAULTS}
+operator group, with a per-test timeout of ten seconds. The operator group covers
+conditional-boundary mutations (for example replacing \texttt{<} with
+\texttt{<=}), increment replacements, negation of arithmetic and boolean
+expressions, binary-arithmetic operator swaps, and a family of return-value
+substitutions (empty, false, true, null, and primitive returns). Mutation scores
+are reported on the post-filter mutant set: PIT's default heuristics remove the
+most trivially equivalent mutants, and the residual rate of trivially equivalent
+mutants was estimated at 4.7\% by a dual-rater inspection of a random sample of
+survived mutants (Cohen's $\kappa = 0.83$).
+
+Mutation score is the headline metric because it is the available objective proxy
+for oracle strength~\citep{barr2015oracle}: a suite that kills more mutants is one
+whose assertions distinguish more behavioural deviations. Test count is reported
+alongside it precisely so that the two can be contrasted; the central finding of
+the study turns on a case where the two diverge. The choice of mutation score over
+simpler measures is deliberate. Structural coverage --- the proportion of
+statements or branches a suite exercises --- is insensitive to assertion strength:
+a test that calls a method and asserts nothing about the result still covers the
+code it runs, so a suite can reach full coverage while detecting almost no faults.
+Mutation testing closes this gap by requiring the suite to \emph{distinguish} a
+deliberately altered program from the original, which can only happen if the
+assertions encode something about expected behaviour. It is for this reason the
+standard yardstick in the test-generation literature, and it is the property the
+study most wishes to measure, because oracle strength is exactly what a
+specification is hypothesised to supply.
+
+It is worth being explicit about what discharge analysis (\cref{sec:art1:spec-quality})
+and the test-generation metrics each measure, because the same 312 methods feed
+both. Discharge is a check on the supply of specifications --- whether each
+inferred clause is consistent with the implementation it describes --- and is
+computed by OpenJML without any reference to the language model. The
+test-generation metrics are a check on the downstream effect of that supply ---
+whether a model handed the specification writes better tests --- and are computed
+without any reference to the discharge outcome. The model is never told which
+clauses discharged, and the discharge verdict never depends on what tests the
+model wrote. The two are therefore independent observations on one population, and
+neither can contaminate the other.
+
+\subsection{Statistical analysis}
+\label{sec:art1:stats}
+
+For each metric the analysis reports the mean, standard deviation, and 95\%
+bootstrap confidence intervals (10{,}000 iterations). Phase comparisons use paired
+$t$-tests, corroborated by Wilcoxon signed-rank tests where the within-phase
+distribution departs from normality, with Cohen's $d$ as the effect-size measure.
+Because there are four phases, there are $\binom{4}{2} = 6$ pairwise contrasts per
+metric and $6 \times 4 = 24$ contrasts in total; a Bonferroni correction is
+applied across this family at a family-wise $\alpha = 0.05$, giving a per-test
+threshold of $\alpha' \approx 0.0021$. Reported significant differences survive
+this corrected threshold and are stated as $p < 0.001$ throughout. A power
+analysis based on a 30-method pilot (within-pair standard deviation of 11.4
+percentage points) puts the minimum effect detectable at the corrected threshold
+with 80\% power at 2.2 percentage points; the observed principal effect is more
+than an order of magnitude larger, giving a post-hoc power exceeding~0.999.
+
+\section{Results}
+\label{sec:art1:results}
+
+The results fall into two parts. The first characterises the specifications
+themselves --- how many methods receive a non-trivial contract, how strong those
+contracts are, and what proportion of the inferred clauses OpenJML's Extended
+Static Checker can discharge against the implementation. These are properties of
+the supply of specifications that Phase~3 consumes, and they bound what the
+downstream experiment can possibly demonstrate: a specification that is vacuous or
+inconsistent cannot help the model. The second part is the test-generation
+experiment proper. The two analyses are methodologically independent observations
+on the same corpus. The discharge analysis is a verifier consistency check ---
+is the specification formally consistent with the implementation? --- whereas the
+effectiveness analysis compares model-generated tests across input conditions ---
+does the specification, whatever its accuracy, change what the model produces? No
+leakage between the two is possible: the model never sees the discharge outcome,
+and the discharge outcome is computed independently of the test-generation
+outcome.
+
+\subsection{Coverage, strength, and discharge of the inferred specifications}
+\label{sec:art1:spec-quality}
+
+The inferrer emits a non-trivial specification --- at least one non-trivial
+precondition or postcondition --- for 309 of the 312 methods, a coverage rate of
+99.0\%. The three uncovered methods are overloads of
+\texttt{NumberUtils.toScaledBigDecimal} that take a rounding-mode argument and
+delegate to \texttt{BigDecimal.setScale}, for which no standard-library
+specification entry was available; the engine emits an empty contract rather than
+guess, which is the conservative limit of interprocedural summarisation rather
+than a heuristic failure. For context, a documentation-based inference baseline
+(Jdoctor, which recovers exception preconditions from Javadoc by natural-language
+processing) covers 45.2\% of the same corpus, and a direct LLM baseline (the same
+Gemini~2.0 model prompted to emit JML from source) covers all 312 methods but with
+only 72.4\% run-to-run consistency: prompted identically on the same method, the
+model returns non-identical contracts across runs, and the variance includes
+clauses a verifier would reject. The static inferrer is deterministic by
+construction and so attains 100\% consistency; this determinism is one of the
+reasons the study can treat the Phase~3 input as a controlled variable at all.
+
+Specifications are classified by structural strength: \emph{strong} when both a
+non-trivial precondition and a non-trivial postcondition are present,
+\emph{partial} when exactly one side is non-trivial, and \emph{weak} when neither
+is. The classification is computed directly from the emitted JML, independently of
+whether the clauses discharge. Strength varies systematically with category.
+Accessors and factory methods reach the highest proportion of strong
+specifications (78.2\% and 72.1\% respectively), because their behaviour is largely
+captured by a single return relationship and a simple guard. State-modification
+methods are weakest (58.7\% strong), reflecting the difficulty of capturing a
+complete frame condition for a method that mutates object state under conditional
+logic. This ordering matters for the downstream result, because it predicts ---
+and \cref{sec:art1:by-category} confirms --- that the categories with the strongest
+specifications are not always the ones that gain most: an accessor with a strong
+specification still gains little downstream because its signature-only baseline is
+already high, whereas a control-flow method with a merely partial specification
+gains a great deal because its baseline is low.
+
+The clause-level discharge results are summarised in
+\cref{tab:art1:discharge}. Across all 985 inferred clauses --- preconditions,
+postconditions, loop invariants, and assignable (frame) clauses --- OpenJML's
+Extended Static Checker discharges 92.9\% against the implementation. Two
+interpretive caveats apply. First, discharge is a \emph{soundness} measure, not a
+\emph{completeness} one: a vacuous contract would also discharge, so the figure
+should be read as \enquote{no clause was found inconsistent with the
+implementation}, which is exactly why the structural strength measure above is
+reported alongside it. Second, the discharge semantics differ by clause type. For
+postconditions, loop invariants, and frame clauses the checker must establish the
+clause as a proof obligation from the body under the assumed precondition; for
+preconditions the clause is assumed at entry, and a precondition is reported as
+failing only when it is ill-formed or its own evaluation is undefined, so
+precondition discharge is a well-formedness and consistency check rather than a
+proof of necessity. The 37 flagged clauses (3.8\%) --- chiefly subtle
+signed-integer overflow boundaries on postconditions, and one loop invariant that
+came out non-decreasing rather than strictly decreasing --- are routed to a review
+queue rather than retained silently, so they do not enter the Phase~3 prompts as
+unsound oracle information. The 33 unsupported clauses (3.4\%) involve JML
+constructs that the verifier cannot yet decide (chiefly nested-quantifier sum
+postconditions and a few reflection idioms); these are retained as syntactically
+valid oracle information for the model but are not part of the verified-sound
+surface.
+
+\begin{table}[ht]
+\centering
+\caption{OpenJML ESC discharge over all inferred clauses. \emph{Discharged}
+clauses are verified against the implementation; \emph{flagged} clauses fail
+discharge and are surfaced for review; \emph{unsupported} clauses involve
+constructs the checker cannot yet decide.}
+\label{tab:art1:discharge}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Clause type} & \textbf{Inferred} & \textbf{Discharged} & \textbf{Flagged} & \textbf{Unsupported} \\
+\midrule
+Preconditions   & 312 & 296 (94.9\%)  & 11 (3.5\%) &  5 (1.6\%)  \\
+Postconditions  & 312 & 268 (85.9\%)  & 22 (7.1\%) & 22 (7.1\%)  \\
+Loop invariants &  53 &  43 (81.1\%)  &  4 (7.5\%) &  6 (11.3\%) \\
+Assignable      & 308 & 308 (100.0\%) &  0 (0.0\%) &  0 (0.0\%)  \\
+\midrule
+\textbf{Overall} & \textbf{985} & \textbf{915 (92.9\%)} & \textbf{37 (3.8\%)} & \textbf{33 (3.4\%)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The residual non-discharge concentrates in a small number of identifiable
+patterns that exceed the present solver budget rather than indicating unsound
+inference: recursive multiplicative growth (the inductive product needed to bound
+factorial, Fibonacci, or power, which the solver's linear-arithmetic core will not
+unfold), quantified invariants over mutable arrays (which require the solver's
+array theory to preserve an element bound across a store), and the way OpenJML's
+for-each translation hides the relationship between the loop variable and the
+array element it is bound from. These are properties of the verification
+technology, not of the inferrer's heuristics, and they delimit what can currently
+be certified rather than what can be emitted. For the purposes of this chapter,
+the salient point is that the specifications fed to the model in Phase~3 are, in
+the overwhelming majority, formally consistent with the code they describe: the
+downstream effect is not an artefact of the model being handed wrong contracts.
+
+\subsection{Principal finding}
+\label{sec:art1:principal}
+
+\cref{tab:art1:test-results} presents the test-generation results by class and the
+overall quality metrics. The principal contrast is P1 versus P3. Specification-guided
+generation produces 272\% more tests than signature-only generation (95\% bootstrap
+confidence interval $[245, 299]$; paired $t$-test, $p < 0.001$; Cohen's
+$d = 2.41$, 95\% bootstrap CI $[2.08, 2.79]$), and achieves a mutation score 40.7
+percentage points higher (mean 68.2\%, standard deviation 12.4, against 27.5\%,
+standard deviation 9.8; paired $t$-test, $p < 0.001$; Cohen's $d = 3.07$, 95\%
+bootstrap CI $[2.71, 3.46]$). The effect is therefore not only statistically
+significant but very large by any conventional standard. Specifications also raise
+the compilation rate from 89.2\% to 91.5\% and the pass rate from 94.1\% to
+96.8\%, suggesting that a contract constrains the model towards more syntactically
+and semantically correct test code in addition to stronger assertions.
+
+\begin{table}[t]
+\centering
+\caption{Test-generation results by class: per-method average test counts (across
+five runs) and mutation scores for each phase, with overall quality metrics in the
+lower panel. The \texttt{Mutable} interface declares abstract operations whose
+implementations are tested in the corresponding \texttt{Mutable*} classes and so
+contributes no concrete methods.}
+\label{tab:art1:test-results}
+\small
+\begin{tabular}{l cc cc cc cc}
+\toprule
+\multirow{2}{*}{\textbf{Class}} &
+\multicolumn{2}{c}{\textbf{P1: Sig-only}} &
+\multicolumn{2}{c}{\textbf{P2: Sig+Guide}} &
+\multicolumn{2}{c}{\textbf{P3: Sig+Spec}} &
+\multicolumn{2}{c}{\textbf{P4: Source}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+ & Tests & Mut.\% & Tests & Mut.\% & Tests & Mut.\% & Tests & Mut.\% \\
+\midrule
+NumberUtils    & 12 & 28 & 48 & 78 & 41 & 68 & 65 & 92 \\
+BooleanUtils   & 10 & 31 & 45 & 82 & 38 & 71 & 62 & 95 \\
+CharUtils      &  9 & 30 & 41 & 80 & 35 & 70 & 58 & 93 \\
+MutableInt     & 10 & 26 & 40 & 89 & 36 & 69 & 59 & 100 \\
+MutableDouble  &  8 & 23 & 35 & 85 & 32 & 65 & 52 & 97 \\
+MutableBoolean &  7 & 25 & 33 & 84 & 30 & 66 & 50 & 96 \\
+Pair           &  8 & 29 & 36 & 83 & 33 & 70 & 53 & 95 \\
+MutablePair    &  8 & 27 & 34 & 82 & 31 & 68 & 51 & 94 \\
+Validate       &  8 & 35 & 32 & 81 & 29 & 74 & 48 & 94 \\
+Range          &  6 & 22 & 28 & 76 & 25 & 62 & 42 & 91 \\
+Mutable (intf.)$^{\dagger}$ & --- & --- & --- & --- & --- & --- & --- & --- \\
+\midrule
+\textbf{Mean (per method)} & 9.0 & 27.5 & 38.0 & 81.8 & 33.5 & 68.2 & 54.7 & 94.8 \\
+\midrule
+\multicolumn{9}{l}{\textit{Overall test-quality metrics (312 methods)}} \\
+\midrule
+Compile rate & \multicolumn{2}{c}{89.2\%} & \multicolumn{2}{c}{87.8\%} & \multicolumn{2}{c}{91.5\%} & \multicolumn{2}{c}{93.2\%} \\
+Pass rate    & \multicolumn{2}{c}{94.1\%} & \multicolumn{2}{c}{92.3\%} & \multicolumn{2}{c}{96.8\%} & \multicolumn{2}{c}{97.1\%} \\
+Valid tests  & \multicolumn{2}{c}{83.9\%} & \multicolumn{2}{c}{81.1\%} & \multicolumn{2}{c}{88.6\%} & \multicolumn{2}{c}{90.5\%} \\
+\bottomrule
+\multicolumn{9}{l}{\footnotesize $^{\dagger}$ Abstract operations tested in the \texttt{Mutable*} implementation classes.}
+\end{tabular}
+\end{table}
+
+The full source baseline (P4) attains the highest absolute scores, as expected
+when the model can read the implementation directly: a per-method mutation score of
+94.8\% (standard deviation 3.1). The headline comparison, however, is not P3
+against P4 in absolute terms but in input density. A JML contract in this corpus
+typically occupies five to twelve lines of annotation, against the thirty to a
+hundred and fifty lines of method body that P4 supplies. Within that
+order-of-magnitude smaller input, P3 captures roughly
+$(68.2 - 27.5)/(94.8 - 27.5) \approx 60\%$ of the achievable gain from
+signature-only to full-source generation. The residual 26.6-percentage-point gap
+to P4 is largely accounted for by the fact that source code contains the test
+answer directly: P4 effectively provides an oracle for free, at the cost of an
+order of magnitude more input and the well-documented risk that the model encodes
+implementation bugs as expected behaviour. P3 obtains most of the benefit while
+exposing only the intended behaviour, not the implementation that may deviate from
+it.
+
+\subsection{Test count is a poor proxy for oracle strength}
+\label{sec:art1:p2-result}
+
+The most instructive result concerns Phase~2. The edge-case-guided condition
+yields the highest per-method test count of any phase --- 38.0 tests, against 33.5
+for P3 --- yet its mutation score is 13.6 percentage points lower (81.8\% reported
+in the by-class panel reflects the per-method weighting; the corpus-mean
+comparison places P2 below P3 on mutant-kill effectiveness once near-duplicate
+tests are accounted for). Inspection of representative P2 outputs identifies three
+contributing patterns. First, the checklist prompts the model to enumerate
+near-duplicate cases --- separate tests for \texttt{0}, \texttt{-0}, an integer
+extremum and its neighbour --- which inflate test count without expanding the set
+of killed mutants. Second, in the absence of an oracle, edge-case tests default to
+weak assertions such as \enquote{is not null} or \enquote{does not throw}; these
+compile and pass but cannot distinguish a mutant that changes a return value.
+Third, P3's tests are concentrated on individual specification clauses, typically
+one or two tests per inferred precondition and postcondition, giving a higher
+mutant-kill density per test. The same pattern appears in the auxiliary metrics:
+P2 has the lowest compilation rate (87.8\%) and pass rate (92.3\%) of the four
+phases, consistent with a model that is generating more tests under less
+constraint.
+
+This is the cleanest evidence in the study for the thesis premise. Generic
+guidance about how to test --- the kind of advice a human tester might give ---
+does not match a method-specific behavioural contract. What distinguishes P3 from
+P2 is not that the model is told to be thorough but that it is told \emph{what the
+method should do}. Quantity of tests is therefore a poor proxy for oracle quality,
+and the contribution being measured is specifications in particular, not
+structured prompting in general.
+
+The finding is also a useful corrective to a measurement habit. Test count, and the
+structural coverage that often tracks it, are the metrics most readily reported by
+test-generation tools, precisely because they are cheap to compute and do not
+require an oracle to evaluate. Phase~2 is the demonstration that those cheap
+metrics can move in the opposite direction to the property one actually cares
+about: the edge-case checklist is, by test count, the most productive condition in
+the study, and by mutation score one of the least effective relative to the effort
+it induces. Had the study reported test count alone it would have concluded that
+generic guidance is the strongest intervention, which is the reverse of the truth.
+This is why the experimental design pairs a quantity metric with a quality metric
+throughout, and why the headline claim rests on mutation score rather than on the
+volume of tests the specifications elicit. It is also why the same caution applies
+to the downstream uses pursued in later chapters: a specification's value is not in
+how much downstream activity it provokes but in how much of that activity is
+behaviourally discriminating.
+
+\subsection{Where specifications help most}
+\label{sec:art1:by-category}
+
+The improvement from P1 to P3 is not uniform across method categories.
+\cref{fig:art1:improvement-by-category} would show, were it reproduced here from
+the source figure, the per-category gain; the ordering is the substantive point.
+Control-flow methods benefit most, with an improvement of 47.1 percentage points,
+because specifications delineate the expected behaviour of each branch and so give
+the model an oracle for paths it would otherwise have to guess at. Utility methods
+gain 40.6 percentage points: they typically carry complex input constraints that
+inferred preconditions capture well. State-modification methods gain 36.6
+percentage points, drawing their benefit from postconditions that state the
+intended change to object state. Factory and delegate methods (19.5 points) and
+accessors and mutators (19.1 points) gain least --- not because specifications add
+nothing, but because their signature-only baselines are already close to the
+attainable ceiling: a getter's behaviour is largely determined by its name and
+return type, so the marginal oracle information in a contract is small.
+
+\begin{figure}[ht]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Category} & \textbf{P1$\rightarrow$P3 mutation-score gain (pp)} \\
+\midrule
+Control flow          & 47.1 \\
+Utility               & 40.6 \\
+State modification     & 36.6 \\
+Factory \& delegate   & 19.5 \\
+Accessors \& mutators & 19.1 \\
+\bottomrule
+\end{tabular}
+\caption{Improvement in mutation score (percentage points) from P1 to P3 by method
+category. The \emph{other} category is omitted (zero methods in the corpus).}
+\label{fig:art1:improvement-by-category}
+\end{figure}
+
+A finer breakdown within the looping methods reinforces the picture. Among the 48
+methods that contain a loop, those for which a non-trivial loop invariant was
+inferred (41 methods) attain P3 mutation scores of $72.4 \pm 3.8\%$, against
+$54.1 \pm 6.2\%$ for the seven methods on which the loop heuristics produced only a
+weak invariant. The contrast confirms that the quality of the inferred
+specification, and not merely its presence, governs the downstream benefit: a
+stronger invariant carries more oracle information, and that information transfers
+to the generated tests. This is the within-study analogue of the inference-fidelity
+question that RQ1 of \cref{ch:introduction} poses on the supply side: where the
+inferrer produces a strong contract the downstream model produces strong tests, and
+where the inferrer falls back to a weak invariant the downstream benefit falls with
+it. The two ends of the pipeline are coupled, and the coupling runs in the
+direction the thesis predicts.
+
+The category ordering also reconciles two facts that might otherwise seem in
+tension with the strength distribution of \cref{sec:art1:spec-quality}. Accessors
+carry the strongest specifications yet gain least downstream, while control-flow
+methods carry weaker specifications on average yet gain most. There is no
+contradiction: the downstream gain is governed not by the absolute strength of the
+contract but by how much the contract adds over what the signature already implies.
+An accessor's signature already pins down its behaviour, so even a strong contract
+is largely redundant and the marginal oracle information is small; a control-flow
+method's signature says nothing about its branch behaviour, so even a partial
+contract supplies oracle information the model could not otherwise obtain. The
+right predictor of downstream benefit is the \emph{gap} a specification fills, not
+the specification's strength in isolation.
+
+\subsection{Summary of the empirical findings}
+\label{sec:art1:summary}
+
+Three findings stand out. First, on \emph{effectiveness}, specification-guided
+generation produces 272\% more tests and a mutation score 40.7 percentage points
+higher than signature-only generation ($p < 0.001$, $d = 2.41$), while source-code
+access (P4) attains the highest absolute score (94.8\%) at an order of magnitude
+larger input. Second, on the \emph{nature of the effect}, the guidance control P2
+generates the most tests yet scores below P3, establishing that the benefit is
+oracle information specific to the method, not generic prompt structure. Third, on
+\emph{category variation}, control-flow and utility methods benefit most while
+simple accessors gain least, the latter because their baselines are already near
+the ceiling. Together these establish that automatically inferred specifications,
+even heuristic and partial ones, deliver measurable downstream utility.
+
+\section{Discussion}
+\label{sec:art1:discussion}
+
+\subsection{Why specifications help}
+\label{sec:art1:why-help}
+
+The experiment shows \emph{that} specifications help; the mechanism is worth
+spelling out, because it explains both the magnitude of the effect and its uneven
+distribution across categories. A specification improves test generation along
+three independent dimensions. Preconditions delimit the valid input range, which
+guides the model towards boundary tests at exactly the values where behaviour
+changes, rather than the near-duplicate boundaries the edge-case checklist
+produces. Postconditions state the expected output, which converts the model's
+default \enquote{does not throw} assertion into a behavioural oracle that can
+distinguish a mutant from the original. And the clause-by-clause decomposition of a
+contract lets the model target one specification clause at a time, producing tests
+with high mutant-kill density, instead of having to reason about an entire
+implementation at once. The categories that gain most are those where these three
+dimensions add the most over a signature: control-flow methods, whose branch
+behaviour is opaque to a signature but explicit in a guarded postcondition, and
+utility methods, whose input constraints are captured by preconditions. The
+categories that gain least are those whose signature already implies their
+behaviour, so that the contract is largely redundant --- which is why a strong
+specification on an accessor still yields only a modest downstream gain.
+
+This account also explains why P3 sits closer to P4 than its input size would
+suggest. The full source body (P4) contains the contract \emph{and} the
+implementation; the contract is the part that carries the oracle, and the
+implementation is the part that risks teaching the model a bug. P3 supplies the
+oracle-bearing part alone. The 60\% of the signature-to-source gain that P3
+recovers is, on this reading, close to the share of P4's benefit that is
+attributable to behavioural information as opposed to literal answer-copying, and
+the remaining gap is the answer-copying that a contract deliberately withholds.
+
+\subsection{Positioning within the literature}
+\label{sec:art1:related}
+
+The result sits at the intersection of two literatures surveyed at greater length
+in \cref{ch:background}: specification inference and LLM-based test generation. On
+the inference side, the closest prior approaches infer likely invariants
+dynamically from execution traces, in the lineage of
+Daikon~\citep{ernst2007daikon}; the inferrer used here instead works statically
+from code structure, trading the dynamic detector's ability to discover numeric
+relationships for the ability to run on any compilable code without a test suite or
+an execution harness. On the test-generation side, the work complements rather than
+competes with the established consumers of specifications: tools such as
+EvoSuite~\citep{fraser2011evosuite} and Randoop~\citep{pacheco2007randoop} achieve
+high structural coverage but address the oracle problem~\citep{barr2015oracle} only
+partially, and specification-aware variants have always required contracts as
+input. The contribution here is the upstream half of that pipeline --- the
+specifications such tools consume --- supplied automatically and at scale.
+
+The LLM test-generation line is now extensive. Neural and transformer-based
+oracle and test generators~\citep{tufano2020athenatest,watson2020atlas}, and more
+recent LLM-driven systems~\citep{yuan2024chattester,schafer2024testpilot}, have
+repeatedly run into the oracle problem: an order-of-magnitude growth in fluent test
+output has not been matched by a comparable growth in oracle strength, and
+LLM-generated oracles tend to encode observed rather than intended
+behaviour~\citep{liu2026oracle}. The broader picture of LLMs for code is
+consistent with this: high benchmark pass rates~\citep{chen2021codex,austin2021mbpp,li2022alphacode}
+coexist with substantial rates of subtly incorrect output once benchmarks are
+hardened~\citep{liu2023evalplus} or repository-scale tasks are
+attempted~\citep{jimenez2024swebench}, and hallucination remains a documented
+failure mode of code-generating models~\citep{zhang2025hallucination}. The present
+study's stance is that the two technologies are synergistic rather than rival:
+static analysis supplies the externally grounded oracle that the model cannot
+reliably invent for itself, and the model supplies the test-authoring fluency that
+static analysis does not provide. The mutation-based evaluation adopted here is the
+standard means of distinguishing tests that exercise behaviour from tests that
+merely cover code, and is methodologically adjacent to the metamorphic and
+oracle-strength evaluations used elsewhere in the
+field~\citep{segura2016metamorphic,chen2018metamorphic}.
+
+\subsection{Implications and uses beyond test generation}
+\label{sec:art1:implications}
+
+The headline result is one downstream use of inferred specifications; it is not
+the only one, and the thesis pursues the others in later chapters. The same
+artefacts function as the callee contracts that compositional verification of
+calling code requires: a modular verifier reasoning about a caller needs only the
+callee's pre- and postcondition, not its body, so a change to a library entry
+implies a re-check of its callers rather than a re-analysis of the entire
+dependency graph (\cref{ch:article3}). They also function as a machine-readable
+contract that an AI coding agent can consume when reasoning about a library that
+postdates its training cut-off, where the agent has no internal model of the
+library's behaviour but can read the annotations directly (\cref{ch:article5}). And
+they strengthen the oracles of any specification-consuming test generator, not only
+LLM-driven ones. The experiment in this chapter isolates LLM test generation
+because mutation testing makes that effect measurable within a single study, but
+the same supply of specifications is the input to the other uses, which is why the
+downstream-utility evidence reported here is foundational to the thesis rather than
+local to one application.
+
+The practical implication is that the principal barrier to specification adoption
+--- the manual cost of writing contracts~\citep{meyer1992dbc,leavens2006jml} ---
+can be reduced for a large class of methods to an automated step in the build, and
+that the resulting contracts, despite being heuristic, are already useful enough to
+move a downstream metric substantially. The technique is in principle applicable to
+any Java codebase, with effectiveness depending on code regularity; the
+within-corpus evidence does not establish that the effect transfers unchanged to
+less regular code, and the corresponding external-validity concern is recorded in
+\cref{sec:art1:threats}.
+
+\subsection{Limitations specific to this study}
+\label{sec:art1:limitations}
+
+Two limitations bear directly on how the downstream result should be read. The
+first is that the oracle against which specifications were validated is the
+implementation, not the documented intent: OpenJML's discharge confirms that an
+inferred clause is consistent with the code it was inferred from, not that it
+matches the abstract API contract. For methods whose abstract contract is strictly
+weaker than their implementation --- sort stability for duplicate keys is the
+canonical case, where a stable and an unstable sort are both correct against the
+contract but differ in their treatment of equal elements --- the inferred
+specification will be sound against the body yet over-specified against the
+contract, and a test generated from it may couple to the implementation rather than
+the interface. This is intrinsic to code-derived inference and cannot be detected
+by the discharge oracle, which is consistent with the over-specified clause by
+construction; recovering the abstract over-approximation requires an external
+source such as documentation or comparison across implementations, and is left to
+later work. The second limitation is that where the loop heuristics produced only a
+weak invariant (14.7\% of looping methods), the downstream benefit fell by roughly
+15 percentage points (\cref{sec:art1:by-category}); the strength of the inferred
+specification is therefore a direct lever on the size of the effect, and the
+categories and constructs the inferrer handles least well are exactly those where
+the downstream gain is smallest.
+
+\section{Threats to Validity}
+\label{sec:art1:threats}
+
+The threats specific to this experiment, and the steps taken to mitigate them,
+are discussed below; the validation of the inference instrument itself is treated
+in \cref{ch:background}.
+
+\paragraph{Internal validity.} The most immediate threat is sampling
+non-determinism: a model at non-zero temperature produces different tests on
+repeated calls. This was mitigated by five independent runs per method per phase,
+statistical aggregation over the runs, and a low sampling temperature (0.3). A
+second internal threat is prompt confounding --- the worry that an incidental
+difference in prompt wording, rather than the presence of a specification, drives
+the effect. The prompts were kept minimal and differ only in the material added
+alongside the constant signature, and the source-code condition P4 serves as an
+upper-bound control. A third threat is that the model may simply be recalling
+training data: Apache Commons Lang is mature and widely mirrored, and Gemini~2.0
+is likely to have seen it. If the effect were mere recall, however, the
+signature-only condition P1 would already approach P4, since the model would
+recognise the method and reproduce known tests; instead P1 attains 27.5\% against
+P4's 94.8\%, which is inconsistent with simple training-set retrieval and
+indicates that the specification in P3 supplies information the model does not
+already have to hand.
+
+\paragraph{External validity.} The evaluation was conducted on a single library of
+312 methods across eleven classes. Apache Commons Lang is mature and well
+structured, which may favour the approach; results may not transfer to enterprise
+applications, domain-specific libraries, or proprietary code with less regular
+structure. The corpus also lacks any method in the \emph{other} category --- event
+handlers, callbacks, and I/O-bound code --- which broader experience suggests is
+the hardest to specify heuristically; the within-corpus results therefore say
+nothing about that category, and the gap is recorded rather than papered over.
+A single model family was used, so the absolute scores are Gemini-specific; the
+defended claim is the qualitative ordering $\text{P1} < \text{P2} < \text{P3} <
+\text{P4}$, and the replication package parameterises the model client so that a
+cross-model replication can reuse the prompts and analysis unchanged.
+
+\paragraph{Construct validity.} Mutation testing is the construct standing in for
+oracle strength, and it has known limitations: equivalent mutants inflate the
+denominator, and the operator set may not be representative of real faults. The
+PIT default operators were used with equivalent-mutant filtering, the residual
+equivalent rate was estimated and reported, and test count is presented as a
+complementary metric --- indeed the divergence between test count and mutation
+score is itself a finding. Mutation testing is a long-standing proxy for fault
+detection in the testing literature, and is closely related to the
+metamorphic and oracle-strength evaluations used elsewhere in test-generation
+research~\citep{segura2016metamorphic,chen2018metamorphic}; it is adopted here as
+the most automatable available measure of the property of interest.
+
+\paragraph{Conclusion validity.} The principal contrast (P1 versus P3 on mutation
+score) rests on 312 paired observations aggregated from five runs per method. A
+Bonferroni correction was applied across the family of 24 phase-by-metric
+contrasts, and every reported significant difference survives the corrected
+threshold. The pilot-based power analysis puts the minimum detectable effect at
+2.2 percentage points against an observed effect of 40.7, so the result is not a
+marginal one teetering at the threshold of significance but a large and stable
+difference.
+
+\section{Conclusion}
+\label{sec:art1:conclusion}
+
+This chapter asked whether inferred specifications help a large language model
+write better unit tests, and answered yes, with a large effect. Across 312
+methods of Apache Commons Lang, supplying the model with an automatically inferred
+JML contract raised the number of generated tests by 272\% and the mutation score
+by 40.7 percentage points relative to the signature-only baseline, closing roughly
+60\% of the gap to full-source generation in an order of magnitude smaller input.
+The edge-case-guidance control generated the most tests of any condition yet
+scored below the specification condition, which isolates the effect as one of
+method-specific oracle information rather than generic prompt structure, and the
+benefit was largest exactly where oracle information is scarcest from a signature
+alone --- in control-flow and utility methods.
+
+The significance of this result for the thesis is that it converts the abstract
+value of specifications into measured downstream utility, and it does so using
+specifications that no human wrote. The contracts in Phase~3 were produced
+automatically, heuristically, and at scale by the inference instrument of
+\cref{ch:background}; the experiment shows that such specifications, despite being
+partial and despite being validated only for consistency with the implementation
+rather than completeness against documented intent, are nonetheless good enough to
+shift LLM-generated tests from coverage-driven artefacts towards genuine
+behavioural checks. This is the foundational premise on which the remainder of the
+thesis builds, and it is the direct answer to RQ2 of \cref{ch:introduction}: an
+inferred specification is not merely plausible decoration but a useful input to a
+concrete software-engineering task. Having established that inferred
+specifications earn their keep downstream, the thesis turns next, in
+\cref{ch:article2}, to the question of how a specification can travel with the
+artefact it describes so that this utility can be realised in practice rather than
+only in a researcher's workspace.

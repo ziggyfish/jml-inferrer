@@ -1,0 +1,79 @@
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Position within the inference / verification spectrum}
+
+Table~\ref{tab:novelty} positions the present work against its
+closest neighbours along three axes: whether the technique
+\emph{produces} JML, \emph{reasons compositionally} across procedure
+boundaries, and has that reasoning SMT-discharged. The cell our pass
+occupies --- produces JML, reasons compositionally via WP lifting, no
+sound discharge --- is unoccupied by any prior tool to our knowledge.
+
+\begin{table}[b]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{0.92}
+\caption{Position within the JML inference / verification spectrum. \emph{JML}: emits JML directly. \emph{Comp.}: lifts callee summaries into callers. \emph{SMT}: solver-discharges clauses. \emph{Guard}: emits \texttt{guard ==> obligation}. \emph{Poly.}: emits dynamic-dispatch disjunctions.}
+\label{tab:novelty}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Tool} & \textbf{JML} & \textbf{Comp.} & \textbf{SMT} & \textbf{Guard} & \textbf{Poly.} \\
+\midrule
+Daikon~\cite{ernst2007daikon}            & \checkmark$^*$ & --         & --                   & --         & --         \\
+Houdini~\cite{flanagan2001houdini}       & \checkmark     & --         & \checkmark$^\dagger$ & --         & --         \\
+PreInfer~\cite{preinfer2017}             & \checkmark$^*$ & DSE        & --                   & --         & --         \\
+Jdoctor~\cite{jdoctor2018}               & \checkmark     & --         & --                   & --         & --         \\
+Infer~\cite{calcagno2015infer}           & --             & \checkmark & --                   & impl.      & --         \\
+KeY~\cite{key2016book}                   & --             & \checkmark & \checkmark           & \checkmark & \checkmark \\
+OpenJML SC~\cite{openjml}                & --             & \checkmark & \checkmark           & \checkmark & \checkmark \\
+Predecessor~\cite{edmonds2026inference}  & \checkmark     & 1-pass     & \checkmark$^\dagger$ & --         & --         \\
+\midrule
+\textbf{This work}                       & \checkmark     & \checkmark & \checkmark$^\dagger$ & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+
+{\footnotesize $^*$ native format, translated to JML.\quad $^\dagger$ via an external checker (ESC for Houdini; OpenJML otherwise).}
+\end{table}
+
+The novelty is the combination, not any individual axis. KeY and
+OpenJML SC perform the compositional reasoning we do but do not
+\emph{produce} the specification --- they consume one written by hand;
+the predecessor inferrer~\cite{edmonds2026inference} produces JML at
+this scale but propagates single-pass, so it cannot synthesise the
+branch-guarded or polymorphic
+shapes that account for 39--62\% of our new clauses
+(Table~\ref{tab:shapes}); Infer is genuinely compositional but does
+not target JML. The gap is narrow but real: between
+\emph{rich-by-construction} and \emph{rich-by-hand-and-tool-chain} JML.
+
+\paragraph{Compositional reasoning frameworks.}
+The classic foundations are Hoare's axiomatic semantics~\cite{hoare1969axiomatic}, Dijkstra's weakest-precondition calculus~\cite{dijkstra_guarded_1975,dijkstra1976discipline}, and Cousot \& Cousot's abstract interpretation~\cite{cousot1977abstract}, which frames our second pass as narrowing a fixpoint via callee summaries. Boogie's verification-condition generator~\cite{barnett2005weakest} performs the full WP transformation our scaffold approximates, but targets verification rather than the cheap-and-rich JML emission this work serves.
+
+\paragraph{Procedure summaries and interprocedural analysis.}
+Infer's~\cite{calcagno2015infer} bi-abduction summaries in separation
+logic are already compositional in the first pass;
+Houdini~\cite{flanagan2001houdini} conjectures candidate annotations
+and prunes them via ESC/Java, a test-and-refute loop closer in spirit
+than mechanism; Daikon's dynamic invariants~\cite{ernst2007daikon}
+have no analogue of a second pass.
+
+\paragraph{Specification inference for JML.}
+The immediate predecessor is~\cite{edmonds2026inference}, which introduced the heuristic JML inferrer we extend, and~\cite{edmonds2026embedding}, which addressed distribution (embedding inferred specs in bytecode and OpenAPI descriptions). PreInfer~\cite{preinfer2017} uses dynamic symbolic execution (DSE) to infer preconditions, trace-driven rather than syntactic. Jdoctor~\cite{jdoctor2018}, Toradocu~\cite{toradocu2016}, and Pandita et al.~\cite{pandita2012inferring} mine specifications from natural-language documentation and do not propagate. A more recent line uses LLMs to synthesise contracts or oracles directly~\cite{endres2024can,ma2024specgen,richter2025beyondpostconditions,konstantinou2024oracles}; those are complementary --- whatever produces the per-method spec, our refinement pass can be applied to the cache afterwards.
+
+\paragraph{Bytecode rewriting and analysis frameworks.}
+ASM~\cite{asm}, Byte Buddy~\cite{bytebuddy}, Javassist~\cite{chiba2000javassist}, Soot~\cite{vallee1999soot}, and AspectJ~\cite{kiczales1997aspectj} operate at the bytecode or analysis layer, not compositional spec inference; our analyser works at the source-AST layer.
+
+\paragraph{Test generation that consumes contracts.}
+Korat~\cite{boyapati2002korat} generates inputs from \texttt{@Requires} predicates; EvoSuite~\cite{fraser2011evosuite} and Randoop~\cite{pacheco2007randoop} consume contracts and observed exceptions as oracles; TOGA~\cite{dinella2022toga} and TOGLL~\cite{hossain2024togll} are neural oracle generators. Richer per-method specifications, such as those our refinement pass produces, improve input quality for all of these.
+
+\paragraph{Polymorphic dispatch in static analysis.}
+Tip et al.~\cite{tip2002practical} address polymorphic dispatch via
+class-hierarchy analysis (CHA) and rapid-type analysis (RTA), the
+techniques the inferrer's \texttt{CallGraph} uses to enumerate
+candidate callees. Our disjunction-over-candidates is the static
+equivalent of summarising the runtime-may-dispatch set, subject to
+the standard CHA trade-off: many candidates yield an easy-to-satisfy,
+less informative disjunction.
+

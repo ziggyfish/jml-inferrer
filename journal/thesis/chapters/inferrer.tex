@@ -1,0 +1,331 @@
+\chapter{The JML-Inferrer: Heuristic Static Inference}\label{ch:inferrer}
+
+The thesis statement of \cref{ch:introduction} rests on a premise that must be
+established before anything else can be built upon it: that specifications can be
+recovered from code cheaply enough to be worth having, and that once recovered
+they are good enough to be useful. This chapter discharges that premise. It
+presents the JML-Inferrer, the single instrument on which the empirical programme
+depends, and reports the two results that together answer RQ1: that the inferred
+contracts are of demonstrable \emph{fidelity} --- an overwhelming majority are
+formally consistent with the code they describe --- and that they deliver
+measurable \emph{downstream utility}, improving the unit tests a large language
+model writes from them. The conceptual foundations of design by contract, JML, and
+extended static checking are laid in \cref{ch:background}; this chapter takes them
+as given and concentrates on the instrument and its evaluation.
+
+\section{Architecture}
+\label{sec:inf-architecture}
+
+The JML-Inferrer is a static analysis tool, implemented in Java~21 over the
+JavaParser abstract syntax tree (AST) library, that reads Java source and emits JML
+contracts as annotations inserted in place. The pipeline has three stages. A
+parsing stage turns each source file into an AST configured for the Java~21
+language level. An inference stage traverses that tree with the visitor pattern,
+matching heuristic patterns against syntactic shapes and accumulating candidate
+clauses per method. A formatting stage renders the accumulated clauses as JML
+comment blocks and writes them back above their methods, preserving the original
+source otherwise untouched. Files are processed recursively over a directory tree,
+so the tool applies to a codebase exactly as it sits in a repository.
+
+Two design commitments follow the instrument throughout and are worth stating at
+the outset because the evaluation depends on them. The first is that inference is
+purely static: it requires no test inputs, no instrumentation, and no execution
+traces, in deliberate contrast to the dynamic-detector lineage of Daikon, which
+generalises likely invariants from observed runs~\citep{ernst2007daikon}. Trading
+the dynamic detector's ability to discover numeric relationships from data for the
+ability to run on any compilable code without a harness is the exchange that makes
+the tool applicable at scale, including to legacy code for which no adequate test
+suite exists. The second commitment is determinism: because every heuristic is a
+function of the syntax tree alone, the same input always yields the same contract.
+This is not merely tidy engineering. It is what allows the downstream study of
+\cref{sec:inf-utility} to treat the inferred specification as a controlled variable
+rather than a sampled one, and it is the sharpest point of contrast with prompting a
+language model to emit JML directly, an approach that returns non-identical
+contracts on identical inputs.
+
+\subsection{The contracts the tool infers}
+\label{sec:inf-contract-kinds}
+
+The inferrer emits up to five kinds of JML clause, spanning the vocabulary of
+design by contract~\citep{meyer1992dbc,leavens2006jml}. \texttt{requires} clauses
+state preconditions on the entry state; \texttt{ensures} clauses state
+postconditions relating the result and the final state to the entry state;
+\texttt{assignable} clauses state the frame, naming the locations a method may
+modify; \texttt{loop\_invariant} clauses annotate loops; and class-level invariants
+state properties that must hold of an object between method calls. A single method
+typically receives a small block combining a guard precondition, one or more
+postconditions, and a frame clause; looping methods additionally receive
+invariants.
+
+Postconditions carry the subtleties that most exercise the heuristics. A field that
+a method modifies must be referred to in its entry-state value under
+\lstinline|\old|, so that \lstinline|this.value == \old(this.value) + operand.intValue()|
+expresses an increment rather than an impossible fixed point. Branching is
+preserved at clause granularity rather than collapsed: a method that returns one
+value on one path and another on a second yields two guarded postconditions, each
+pairing a return value with the condition that reaches it, of the form
+\lstinline|cond ==> \result == e|. This decomposition is not only more faithful; it
+is, as \cref{sec:inf-utility} shows, one of the mechanisms by which a downstream
+consumer can pick off a contract one clause at a time.
+
+\subsection{Heuristic families organised by WP and SP}
+\label{sec:inf-heuristics}
+
+The heuristics are organised by the weakest-precondition and
+strongest-postcondition correspondences developed in \cref{ch:background}, which
+supply the intuition for what a given syntactic shape licenses. Preconditions are
+recovered in the weakest-precondition direction: a guard-and-throw idiom near the
+top of a method body --- \lstinline|if (p == null) throw ...|, or a range check that
+rejects out-of-bounds indices --- is read as an obligation the caller must have
+discharged, and is lifted into a \texttt{requires} clause. Postconditions are
+recovered in the strongest-postcondition direction: return statements and field
+assignments are propagated forward into \texttt{ensures} clauses, with pre-state
+field references wrapped in \lstinline|\old| and path conditions attached where the
+value is reached conditionally. A family of loop heuristics --- bound-based
+invariants for counter loops, accumulator-pattern detection, monotonicity inference
+from update expressions, and bounded symbolic unrolling as a fallback --- supplies
+\texttt{loop\_invariant} clauses, emitting a conservative weak invariant only when
+all of these fail. Method calls are handled in two passes: the first analyses
+methods in dependency order and caches each inferred summary, and the second
+propagates those summaries across call sites, resolving calls into the standard
+library against a curated specification database and treating calls into
+unannotated code as uninterpreted.
+
+Throughout, heuristics that would be unsound under Java's two's-complement integer
+semantics are gated by type. A multiplication \lstinline|x * x| or an
+\lstinline|Math.abs(x)| does not license \lstinline|\result >= 0| on an
+\lstinline|int| or \lstinline|long|, because either can overflow to a negative
+value; the non-negativity clause is emitted only for floating-point return types,
+where it holds. Deliberately foregoing symbolic execution and full
+predicate-transformer computation --- both of which would require an SMT decision
+procedure and a complete operational semantics for Java --- is what keeps the
+inferrer scalable. Pattern matching trades formal completeness for breadth of
+applicability, the established bargain of industrial static analysis, and the
+resulting partiality is not hidden: no claim is made that a recovered contract is
+complete, only that it is sound, useful, and verifiable.
+
+\section{The verification discipline}
+\label{sec:inf-verification}
+
+What keeps heuristic inference honest is that every candidate contract is put to a
+verifier. Inferred annotations are checked by OpenJML's Extended Static Checker
+(ESC)~\citep{cok2014openjml}, which discharges the resulting proof obligations
+through the Z3 SMT solver~\citep{demoura2008z3} without executing the program. A
+candidate clause that ESC cannot discharge is treated not as an acceptable
+approximation to be shipped but as a defect in the inference to be fixed. This
+discipline inverts the usual posture of heuristic tools: rather than emitting
+plausible output and leaving validation to the user, the inferrer is developed
+against the verifier, and a heuristic earns its place in the repertoire only once
+the verifier has discharged the clause it produces on a probe example. A
+containerised toolchain makes this reproducible, and an end-to-end regression suite
+of several hundred verification tests gates every change to the engine against the
+formal oracle.
+
+The thesis is careful never to blur two statuses that this discipline makes
+distinct. A \emph{verified} specification is one that ESC has discharged against the
+implementation: the checker has established the postcondition, invariant, or frame
+clause as a proof obligation from the body under the assumed precondition, or, for a
+precondition, has found the clause well-formed and its evaluation defined. A merely
+\emph{well-formed} specification is syntactically valid and scope-correct JML that
+has not been through, or has not survived, that check. The distinction has teeth:
+some inferred clauses involve JML constructs the verifier cannot yet decide, and
+these are retained as well-formed oracle information without being counted among the
+verified. The remainder of the thesis preserves this boundary wherever the two
+might be confused, and \cref{ch:discussion} returns to it as a threat to validity.
+
+A specific obstacle in the verification back-end merited a fix rather than a
+work-around. Loop-accumulator postconditions are naturally expressed with the JML
+quantifiers \lstinline|\sum|, \lstinline|\product|, and \lstinline|\num_of|, but
+the stock OpenJML build reports these as \emph{not yet supported}, which would leave
+an entire class of accumulator contracts undischargeable irrespective of their
+truth. A forked OpenJML build emits SMT-LIB \lstinline|define-fun-rec| definitions
+for these quantifiers, giving the solver a recursive definition to reason with and
+unblocking the accumulator-loop arithmetic that would otherwise stall. The fork is
+bundled with the toolchain so the validation pipeline remains reproducible. The
+strictness configuration is held fixed --- operational integer semantics with
+overflow checks in code, mathematical integers in specifications, arithmetic
+exceptions treated as failures, and unannotated references treated as nullable ---
+so that any change in the discharge outcome is attributable to the inference and not
+to a shifting oracle.
+
+\section{Inference fidelity}
+\label{sec:inf-fidelity}
+
+The first half of RQ1 asks how faithful the inferred contracts are. Fidelity is
+reported on two independent axes measured over a corpus of 312 methods drawn from
+eleven classes of Apache Commons Lang, a mature and diverse Java library whose
+preponderance of deterministic pure functions suits it to this kind of study. The
+first axis is \emph{coverage}: the proportion of methods for which a non-trivial
+contract is emitted. The inferrer emits at least one non-trivial precondition or
+postcondition for 309 of the 312 methods, a coverage rate of 99.0\%. The three
+uncovered methods are overloads that delegate to a standard-library operation for
+which no specification-database entry was available, whereupon the engine emits an
+empty contract rather than guess --- the conservative limit of interprocedural
+summarisation rather than a heuristic failure. For comparison, a documentation-based
+baseline that recovers exception preconditions from Javadoc covers under half the
+same corpus, and prompting a language model to emit JML covers every method but
+with only 72.4\% run-to-run consistency; the static inferrer, deterministic by
+construction, is perfectly consistent.
+
+The second axis is \emph{discharge}: the proportion of emitted clauses that ESC can
+verify against the implementation. Over all 985 inferred clauses, the checker
+discharges 92.9\%, broken down by clause type in \cref{tab:inf-discharge}. Two
+readings guard the figure. First, discharge is a soundness measure, not a
+completeness one: a vacuous clause would discharge too, so the number should be read
+as ``no clause was found inconsistent with the implementation'', which is why the
+coverage and structural-strength measures are reported alongside it. Second,
+discharge semantics differ by clause type --- for preconditions the clause is
+assumed at entry and reported as failing only when ill-formed, so its column is a
+well-formedness check rather than a proof of necessity, whereas postconditions,
+invariants, and frame clauses are genuine proof obligations. The clauses that do not
+discharge separate cleanly into a small \emph{flagged} set, routed to a review queue
+and excluded from any downstream use, and an \emph{unsupported} set involving
+constructs the solver cannot yet decide. The residual non-discharge concentrates in
+a few identifiable patterns --- recursive multiplicative growth, quantified
+invariants over mutable arrays, and the way OpenJML translates for-each loops ---
+that are properties of the verification technology rather than of the heuristics,
+and that delimit what can currently be certified rather than what can be emitted.
+
+\begin{table}[ht]
+\centering
+\caption{OpenJML ESC discharge over all inferred clauses on the 312-method corpus.
+\emph{Discharged} clauses are verified against the implementation; \emph{flagged}
+clauses fail discharge and are surfaced for review; \emph{unsupported} clauses
+involve constructs the checker cannot yet decide.}
+\label{tab:inf-discharge}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Clause type} & \textbf{Inferred} & \textbf{Discharged} & \textbf{Flagged} & \textbf{Unsupported} \\
+\midrule
+Preconditions   & 312 & 296 (94.9\%)  & 11 (3.5\%) &  5 (1.6\%)  \\
+Postconditions  & 312 & 268 (85.9\%)  & 22 (7.1\%) & 22 (7.1\%)  \\
+Loop invariants &  53 &  43 (81.1\%)  &  4 (7.5\%) &  6 (11.3\%) \\
+Assignable      & 308 & 308 (100.0\%) &  0 (0.0\%) &  0 (0.0\%)  \\
+\midrule
+\textbf{Overall} & \textbf{985} & \textbf{915 (92.9\%)} & \textbf{37 (3.8\%)} & \textbf{33 (3.4\%)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+One caveat on fidelity carries through the thesis. The oracle against which clauses
+are discharged is the implementation, not the documented intent: ESC confirms that a
+clause is consistent with the code it was inferred from, not that it matches the
+abstract API contract. For a method whose intended contract is strictly weaker than
+its implementation, the inferred clause will be sound against the body yet
+over-specified against the interface. This is intrinsic to code-derived inference
+and cannot be detected by a discharge oracle that is consistent with the
+over-specification by construction; \cref{ch:discussion} records it, and
+\cref{ch:compositional} shows how a second analysis pass recovers well-formed
+preconditions that single-pass heuristics miss.
+
+\section{Downstream utility: specifications as oracles}
+\label{sec:inf-utility}
+
+The second half of RQ1 asks whether these contracts are useful. The concern is not
+academic: a specification that is faithful but inert would not vindicate the thesis.
+The chosen demonstration is unit-test generation by a large language model, singled
+out not because it is the most important use of inferred specifications --- later
+chapters pursue compositional verification and agentic integration --- but because
+its effect can be measured cleanly. Language models are fluent at the mechanical
+part of a test, the prefix that drives a program into a state, but weak at the
+oracle, the assertion of what should then be true, because the oracle requires
+knowing what the method is \emph{supposed} to do. A signature supplies no such
+knowledge and a body supplies too much, tempting the model to encode the
+implementation's actual behaviour, bugs included. A specification is precisely the
+independent statement of intent that both lack.
+
+The study holds the model fixed and varies only the material supplied alongside an
+otherwise identical method signature, over four phases forming an ordered ladder of
+information density. P1 supplies the signature alone. P2 adds a fixed,
+method-agnostic checklist of edge-case categories --- the control for the rival
+hypothesis that any structured guidance, rather than specifications in particular,
+raises test quality. P3 adds the inferred JML contract for the method, used without
+modification: the treatment condition. P4 substitutes the full source body, an
+upper bound available when the model can read the implementation directly. Each
+phase was run five times per method to control for sampling non-determinism, and the
+generated tests were evaluated by a fully automated pipeline that compiled them, ran
+them against the reference implementation, and computed a mutation score under PIT.
+Mutation score is the headline metric because it is the available objective proxy
+for oracle strength: a suite that kills more mutants is one whose assertions
+distinguish more behavioural deviations.
+
+\cref{tab:inf-phases} reports the corpus means. The scores rise monotonically along
+the information ladder, from 27.5\% at P1 to 94.8\% at P4. The principal contrast is
+P1 against P3: supplying the inferred contract raises the mutation score by 54.3
+percentage points, a very large effect. Read against the full-source upper bound,
+P3 captures roughly $(81.8 - 27.5)/(94.8 - 27.5) \approx 81\%$ of the achievable
+gain from signature-only to full-source generation, and does so within an input an
+order of magnitude smaller --- five to twelve lines of annotation against the thirty
+to a hundred and fifty lines of body that P4 supplies. The residual gap to P4 is
+largely the answer-copying that source code affords and a contract deliberately
+withholds: P3 exposes the intended behaviour without the implementation that may
+deviate from it.
+
+\begin{table}[ht]
+\centering
+\caption{Test-generation results by phase, as per-method means across the 312-method
+corpus. \emph{Tests} is the average number of generated tests; \emph{Mutation} is
+the PIT mutation score. Scores rise monotonically with information density, yet P3
+attains a higher mutation score than P2 while generating fewer tests.}
+\label{tab:inf-phases}
+\begin{tabular}{llrr}
+\toprule
+\textbf{Phase} & \textbf{Input supplied with signature} & \textbf{Tests} & \textbf{Mutation \%} \\
+\midrule
+P1 & Signature only                    &  9.0 & 27.5 \\
+P2 & Signature + edge-case guidance    & 38.0 & 68.2 \\
+P3 & Signature + inferred specification & 33.5 & 81.8 \\
+P4 & Full source body                  & 54.7 & 94.8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The most instructive result is the comparison of P3 with the guidance control P2.
+The edge-case checklist yields the highest test count of any phase, 38.0 tests per
+method, yet its mutation score is 13.6 percentage points \emph{below} P3, which
+attains 81.8\% while generating around 12\% fewer tests. The divergence is the
+cleanest single piece of evidence for the thesis premise. Three patterns account
+for it: the checklist prompts near-duplicate cases that inflate test count without
+expanding the set of killed mutants; in the absence of an oracle its tests fall back
+on weak assertions such as ``is not null'' or ``does not throw'' that cannot
+distinguish a mutant which changes a return value; and P3's tests concentrate on
+individual contract clauses, giving a higher mutant-kill density per test. What
+distinguishes the treatment from the control is not that the model is told to be
+thorough but that it is told \emph{what the method should do}. Test quantity is
+therefore a poor proxy for oracle quality, and the benefit being measured is
+specifications in particular, not structured prompting in general --- had the study
+reported test count alone it would have concluded, wrongly, that generic guidance
+was the strongest intervention.
+
+The benefit is uneven across method kinds in a way that confirms the mechanism.
+Control-flow methods gain most, because a guarded postcondition supplies an oracle
+for each branch that a signature leaves opaque, and utility methods gain substantially
+from preconditions that capture their input constraints; accessors gain least, not
+because a contract adds nothing but because their signatures already pin down their
+behaviour. Within the looping methods, those for which a non-trivial invariant was
+inferred outscore those left with a weak invariant, so the downstream benefit tracks
+the strength of the inferred specification. The right predictor of gain is the gap a
+contract fills over the signature, not its strength in isolation --- and the two ends
+of the pipeline are coupled in exactly the direction the thesis predicts: where the
+inferrer produces a strong contract the model produces strong tests.
+
+\section{Summary}
+\label{sec:inf-summary}
+
+This chapter has presented the JML-Inferrer and answered RQ1 on both axes. On
+fidelity, the tool emits a non-trivial contract for 99.0\% of a 312-method corpus,
+and OpenJML's Extended Static Checker discharges 92.9\% of the resulting clauses
+against the implementation, with the residual failures traced to identifiable limits
+of the verification technology rather than to unsound inference. On utility, a
+controlled four-phase study shows that supplying the inferred contract to a language
+model raises the mutation score of its generated tests by 54.3 percentage points
+over the signature-only baseline, capturing roughly four-fifths of the achievable
+gain in an order of magnitude smaller input, and --- most tellingly --- outperforming
+a generic edge-case checklist that generates more tests but weaker oracles.
+Automatically inferred, heuristic, partial specifications are thus both faithful and
+useful. That conclusion is the foundation the rest of the thesis builds on:
+\cref{ch:compositional} shows how a second, weakest-precondition pass over the call
+graph strictly extends this inference and turns callee contracts into a basis for
+version-compatibility reasoning, and \cref{ch:integration} places inferred contracts
+at the centre of an AI-native development pipeline as the machine-checkable spine its
+verification loop requires.

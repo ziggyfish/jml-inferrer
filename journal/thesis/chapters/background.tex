@@ -1,0 +1,321 @@
+\chapter{Background and Related Work}\label{ch:background}
+
+This chapter establishes the foundations on which the thesis builds and situates
+the work against the prior art. It draws on four largely separate lines of
+research---deductive program verification, specification inference,
+large-language-model (LLM) software engineering, and the empirical study of
+software evolution---and argues that none, alone, spans the problem addressed here.
+The survey is critical rather than encyclopaedic, naming what each tradition
+achieves and where it breaks down, so that the gap emerges by subtraction and
+\cref{sec:bg-synthesis} can state the thesis's position within it.
+
+\section{Design by contract and its axiomatic antecedents}\label{sec:bg-dbc}
+
+A \emph{specification} is a statement of intended behaviour independent of any
+implementation. The formal-methods tradition renders it as a predicate, or a pair
+of predicates, over program states, and every contract here descends from it. The
+axiomatic foundation is Hoare logic, in which the triple $\{P\}\,S\,\{Q\}$ asserts
+that if precondition $P$ holds before command $S$ executes and $S$ terminates, then
+postcondition $Q$ holds afterward \cite{hoare1969axiomatic}. As Hoare defined it
+the triple expresses \emph{partial} correctness---it promises nothing about
+termination, only that \emph{if} $S$ halts, $Q$ holds---a distinction that recurs
+throughout, since the extended static checking used here is a partial-correctness
+regime. Dijkstra recast this as a calculation: the weakest precondition
+$\mathrm{wp}(S,Q)$ is the weakest predicate on the initial state guaranteeing that
+$S$ terminates and establishes $Q$ \cite{dijkstra1976discipline,dijkstra1975guarded}.
+The calculus matters structurally as well as historically: because $\mathrm{wp}$
+is a computable function of the postcondition and the statement, a change to the
+postcondition a callee guarantees can be pushed back mechanically through its call
+sites---the technical heart of the compositional change-propagation analysis of
+\cref{ch:compositional}.
+
+The refinement calculus extended this into a development method that transforms an
+abstract specification into code by provably correct steps
+\cite{back1998refinement,morgan1994programming}---the ancestor of program synthesis
+and, through it, of the contract-to-code generation LLM agents now perform. The
+decisive difference is that refinement \emph{trusts the derivation}, each step
+justified by a proof rule, whereas an LLM agent offers no such justification. The
+thesis therefore inverts the relationship, letting a fallible generator propose an
+implementation freely and recovering soundness by \emph{verifying} the result
+against the contract rather than trusting the process that produced it.
+
+Design by contract, introduced by Meyer for Eiffel, operationalised these
+semantics for object-oriented software \cite{meyer1992dbc,meyer1997oosc}. A method
+is governed by a precondition the caller must establish, a postcondition the method
+guarantees in return, and class invariants every public method must preserve. The
+conceptual contribution is the framing of behaviour as mutual \emph{obligations}
+between caller and callee: the caller must satisfy the precondition and benefits
+from the postcondition; the callee may assume the precondition and must deliver the
+postcondition. This duality is foundational, because it is exactly what makes
+contracts \emph{compose}---a change to a callee's contract recomputes every
+caller's obligations, the property the compatibility analysis exploits. It carries
+a further consequence: if the contract is the authoritative statement of intent and
+the code merely its fulfilment, then when code can be regenerated cheaply the
+contract, not the code, is the scarce and durable asset. Eiffel's limitation is its
+medium---assertions are evaluated at runtime against whatever inputs occur, so the
+guarantee is sampled rather than universal.
+
+The behavioural interface specification tradition closes that gap. The Java
+Modeling Language (JML) is the contract notation adopted throughout
+\cite{leavens2006jml}. Its annotations live in specially marked comments,
+transparent to the ordinary compiler, and use a superset of Java's expression
+syntax: a \texttt{requires} clause states a precondition, \texttt{ensures} a
+postcondition, \texttt{invariant} a class invariant, and \texttt{assignable} (the
+frame clause) bounds the locations a method may modify---indispensable for sound
+modular reasoning because it tells a verifier what a call cannot change.
+Postconditions may refer to the pre-state through \verb|\old(e)|, to the return
+value through \verb|\result|, and may quantify with \verb|\forall| and
+\verb|\exists|. Two properties are load-bearing. A JML contract is
+\emph{machine-checkable}: unlike a natural-language comment it has a formal
+semantics against which an implementation can be judged mechanically, which
+qualifies it as an oracle rather than documentation. And a contract is
+\emph{partial}: it constrains behaviour only so far as its clauses reach, which lets
+inference build a contract incrementally but makes a vacuous contract a first-class
+hazard---trivially satisfied, and so excusing incorrect code---that the thesis
+actively detects. The closest contemporary relative, Spec\#, embeds contracts in
+C\# with a verifying compiler \cite{barnett2005specsharp}; JML's tooling maturity
+for Java makes it the practical substrate here.
+
+\section{Verification: OpenJML, extended static checking, and SMT}\label{sec:bg-verification}
+
+A machine-checkable contract is useful only if an implementation can be checked
+against it across all inputs. Deductive verification reduces ``does this code
+satisfy this contract?'' to a collection of \emph{verification conditions} whose
+validity entails correctness, produced by a weakest-precondition computation over
+the method body \cite{dijkstra1976discipline,manna1980deductive}. Loops are where
+the backward walk breaks down, since an unknown number of iterations cannot be
+enumerated; the remedy is a \emph{loop invariant} the verifier assumes in place of
+unrolling. An invariant must be both \emph{inductive}---true on entry and preserved
+by the body---and \emph{strong enough} that, with the negated guard at exit, it
+entails the required obligation. Supplying invariants that meet both conditions is
+the largest source of the annotation burden that has historically deterred
+adoption, and a principal target of the inference surveyed in
+\cref{sec:bg-inference}.
+
+Extended static checking (ESC), pioneered by ESC/Java \cite{flanagan2002escjava},
+is the pragmatic engineering of this reduction: it sacrifices completeness for
+automation and modularity, analysing each method in isolation while \emph{assuming}
+the contracts of its callees rather than inlining their bodies. Modularity is what
+makes ESC scale and makes contract composition meaningful---a proof depends only on
+callee contracts, not implementations---but it bounds the guarantee: an ESC proof
+is only as sound as the contracts it assumes. OpenJML is the modern realisation of
+ESC for Java built on JML \cite{cok2011openjml,cok2014openjml}; this thesis adopts
+it as a trusted oracle rather than proposing a new prover. Beneath it is the Z3 SMT
+solver \cite{demoura2008z3}, deciding satisfiability of first-order formulas over
+the background theories---linear arithmetic, arrays, bit-vectors, uninterpreted
+functions---that Java constructs generate. OpenJML poses each condition in negated
+form: \texttt{unsat} certifies validity, while \texttt{sat} yields a
+\emph{counterexample}, a concrete witness of violation that the integration chapter
+exploits as a signal far more informative than the bare fact that a test failed.
+Under modular checking, however, such a witness can be \emph{spurious}, reflecting
+a too-weak invariant rather than a reachable defect, and the thesis does not
+overclaim what it establishes.
+
+Precision about what a proof guarantees is essential. A successful ESC run proves
+the implementation satisfies its contract for \emph{all} admitted inputs---a
+guarantee no finite test suite provides---but does \emph{not} prove the contract
+captures what the developer wanted; that is the province of inference, not the
+verifier. The decidability limits must also be stated honestly. Verification is
+undecidable in general, and although Z3's quantifier-free fragments are decidable,
+the quantified formulas JML routinely generates are handled by heuristic
+instantiation and may return \texttt{unknown} or time out---in practice on
+nonlinear arithmetic, rich array reasoning, and deeply nested quantifiers. The
+corpora here exhibit exactly these modes, reported as solver \emph{incompleteness
+and timeout}, not unsoundness in the inferred specifications. These limits are
+intrinsic to the condition-to-SMT architecture rather than artefacts of one tool,
+as the wider verifier ecosystem---Dafny \cite{leino2010dafny}, KeY
+\cite{ahrendt2016key}, Frama-C \cite{kirchner2015framac}, Verus
+\cite{lattuada2023verus}, and the cvc5 backend \cite{barbosa2022cvc5}---confirms. A
+parallel synthesis tradition, counterexample-guided inductive synthesis and
+sketching \cite{solarlezama2006sketching,solarlezama2008sketching} standardised as
+syntax-guided synthesis \cite{alur2013sygus}, closes a generate--check--refine loop
+against a machine-checkable oracle---precisely the shape \cref{ch:integration} gives
+its synthesis--verification loop, with an LLM in place of enumerative search.
+
+\section{Specification inference and the oracle problem}\label{sec:bg-inference}
+
+The chief obstacle to deploying any contract-based machinery is the cost of
+\emph{authoring} contracts. Specification inference attacks this bootstrap cost and
+is the technical core of the thesis's first claim, that specifications can be made
+cheap. The dynamic tradition observes a running program and reports the properties
+that held. Its canonical instrument, Daikon, records variable values at chosen
+points and reports the templated properties that survived every observed trace
+\cite{ernst2007daikon}, establishing that a specification can be \emph{recovered}
+from behaviour rather than authored from a blank page; specification mining
+similarly learns finite-state API protocols from traces \cite{ammons2002mining}.
+The defining limitation is soundness: a mined property is only \emph{likely} true,
+summarising sampled executions rather than all of them, so integrating it with a
+static checker is itself a research thread \cite{nimmer2001static}. Such an
+invariant describes what the code \emph{did}, not what it \emph{should} do, and so
+cannot distinguish a faithful contract from an encoded bug.
+
+The static tradition buys soundness by over-approximation. Abstract interpretation
+computes fixpoints over abstract domains so that every reported property provably
+holds \cite{cousot1977abstract}; Houdini takes the complementary guess-and-check
+route, postulating candidate annotations and using an ESC verifier to refute the
+unprovable ones \cite{flanagan2001houdini}---the historical antecedent of the
+verifier-in-the-loop discipline that recurs throughout this thesis. The price of
+soundness is real: rich domains do not always converge, and the decision
+procedure's limits bound what can be discharged. A learning-based strand poses
+invariant synthesis as learning from examples and verifier-supplied counterexamples
+\cite{garg2014ice,si2018learning}, and since 2023 the focus has shifted to LLMs
+prompted to emit candidate invariants a symbolic tool then checks, as in Loopy
+\cite{kamath2023loopy}, or extended to full JML specifications with mutation-based
+fallback, as in SpecGen \cite{ma2025specgen}; a separate sub-thread translates
+natural language directly into formal artefacts
+\cite{cosler2023nl2spec,endres2024nl2postcond,lahiri2025nl2contract}. The common
+commitment the thesis endorses is that the generative model is never trusted alone
+but paired with a sound checker admitting only what it can prove.
+
+The instrument carried through this thesis, the JML-Inferrer, occupies the static
+end of this space. It is a Java~21 tool over the JavaParser abstract syntax tree
+that emits JML---preconditions, postconditions, loop and class invariants, and
+\texttt{assignable} clauses---by heuristic pattern matching over syntax rather than
+complete program analysis: a null-check induces a non-nullness precondition,
+recognised loop shapes induce matching invariants and result postconditions, and
+numeric guards induce range and overflow preconditions. The heuristic basis is a
+deliberate trade, favouring recall of plausible, valid JML over the soundness
+guarantees of abstract interpretation, on the premise that the checker will reject
+any clause that does not hold---so an unsound guess costs a failed proof, not a
+false guarantee. The inferrer is thus static like Houdini but generative rather than
+refutational, over a rich JML vocabulary. Throughout, the thesis distinguishes a
+\emph{verified} clause, one OpenJML has discharged, from a merely \emph{well-formed}
+clause, one that is syntactically valid and scope-correct but unchecked, and never
+lets the distinction blur.
+
+The dual of inference is the oracle problem. A test exercises a program; an
+\emph{oracle} decides whether the observed behaviour is correct.
+\citet{barr2015oracle} establish that while input generation is now largely
+automatable, the oracle remains the binding constraint, distinguishing
+\emph{specified} oracles, derived from a formal description, from \emph{derived} and
+\emph{implicit} ones. Search-based generators sharpen the gap: lacking a
+specification, EvoSuite emits regression assertions that merely capture current
+behaviour \cite{fraser2011evosuite} and Randoop flags only crashes and contract
+violations \cite{pacheco2007randoop}. LLMs have accelerated this without resolving
+it: TestPilot repairs tests by re-prompting on failures \cite{schafer2024testpilot},
+but recent analysis documents the hazard the thesis takes as its motivating
+defect---when the same model both implements the code and writes the asserting
+oracle, the oracle encodes the model's own mistaken expectations, yielding tests
+that pass by construction \cite{liu2026oracle}. This thesis instead
+elevates an inferred, verified JML contract to a specified oracle discharged by
+OpenJML over all inputs, separating the authority that writes the contract from the
+agent that satisfies it.
+
+\section{LLM code generation and spec-driven lifecycles}\label{sec:bg-llm}
+
+The generators the verification machinery is meant to gate are LLMs and the agents
+built on them. Codex demonstrated function-level generation from docstrings and
+introduced the \emph{pass@k} metric and HumanEval \cite{chen2021codex}, with MBPP a
+complementary benchmark \cite{austin2021mbpp} and AlphaCode reaching median human
+performance in contests \cite{li2022alphacode}. These systems inverted the
+economics of classical synthesis---natural-language intent is cheap where formal
+specifications were not---but did so by abandoning the closed loop: correctness is
+\emph{estimated} against a finite, model-adjacent test suite rather than proved.
+That estimate is fragile in two ways. Test suites are frequently too weak to expose
+plausible-but-wrong solutions, as EvalPlus showed by lowering reported pass rates
+through added tests \cite{liu2023evalplus}; and generation is prone to
+\emph{hallucination}, the confident fabrication of non-existent APIs and subtly
+inconsistent logic \cite{zhang2025hallucination}. The deeper problem is that
+generator and informal oracle share a model and training distribution, so
+verification is effectively self-grading, even as LLMs reshape the lifecycle
+wholesale \cite{ozkaya2023llmse}.
+
+The frontier has moved from isolated functions to \emph{agents} over whole
+repositories. SWE-bench reframed evaluation around resolving real GitHub issues
+with project test suites as the oracle \cite{jimenez2024swebench}, and SWE-agent
+showed a purpose-built interface markedly improves navigation and editing
+\cite{yang2024sweagent}. The dominant oracle across this work remains test
+execution, inheriting the incompleteness of testing and, when tests are
+model-authored, the self-grading circularity at repository scale. Most directly
+related is the emerging family of \emph{spec-driven}, AI-native lifecycles, which
+reorganise the process so a specification, not code, is the primary human-authored
+artefact---consonant with \cref{sec:bg-dbc}, that when an agent regenerates the
+implementation cheaply the durable asset is the specification. GitHub's Spec Kit
+formalises a specify--plan--tasks--implement workflow anchored by a project
+``constitution'' \cite{githubspeckit}; Amazon's AI-Driven Development Lifecycle
+restructures the lifecycle into inception, construction, and operations phases with
+quality gates and a brownfield reverse-engineering step \cite{awsaidlc}; and the
+Kiro IDE places a requirements-to-design-to-tasks workflow at the editor's centre
+\cite{awskiro}. These efforts correctly identify the economic inversion but share
+three structural defects the integration chapter remedies. The specification is
+\emph{natural language}, so the specification-to-code step is a compilation with no
+checker relating generated code to stated intent. The loop is \emph{open}:
+generation is followed by review-by-eye, not verification. And where verification
+appears at all it is \emph{self-grading} test execution. A natural-language
+artefact is, besides, too imprecise to support automated reasoning over
+change---these lifecycles cannot compute which dependents a modification breaks
+without re-running anything.
+
+\section{Version compatibility as an implicit-contract problem}\label{sec:bg-evolution}
+
+Modern software is assembled from libraries, and the contract between a library and
+its clients is communicated by a version number under semantic versioning: a major
+increment signals an incompatible change, a minor one backward-compatible
+additions, a patch a backward-compatible fix \cite{preston2013semver}. The promise
+is honoured unevenly. \citet{raemaekers2017semver} found roughly a third of Maven
+Central releases introduce a breaking change, frequently without the major
+increment; \citet{ochoa2022breaking} replicated this over a far larger corpus,
+reporting higher compliance but noting most breaking changes touch code no client
+uses; and \citet{decan2019empirical} characterise backward-incompatible updates as
+a structural hazard across packaging ecosystems. The version string is thus a weak
+proxy for what developers actually care about---whether \emph{their} call sites
+still behave correctly.
+
+Signature-diffing tools such as APIDiff compute deltas of type-, method-, and
+field-level changes \cite{brito2018apidiff}, and large studies catalogue such
+changes and their causes \cite{xavier2017historical,brito2018why}, but share a
+ceiling: they detect changes to the \emph{shape} of an interface, not its
+\emph{behaviour}. A method whose signature is untouched but whose contract has
+silently shifted---an off-by-one boundary, a newly thrown exception---is invisible.
+This motivates work on \emph{behavioural} incompatibility, the closest prior art to
+the compatibility chapters: \citet{mostafa2017behavioral} showed such
+signature-preserving changes are common and disproportionately damaging precisely
+because no diffing tool flags them, \citet{jezek2017magic} that detection rates
+vary widely across tools, and \citet{jayasuriya2024understanding} quantified breaks
+detectable only when client tests run. The recurring move is to recover behaviour
+\emph{dynamically}---through client tests or mined invariants---which observes
+sampled inputs and so confirms an incompatibility but never its absence; a recent
+LLM direction \emph{repairs} breaks once detected \cite{islam2025byam} but
+presupposes detection and guarantees nothing about the repair. The decisive gap is
+that compatibility is treated as an \emph{ex post}, sampled, largely syntactic
+property; none of these strands answers the question posed at upgrade time---which
+of my call sites does this change break, and why---with a proof obligation rather
+than a failed test.
+
+\section{Positioning: the gap this thesis addresses}\label{sec:bg-synthesis}
+
+Each line of work optimises one edge of the problem in isolation. The verification
+community possesses a machine-checkable contract layer \cite{cok2014openjml,leino2010dafny}
+but presupposes a human authors the contract. The inference tradition recovers
+contracts cheaply \cite{ernst2007daikon,flanagan2001houdini} but treats the
+inferred property as a terminal deliverable that describes what the code does, not
+what it should do. The LLM and agentic literature solved the authoring-cost problem
+that crippled classical synthesis \cite{chen2021codex,yang2024sweagent} but in
+doing so discarded the machine-checkable contract and the closed loop that made
+synthesis trustworthy, its spec-driven lifecycles institutionalising three
+defects---natural-language specs, an open loop, and self-grading verification
+\cite{githubspeckit,awsaidlc,liu2026oracle}. And the behavioural-compatibility
+literature measures incompatibilities after the fact
+\cite{ochoa2022breaking,islam2025byam} but does not derive a change's blast radius
+from a verified interface without running a client.
+
+No prior line combines these capabilities, and it is the conjunction, not any
+single ingredient, that is novel. This thesis differs by being static,
+syntax-driven, and verification-disciplined: contracts are inferred from source
+without test inputs or traces, deterministically from the syntax, and every clause
+is held to OpenJML discharge or reported as a solver limit rather than shipped as an
+approximation. It is \emph{compositional}: because contracts compose along the
+caller/callee obligation structure of design by contract, a callee-spec change
+recomputes each caller's proof obligations and flags behaviourally broken call
+sites without execution, making an internal refactor and a third-party version bump
+the same static blast-radius operation (\cref{ch:compositional}). And it is
+\emph{integration-oriented}: the inferred, verified contract is interposed as the
+pivot of an AI-native lifecycle---the input an agent builds against and the oracle
+its output is verified against over all inputs---authored by an authority that never
+grades its own output (\cref{ch:integration}). \Cref{ch:inferrer} establishes that
+such cheap, partial inference is nonetheless \emph{useful}, measurably improving
+LLM-generated tests. The remaining chapters develop these capabilities in turn,
+reusing the inference and verification machinery established here as trusted
+components, and returning in \cref{ch:discussion,ch:conclusion} to the limits that
+bound them---above all the boundary between verified and merely well-formed
+specifications.

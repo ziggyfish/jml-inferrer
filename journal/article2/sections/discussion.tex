@@ -1,0 +1,26 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why an annotation, not a class-file attribute?}
+
+Custom class-file attributes (JVMS~\S4.7.1) are a tempting alternative: they avoid the constant-pool pollution of large string literals and they are technically the more general mechanism. Three reasons argue against them in practice:
+
+\begin{itemize}
+    \item \emph{Tool visibility.} Standard reflection ignores custom attributes. IDEs do not display them. ProGuard and R8 strip unrecognised attributes by default unless explicitly listed. Each downstream consumer would need a custom reader.
+    \item \emph{Repeatable annotations are no longer onerous.} Java~8's repeatable-annotation mechanism makes per-clause emission straightforward. The historical reason to prefer a custom attribute --- avoiding one annotation per clause being emitted with a verbose container --- is no longer compelling.
+    \item \emph{Forward compatibility.} An annotation-based carrier with a \texttt{Kind} enum allows new clause kinds to be added without breaking existing readers. A custom attribute's binary layout is harder to evolve compatibly.
+\end{itemize}
+
+We therefore recommend the annotation carrier as the primary form. The custom-attribute alternative remains usable for cases where the annotation is unsuitable (signed JARs, aggressive obfuscation), and our sidecar JAR fills the same gap with even less coupling to the bytecode.
+
+\subsection{Generality}
+
+Our format design is independent of the inferrer that produces the specifications. Any source of JML clauses --- the inferrer of~\cite{edmonds2026inference}, Daikon~\cite{ernst2007daikon}, hand-written contracts, contracts produced by a future LLM-assisted refinement step --- can be embedded by the same mechanism. The format also generalises to languages other than Java that target the JVM (Kotlin, Scala) at the cost of those languages providing their own translators between source-level annotations and the bytecode \texttt{@JmlSpecs} representation.
+
+For non-JVM languages, the OpenAPI extension carries equivalent information at the service boundary. The bytecode side is JVM-specific; the service-boundary side is language-agnostic.
+
+\subsection{Limitations}
+
+The embedder is consumer-tolerant but the consumer has work to do. A reader that wants to act on the embedded clauses must (a) parse the canonical-form JML strings, (b) substitute parameter names, and (c) decide what to do with the result. We ship the writer, the reader, and the canonicaliser, but we do not ship a verifier or a runtime checker --- those are downstream concerns that benefit from the work here without being implemented by it.
+
+We note one substantive limitation: roundtrip equality is on the canonical-form string, not on a normalised semantic theory, so equivalent specifications written in different forms will appear distinct on the wire. We chose this separation of concerns deliberately in Section~\ref{sec:format}; semantic normalisation is a separable layer.

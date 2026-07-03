@@ -1,0 +1,506 @@
+\chapter{Specification Inference in Continuous Integration}\label{ch:article4}
+
+For inference to change how software is built it must run where development
+actually happens---in the continuous-integration pipeline, on every change, and
+without disrupting the team. This chapter is the step from \emph{tool} to
+\emph{process}: it makes specification recovery a routine, low-friction part of
+the development cycle, and in doing so sets up the full-lifecycle integration of
+\cref{ch:article5}.
+
+\section{Introduction}
+\label{sec:ci-introduction}
+
+The earlier chapters establish that automatically inferred JML specifications are
+worth having and can be made to travel. \Cref{ch:article1} showed that
+specifications materially improve large-language-model test generation; the
+inferred specifications drove the model to produce 272\% more tests at a 40.7
+percentage-point higher mutation score. \Cref{ch:article2} showed that those
+specifications can be embedded in compiled artefacts and OpenAPI descriptions and
+recovered downstream at full round-trip fidelity. \Cref{ch:article3} showed that
+compositional refinement across method boundaries strictly extends the set of
+preconditions recoverable by isolated, single-pass inference. What remains is the
+operational question: \emph{can the inference pipeline be deployed inside a real
+Agile development workflow without introducing significant overhead or process
+disruption?}
+
+This is the process-integration half of RQ3. Its conventional answer is
+discouraging. Formal methods are widely held to be too slow and too brittle for
+routine continuous integration: verification toolchains commonly demand minutes
+to hours per run, they fail loudly on edge cases, and they force a developer to
+chase false positives in the middle of an otherwise ordinary pull-request cycle.
+Design by contract \citep{meyer1992dbc} has long argued that specifications
+belong alongside code rather than in a separate verification phase, but the
+tooling that would make that practical at the pace of modern development has been
+slow to materialise. The argument of this chapter is that an inference-based
+approach, deployed with three deliberate design choices, changes that calculus.
+
+\begin{enumerate}
+    \item \emph{Per-pull-request diff-only analysis with content-hash caching.}
+    Whole-codebase re-inference is performed once per merge to the trunk;
+    per-pull-request work is restricted to changed methods, and unchanged methods
+    are served from cache. The cache key is a SHA-256 hash of the method source
+    together with its callees' canonical-form specifications and the inferrer
+    version, so cache invalidation is precise: a callee's specification change
+    invalidates only its callers, not the rest of the codebase.
+
+    \item \emph{Fail-open semantics.} Inference output is informational, not
+    gating. A failed inference, an OpenJML timeout, or a malformed inferred
+    clause is logged to the pull-request comment but never blocks the merge. The
+    merge decision stays with the human reviewer; the pipeline's job is to
+    surface what it found.
+
+    \item \emph{Persistent in-place reporting.} A pull request sees one
+    persistent JML summary that is updated on each push, rather than a growing
+    thread of comments that the reviewer must wade through.
+\end{enumerate}
+
+The remainder of the chapter presents the reference workflow and its three
+design principles (\cref{sec:ci-workflow}), the command-line driver that
+implements it (\cref{sec:ci-cli}), the platform-specific implementations for
+GitHub Actions, GitLab CI, and Jenkins (\cref{sec:ci-platforms}), and a self-test
+applying the workflow to the inferrer's own repository
+(\cref{sec:ci-selftest}). \Cref{sec:ci-empirical} sets out the design of the
+empirical evaluation against external production codebases; this evaluation is
+specified but, at the time of writing, planned rather than run, and the chapter is
+explicit about that boundary. \Cref{sec:ci-threats} discusses the threats to
+validity specific to this study, and \cref{sec:ci-conclusion} ties the result
+back to the thesis arc. The contribution of this chapter is the design together
+with a working reference implementation; the command-line driver and the three
+platform templates are working artefacts, exercised by the unit-test suites
+reported below, but the empirical study against external repositories has not yet
+been carried out.
+
+\section{The reference workflow}
+\label{sec:ci-workflow}
+
+\subsection{Three trigger points}
+
+The reference workflow runs at three points in the development lifecycle.
+
+\begin{enumerate}
+    \item \emph{Per-commit} (push to a feature branch). Inference runs on changed
+    files only; verification is not run; the result is informational, and there
+    is no pull-request comment yet because there is no pull request. The cache is
+    updated.
+
+    \item \emph{Per-pull-request} (pull request opened or updated). Inference
+    runs on the diff against the base branch; verification runs on the inferred
+    specifications; a Markdown summary is posted as a pull-request comment, and
+    subsequent pushes update that comment in place.
+
+    \item \emph{Per-merge} (merge to the trunk). Whole-codebase re-inference is
+    run, and the cache for the trunk is primed for the next round of pull
+    requests.
+\end{enumerate}
+
+Three triggers, three caches, three decisions. The per-commit cache is a
+feature-branch-local convenience for the developer; the per-pull-request cache
+reuses both the feature branch's per-commit cache and the base branch's per-merge
+cache; the per-merge cache is the canonical store, populated by the work that has
+actually been accepted into the trunk.
+
+\subsection{Fail-open semantics and the failure-mode tree}
+
+Inference can fail in several ways. \Cref{tab:ci-failure-tree} summarises the
+reference workflow's response to each. Critically, \emph{none} of these outcomes
+blocks the merge by default; all of them surface in the pull-request comment.
+
+\begin{table}[ht]
+\centering
+\caption{Failure-mode tree. Every outcome below results in a pull-request-comment
+annotation; none blocks the merge by default. Repositories that want strict
+gating opt in via a label-based check.}
+\label{tab:ci-failure-tree}
+\small
+\begin{tabular}{p{4.6cm}p{8.2cm}}
+\toprule
+\textbf{Failure mode} & \textbf{Response} \\
+\midrule
+Inferrer crashes (engine bug) & Log to the pull request; do not block. \\
+Inferrer times out ($>$5 min on a single method) & Log to the pull request; fall back to ``no spec for this method''; do not block. \\
+OpenJML rejects an inferred clause & Log the clause and assertion to the pull request; do not block. \\
+Inferred spec contains an unsupported pattern & Log a warning; emit best-effort clauses; do not block. \\
+Successful run & Post a one-line summary to the pull request (clauses added, modified, removed; verification pass and fail counts). \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Fail-open is the design choice that makes the workflow safe to deploy in
+repositories where formal-method tooling has previously been resisted on the
+grounds that it disrupts the merge train. The optional gating mode is strictly
+opt-in: a repository that wants a hard gate adds an
+\texttt{infer-clean-required} label rule to its branch protection. The default
+ships with no gate.
+
+\subsection{Diff-only analysis and the cache-key design}
+
+The second design principle is to do no more work than the diff requires. Each
+method carries a cache entry keyed on the SHA-256 hash of three components: the
+method's source text, the canonical form of each of its callees'
+specifications, and the inferrer version. The components are concatenated with a
+delimiter before hashing:
+
+\begin{quote}\ttfamily\small
+sha256(\\
+\hspace*{2em}method-source-text\ |\\
+\hspace*{2em}canonical-form-of-each-callee-spec\ |\\
+\hspace*{2em}inferrer-version )
+\end{quote}
+
+The callee-specification component is what makes the cache friendly to the
+compositional analysis of \cref{ch:article3}. When a callee's specification
+changes, every caller's hash changes with it, so the cache invalidates precisely
+the affected callers without disturbing unrelated methods. The inferrer-version
+component invalidates the entire cache on a system upgrade; this is the correct
+default, since a specification inferred by version $N$ may not be expressible by
+version $N{+}1$.
+
+A coarser but cheaper variant caches per file, keyed on the SHA-256 hash of the
+file's content together with the inferrer version. This loses the compositional
+invalidation property but is sufficient where callee analysis is local to the
+file.
+
+\subsection{Persistent in-place reporting}
+
+The third design principle is that a reviewer should see one inference summary per
+pull request, not a comment per push. The summary is collapsed by default so the
+review surface stays clean; expanding it reveals the per-file outcomes. The format
+is deliberately minimal: a reviewer who is not interested in the inference output
+sees a single line reporting the number of clauses inferred, the number served
+from cache, the number of errors, and the verification pass and fail counts, with
+one expand-click revealing the detail. The summary is emitted as Markdown with a
+fixed leading heading so that the platform integration can find and update the
+existing comment rather than appending a new one.
+
+\section{The \texttt{jml-ci} command-line driver}
+\label{sec:ci-cli}
+
+The reference workflow is implemented as a Java command-line driver that the
+platform-specific templates invoke. The driver surfaces four subcommands:
+\texttt{infer}, \texttt{verify}, \texttt{embed}, and \texttt{summary}, each
+taking a project root and, where relevant, a git diff range, a cache directory,
+and a report file.
+
+\paragraph{\texttt{infer}.} For each \texttt{.java} file in scope, the subcommand
+looks up the file's content hash in the cache; on a hit it skips the file, and on
+a miss it runs the inferrer and writes the resulting JML annotations in place. It
+records the per-file outcome to a JSON report that the \texttt{summary} subcommand
+consumes. The \texttt{-{}-diff} flag restricts the scope to files changed in the
+supplied git diff; absent the flag, the full root tree is processed.
+
+\paragraph{\texttt{verify}.} The subcommand discharges inferred specifications
+through OpenJML's Extended Static Checker \citep{cok2014openjml}. When the
+\texttt{OPENJML\_HOME} environment variable is unset, the subcommand fails open:
+it logs the absence and reports a \texttt{skipped} status so that the
+\texttt{summary} subcommand can render the appropriate message. The
+\texttt{-{}-strict} flag converts a non-zero number of flagged clauses into a
+non-zero exit code; absent the flag, the exit code is always zero.
+
+\paragraph{\texttt{embed}.} The subcommand runs the inferrer over a source tree
+and embeds the resulting specifications into a JAR via the \texttt{@JmlSpec}
+annotation mechanism of \cref{ch:article2}. This is the deployment-time
+complement of \texttt{infer}: whereas \texttt{infer} writes JML into source
+files, \texttt{embed} writes it into the compiled JAR so that downstream
+consumers can read it without source access.
+
+\paragraph{\texttt{summary}.} The subcommand renders a Markdown summary of the
+most recent inference and verification run, suitable for posting as a
+pull-request comment. A \texttt{-{}-format json} variant emits machine-readable
+JSON for downstream tooling that wants the numeric outcomes.
+
+\paragraph{Fail-open throughout.} Every subcommand exits with status zero by
+default, regardless of the inference or verification outcome. The opt-in
+\texttt{-{}-strict} flag is the only route to a non-zero exit, and it is supplied
+by the platform-specific templates only when the consumer repository's CI
+configuration explicitly opts in. This is the choice that operationalises the
+fail-open principle of \cref{sec:ci-workflow} at the level of the executable.
+
+\paragraph{Test coverage.} The driver has a unit-test suite (\texttt{JmlCiTest},
+7~tests) covering the help and no-args path, fail-open semantics on missing
+OpenJML, summary rendering with absent reports, content-sensitive cache-key
+hashing, callee-specification sensitivity in the per-method cache key, and
+option-parsing for both flag and key--value forms. The full inferrer behaviour is
+exercised by the existing analyser-tier tests (101~tests) and the embedder-tier
+tests (28~tests); the driver's role is workflow orchestration rather than
+inference, so the tests above are scoped to that role.
+
+\section{Platform implementations}
+\label{sec:ci-platforms}
+
+The driver is invoked by three platform-specific workflow templates, one per
+major CI system. The templates follow the same structure: restore the cache,
+build the inferrer, run \texttt{infer}, optionally run \texttt{verify}, render
+the \texttt{summary}, post the in-place pull-request comment, and archive the
+reports.
+
+\subsection{GitHub Actions reusable workflow}
+
+Filed as \texttt{.github/workflows/jml-verify.yml} and declared
+\texttt{on:~workflow\_call}, the workflow is consumed by other repositories via a
+single \texttt{uses:} reference that pins the workflow version and passes the
+Java version. The cache is restored via \texttt{actions/cache} keyed on a hash of
+the project's Java sources, with restore-keys allowing partial reuse on a cache
+miss. The in-place comment update is implemented via
+\texttt{actions/github-script}, which iterates the existing comments, finds one
+whose body begins with the fixed \texttt{\#\# JML inference summary} heading, and
+either updates it or creates a new one. Reports are archived as artefacts with a
+14-day retention. The workflow is dogfooded against the inferrer's own
+repository: a sibling \texttt{self-test.yml} workflow invokes
+\texttt{jml-verify.yml} on every push to the trunk and on every pull request, the
+timing of which \cref{sec:ci-selftest} reports.
+
+\subsection{GitLab CI template}
+
+Filed as \texttt{.gitlab/ci/jml-verify.yml} and included by reference, the GitLab
+template adapts the GitHub Actions logic to GitLab's CI surface. The cache uses
+the built-in \texttt{cache:} directive keyed on the same source-hash equivalent.
+Posting a merge-request comment requires the consumer to expose a
+\texttt{JML\_GITLAB\_TOKEN} CI/CD variable with note-write scope; if it is
+absent, the template logs the summary as a job artefact and continues. The
+\texttt{allow\_failure: true} flag enforces fail-open semantics at the GitLab
+level.
+
+\subsection{Jenkins declarative pipeline}
+
+Filed as a \texttt{Jenkinsfile} at the repository root, the Jenkins template is
+designed for a Multibranch Pipeline job pointing at the consumer repository.
+Pull-request detection uses the \texttt{CHANGE\_ID} environment variable set by
+the GitHub or Bitbucket Branch Source plugin, and diff-only inference uses
+\texttt{CHANGE\_TARGET}. Caching uses \texttt{stash} and \texttt{unstash} so that
+the cache survives across builds on the same agent. Comment posting is
+plugin-dependent: the \texttt{pullRequest.comment(body)} method works for the
+GitHub and Bitbucket Branch Source plugins, and for other VCS integrations the
+summary is logged to the build log and archived as an artefact. The
+\texttt{unstable} build status is set when inference reports issues but no hard
+error has occurred---the Jenkins idiom for ``pipeline succeeded but produced
+warnings worth surfacing''---and a consumer's downstream stages can read that
+status if they wish to gate on it.
+
+\subsection{Coverage of the three triggers}
+
+\Cref{tab:ci-trigger-coverage} summarises trigger coverage across the three
+platforms. All three cover the three triggers; pull-request comment integration
+is the most platform-divergent concern, which is why the templates externalise it
+to a final stage that can be replaced or skipped without affecting the rest of
+the pipeline.
+
+\begin{table}[ht]
+\centering
+\caption{Trigger coverage across the three CI platforms.}
+\label{tab:ci-trigger-coverage}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Trigger} & \textbf{GitHub Actions} & \textbf{GitLab CI} & \textbf{Jenkins} \\
+\midrule
+Per-commit (push) & \checkmark & \checkmark & \checkmark \\
+Per-pull-request (open / update) & \checkmark & \checkmark (MR) & \checkmark (via plugin) \\
+Per-merge (to trunk) & \checkmark & \checkmark & \checkmark \\
+In-place comment & native & via API & via plugin \\
+Cache restore & \texttt{actions/cache} & native & \texttt{stash}/\texttt{unstash} \\
+Fail-open by default & \checkmark & \texttt{allow\_failure} & \texttt{unstable} status \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Self-test}
+\label{sec:ci-selftest}
+
+The smallest deployable validation of the workflow is to apply it to the
+inferrer's own source tree. This is a self-test in the strict sense: the inferrer
+infers JML for itself, the embedder embeds those specifications into the
+inferrer's own JAR, and the CI pipeline orchestrates the whole thing.
+
+\paragraph{Setup.} The reference repository contains the reusable
+\texttt{jml-verify.yml} workflow, the sibling \texttt{self-test.yml} workflow
+that invokes it on every push to the trunk and every pull request opened against
+the trunk, and the inferrer itself---approximately 20{,}000 lines of code across
+the analysis, processor, visitor, model, embedder, REST, and CI packages.
+
+\paragraph{Behaviour observed.} On a typical pull request---one to ten files
+changed---the diff resolver identifies the changed \texttt{.java} files, the
+cache hit rate on unchanged files is uniformly 100\%, and the inferrer runs only
+on the diff. On a clean cache (a first run, or a post-merge re-prime), the
+workflow runs in approximately 90~seconds end-to-end on the
+\texttt{ubuntu-latest} runner: roughly 30~seconds for the Maven package build,
+50~seconds for full-codebase inference, 5~seconds for summary rendering, and
+5~seconds for cache and artefact upload.
+
+\paragraph{Failure-mode behaviour.} A deliberate sanity check was performed by
+introducing a mid-method syntax error into a source file, pushing it to a feature
+branch, opening a pull request, and observing the workflow's response. The
+inferrer logged the parse failure to the report, the \texttt{summary} subcommand
+rendered an ``errors: 1'' line, and the workflow exited with status zero---the
+merge was not blocked. After the syntax error was reverted, the next push
+refreshed the comment in place, and the older error annotation did not persist as
+a stale comment.
+
+\paragraph{What the self-test does and does not establish.} The self-test
+establishes that the workflow works end-to-end on a real source tree under the
+platform's actual CI runner, that cache restore and invalidation are correct
+under push-to-trunk and pull-request scenarios, and that the in-place comment
+update is reliable across multiple pushes to a pull request. It does not
+establish what the planned external evaluation is intended to establish:
+cumulative pipeline overhead under a realistic multi-month commit history, cache
+hit rate under realistic specification churn, and the qualitative usefulness of
+the inference output to developers who are not the system's authors. The
+self-test is a smoke test of the engineering surface, not a substitute for the
+empirical study specified in \cref{sec:ci-empirical}.
+
+\section{Design of the planned empirical study}
+\label{sec:ci-empirical}
+
+This chapter reports a reference design and a working implementation. The
+empirical study against external production codebases is specified here but, at
+the time of writing, has not been run. The design is set out in full so that it
+is reviewable now and so that the eventual evaluation cannot be retrofitted to
+favourable outcomes after the fact.
+
+\subsection{Subjects}
+
+The study targets five active open-source Java repositories with mature CI:
+Apache Commons Lang, Caffeine, Vavr, Resilience4j, and one deliberately
+``less-tidy'' subject---a candidate such as JabRef or Apache Pulsar---chosen to
+broaden external validity beyond the Apache-style mature subjects. Each subject is
+pinned to a specific commit SHA to keep the experiment reproducible.
+
+\subsection{Procedure}
+
+For each subject, the last six months of commits are replayed through the
+inference workflow. Each commit is run under two cache configurations:
+\emph{cold}, in which the cache is cleared at every commit, and \emph{warm}, in
+which the cache persists across commits and so simulates production behaviour. For
+each commit the procedure records the cumulative wall-time, the cache hit rate
+(the proportion of methods served from cache rather than re-inferred), the
+specification churn (lines of inferred-specification change per commit, counted as
+additions, deletions, and modifications), the inferred-specification count delta,
+and the OpenJML verification outcome.
+
+\subsection{Metrics}
+
+\begin{enumerate}
+    \item \emph{Pipeline overhead}: the median, 95th-percentile, and
+    99th-percentile wall-time delta against the same commits run without the
+    inference workflow. The planned decision criterion is that a 95th-percentile
+    overhead below 30\% is a strong result; 30--60\% is defensible on the
+    strength of the caching argument; and above 60\% would call for
+    re-architecting toward incremental analysis.
+
+    \item \emph{Cache hit rate per commit}: a histogram together with a per-project
+    mean, which drives the cost story.
+
+    \item \emph{Specification churn rate}: lines of inferred-specification change
+    per commit. A ratio of inferred-specification-line changes to source-line
+    changes near 1.0 is intuitive; a ratio of five or more would suggest the
+    inferrer is over-reactive to inconsequential edits.
+
+    \item \emph{Stability across sprints}: the variance of the
+    inferred-specification count across the 24~weekly snapshots of the six-month
+    window. High variance would suggest sensitivity to small changes; low
+    variance would suggest the inferred specifications converge.
+\end{enumerate}
+
+These pipeline metrics follow the methodological tradition of CI-evolution
+studies---replaying historical commits and measuring per-commit overhead---and
+are standard in that literature; the contribution of this chapter is the
+artefact rather than new methodology. The dynamic-analysis lineage in which the
+inferrer sits \citep{ernst2007daikon} likewise treats observed behaviour over
+many executions as the source of candidate properties, and the churn and
+stability metrics are the static-inference analogue of that idea measured over
+commit history.
+
+\subsection{Qualitative dimension}
+
+A structured trial is planned with two to three colleagues, each using the
+workflow on a project of their choice for one week, with pre- and post-trial
+surveys. The surveys ask whether the participant would adopt the workflow in
+their own CI and why; which output formats made the inferrer's findings
+actionable; what the worst false positive and the most useful clause were; and
+whether the build-time overhead changed their behaviour, for example by making
+them push less often. The qualitative dimension is the only part of the study that
+genuinely benefits from real human input, and it is the principal reason the
+empirical evaluation has been deferred to a follow-up rather than fabricated for
+this chapter.
+
+\section{Threats to validity}
+\label{sec:ci-threats}
+
+\paragraph{Internal validity.} The reference workflow's correctness rests on the
+cache key being deterministic and content-sensitive. The driver's unit tests
+cover both properties: the same content yields the same key, different content
+yields a different key, and a callee-specification change changes the caller's
+key. What the present tests do not cover is per-method cache invalidation under
+interprocedural updates---a future commit that changes a callee in a different
+file should invalidate every caller's cache entry. This is straightforward to
+verify and is part of the planned empirical study rather than the present work.
+
+\paragraph{External validity.} The self-test is on a single repository---the
+inferrer's own. Generalisation to repositories of different size, language idiom,
+and contributor pattern is the explicit purpose of the planned external study,
+and the ``less-tidy'' subject is the chief mitigation against the bias toward
+Apache-style codebases. The three CI platforms covered span the dominant
+deployment surface but exclude smaller players such as CircleCI, Travis,
+Buildkite, and Azure DevOps; porting the template pattern to them is mechanical,
+making the omission an effort question rather than a design one. The Maven-build
+baseline likewise excludes Gradle-built repositories; a Gradle-side template is
+straightforward to adapt and is part of the planned follow-up.
+
+\paragraph{Construct validity.} The pipeline metrics measure pipeline behaviour,
+not developer behaviour. The reportable claims of the planned study concern
+overhead and cache effectiveness; whether these workflows actually \emph{help}
+developers is the qualitative dimension's job, and a one-week trial with two to
+three colleagues sits at the lower bound of what would let the study say anything
+substantive about developer experience. The small participant count means the
+survey results would be reported as testimonial rather than statistically
+generalised.
+
+\paragraph{Conclusion validity.} The self-test reports timings on a single
+GitHub-hosted runner, and \texttt{ubuntu-latest} has known per-job variance; the
+self-test timings are therefore point estimates reported as approximate. The
+planned study's metrics are to be reported with 95\% confidence intervals across
+the 24-week replay.
+
+\paragraph{Heuristic soundness.} The CI workflow inherits the inferrer's
+heuristic limitations from \cref{ch:article1} and \cref{ch:article3}. A clause
+that the inferrer emits but that proves unsound under OpenJML is flagged in the
+pull-request comment, not silently embedded; this is the failure-mode-tree choice
+of \cref{sec:ci-workflow}. The residual threat is that a developer reading the
+comment dismisses flagged clauses as noise and so misses a genuine soundness
+issue. The mitigation is the verification step itself: when a clause is flagged,
+the comment shows the OpenJML output rather than merely a flag count. The JML
+language and its tooling \citep{leavens2006jml} provide the common substrate that
+makes this flagging meaningful across the inference, embedding, and verification
+stages.
+
+\section{Conclusion}
+\label{sec:ci-conclusion}
+
+This chapter asked whether the JML inference pipeline of the preceding chapters
+can be deployed inside an Agile development workflow without significant overhead
+or workflow disruption. The answer is yes by construction, and a working CI
+reference implementation accompanies the result: the \texttt{jml-ci}
+command-line driver together with three platform-specific workflow templates for
+GitHub Actions, GitLab CI, and Jenkins, all dogfooded against the inferrer's own
+repository.
+
+The design rests on three deliberate choices. Per-pull-request diff-only analysis
+with content-hash caching keeps the per-commit overhead low and makes cache
+invalidation precise enough to survive the compositional dependencies of
+\cref{ch:article3}. Fail-open semantics prevent the inference pipeline from
+blocking the merge train, so that a developer who is not yet persuaded of formal
+methods sees inferrer output as informative annotation rather than a gating
+obstacle. Persistent in-place reporting keeps the review surface clean across
+multiple pushes. Each choice has a corresponding component in the driver and the
+templates, and each is unit-tested. The empirical evaluation across five external
+repositories is specified here but not yet run; fixing the metrics, decision
+criteria, and survey instruments before the study runs is a deliberate
+methodological choice that prevents the eventual report from narrowing its
+criteria to fit favourable outcomes.
+
+This is the step from tool to process, and it completes the carriage-and-process
+half of RQ3 begun in \cref{ch:article2}: specifications no longer live only in a
+researcher's workspace but ride routinely through the pipeline on every change.
+With inference cheap (\cref{ch:article1}), portable (\cref{ch:article2}),
+compositional (\cref{ch:article3}), and now a routine CI citizen, the remaining
+question is how all of these capabilities combine into a single architecture for
+the development lifecycle now emerging around large-language-model agents. That
+full-lifecycle synthesis is the subject of \cref{ch:article5}.

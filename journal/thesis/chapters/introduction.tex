@@ -1,0 +1,197 @@
+\chapter{Introduction}\label{ch:introduction}
+
+\section{When code becomes cheap, the specification becomes scarce}
+
+For most of the history of software engineering, source code has been the scarce,
+durable, and authoritative artefact of a project. Code was expensive to produce
+and to change; it accreted the team's institutional memory---the handling of an
+awkward edge case, the workaround for a third-party defect, the carefully tuned
+boundary of a loop---and it tended to outlive the informal notes that described
+it. The intent behind the code, what the program was \emph{supposed} to do, was
+usually recorded only informally and routinely allowed to drift out of step with
+the implementation.
+
+The maturation of large language models for code generation disturbs this settled
+economics. Systems trained on vast corpora can now produce working implementations
+from natural-language descriptions \citep{chen2021codex,li2022alphacode}, and
+agentic variants can navigate a repository, edit files, run a build, and iterate
+toward a passing test suite with limited human intervention
+\citep{yang2024sweagent,jimenez2024swebench}. As the marginal cost of producing a
+plausible implementation falls toward zero, the relative value of a project's
+artefacts inverts. If code can be regenerated cheaply from a sufficiently precise
+description of intent, it becomes a disposable by-product, and the durable, scarce
+artefact---the thing that must be preserved, reviewed, and versioned---becomes the
+precise \emph{specification} against which code is generated and judged. The claim
+is deliberately conditional: \emph{to the extent that} code generation becomes
+routine, the bottleneck migrates from writing code to specifying intent precisely
+enough that generated code can be trusted. Model output is fluent but unreliable;
+it hallucinates interfaces and produces code that passes a weak test suite while
+remaining subtly wrong \citep{zhang2025hallucination,liu2023evalplus}. The
+discipline's traditional answer to ``how do we know this code is correct?''---read
+it carefully---scales poorly when code is produced faster than it can be read. What
+is required instead is a machine-checkable statement of what the code must do, and
+a mechanical means of checking it. That statement is a formal specification.
+
+\section{The barrier: specifications are valuable but unwritten}
+
+That programs should carry precise, machine-checkable statements of their intended
+behaviour is among the oldest aspirations of the field. Hoare's axiomatic basis
+\citep{hoare1969axiomatic} and Dijkstra's discipline of programming
+\citep{dijkstra1976discipline} established preconditions, postconditions, and loop
+invariants as the vocabulary of correctness; Meyer's design by contract
+\citep{meyer1992dbc} made the contract, rather than the implementation, the unit
+of interface between components---precisely the property that lets an
+implementation be regenerated without disturbing its callers, provided the
+contract is preserved \citep{mostafa2017behavioral}. The Java Modeling Language
+(JML) gave this discipline a tool-supported notation \citep{leavens2006jml}, and
+modern verifiers such as OpenJML \citep{cok2014openjml}, discharging obligations
+through SMT solvers such as Z3 \citep{demoura2008z3}, can check non-trivial Java
+methods against JML contracts by extended static checking without running the
+program. The machinery for \emph{checking} programs against contracts is mature;
+what has been missing is an economical supply of the contracts.
+
+Despite this lineage, formal specifications remain rare in industrial codebases.
+This is an \emph{adoption} problem, not a \emph{value} problem. Few engineers
+dispute that a precise contract is useful; many never write one, because authoring
+specifications is costly, demands unevenly distributed expertise, and yields
+benefits that are diffuse and deferred while the costs are immediate and
+concentrated on the author. Faced with this asymmetry, the rational engineer under
+schedule pressure writes a unit test, or nothing. The same asymmetry recurs for
+whole codebases: legacy systems---most systems that matter---are precisely those
+whose behaviour is no longer fully understood \citep{feathers2004legacy}, and the
+cost of retrofitting specifications by hand is prohibitive in exactly the cases
+where they would be most valuable. This diagnosis points at the leverage point. If
+the dominant obstacle is the cost of \emph{authoring} specifications, then lowering
+that cost---ideally to near zero, by inferring specifications automatically from
+existing code---should change the calculus of adoption. Automatic inference is
+itself a mature line of research: Daikon infers likely invariants from executions
+\citep{ernst2007daikon}, and Houdini guesses candidate annotations and prunes
+those that fail to verify \citep{flanagan2001houdini}. What they leave open is
+whether inference can be made cheap and unobtrusive enough to run as a matter of
+course, whether its output is genuinely useful downstream, and whether the
+resulting specifications can be composed and integrated into how software is built.
+
+\section{Why now: agentic lifecycles without a verification loop}
+
+The case for cheap specifications would be academic were it not for a concurrent
+shift in how software is built. A new family of development lifecycles has
+emerged---AWS's AI-Driven Development Lifecycle \citep{awsaidlc}, the GitHub Spec
+Kit \citep{githubspeckit}, and AWS's Kiro \citep{awskiro}---in which a developer
+writes a specification of desired behaviour, an agent plans and implements against
+it, and the cycle repeats. These lifecycles at last place the specification at the
+centre of the workflow, but they contain a structural gap: the specifications that
+drive them are written in \emph{natural language}, which is not machine-checkable.
+The verification step, where it exists, falls back on tests synthesised by the same
+fallible model against the same ambiguous description, and on human review---the
+very bottleneck the lifecycle was meant to relieve. The agentic \emph{capability}
+was demonstrated first on benchmarks where a hidden test suite supplies the oracle
+for free \citep{jimenez2024swebench}; the industrial lifecycles transplant the
+capability but leave the oracle behind. The result is a loop that generates code
+quickly but cannot \emph{verify} it: there is no machine-checkable contract layer
+and no closed loop in which a candidate is checked against a precise oracle and
+rejected when it fails.
+
+The compatibility dimension of this gap deserves emphasis. Modern software is
+assembled from libraries, and the contract between a library and its clients is
+communicated by a version number under the convention of semantic versioning
+\citep{preston2013semver}. This convention is honoured unevenly---breaking changes
+are routinely shipped in releases the version number declares compatible
+\citep{raemaekers2017semver}---because the contract being versioned is implicit:
+there is no machine-checkable statement of what a library guarantees, and so no
+mechanical way to decide whether a new release still honours what the old one
+promised. An agentic lifecycle that regenerates components against natural-language
+descriptions inherits and amplifies this problem, as each regeneration is a
+potential silent breaking change. A compositional, machine-checkable specification
+is exactly what turns version compatibility from an asserted convention into a
+checkable property.
+
+\section{Thesis statement and contributions}
+
+The central claim of this thesis is that \textbf{formal specifications are valuable
+but unwritten because authoring them is costly; automatic inference makes them
+cheap enough first to be useful, then to be composed to reason about library
+compatibility, and finally to serve as the contract layer and verification loop of
+AI-native development lifecycles.} The two animating concerns, led with throughout,
+are formal-methods \emph{adoption}---the removal of the authoring barrier through
+inference---and library and version \emph{compatibility}---the use of
+compositional, automatically inferred specifications to reason about whether a
+change to a component preserves the behaviour its callers depend upon. Two words
+guard the statement. ``Cheap'' does not mean free of judgement: inference removes
+the up-front authoring cost by beginning from a verified draft rather than a blank
+page. And where the thesis proposes a lifecycle architecture, it is careful to
+distinguish what has been \emph{measured} from what has been \emph{designed}.
+
+The programme is organised around three research questions that trace this arc.
+\textbf{RQ1 (fidelity and utility):} can JML contracts be inferred automatically
+with enough fidelity to be useful, and do they measurably improve a downstream task
+such as large-language-model test generation? \textbf{RQ2 (compositional
+compatibility):} does a compositional weakest-precondition pass extend single-pass
+inference, and does it let behavioural version compatibility be decided as a static
+analysis across a call graph? \textbf{RQ3 (lifecycle integration):} can inferred,
+machine-checkable contracts serve as the contract layer and verification loop of
+AI-native development lifecycles? The three contributions that follow answer RQ1,
+RQ2, and RQ3 respectively.
+
+The thesis makes three contributions, each developed and evaluated in its own
+chapter:
+
+\begin{enumerate}[leftmargin=1.8em]
+  \item \textbf{Inferred specifications are useful, and improve LLM test
+    generation} (\cref{ch:inferrer}). The JML-Inferrer recovers sound, verifiable
+    contracts from Java source by AST heuristics; a controlled comparison shows
+    that supplying these contracts to a large language model measurably improves
+    the unit tests it generates, relative to the same model working from code
+    alone. This establishes that heuristic, partial, automatically inferred
+    specifications are nonetheless good enough to deliver downstream utility.
+
+  \item \textbf{Compositional refinement strictly extends inference and enables
+    version-compatibility reasoning} (\cref{ch:compositional}). A second,
+    weakest-precondition pass over the call graph recovers well-formed
+    preconditions that single-pass heuristic inference cannot, and lets a change to
+    a callee's contract be propagated to its callers---turning behavioural version
+    compatibility into a static, run-free analysis.
+
+  \item \textbf{Inferred contracts as the verification spine of AI-native
+    development} (\cref{ch:integration}). A reference architecture in which a
+    machine-checkable contract is the pivot between ambiguous human intent and
+    precise machine verification, serving as both the input an agent builds against
+    and the oracle its output is checked against, and supplying the closed
+    verification loop that current agentic lifecycles lack.
+\end{enumerate}
+
+\section{The instrument: the JML-Inferrer}
+
+A single instrument gives the programme its empirical coherence. The JML-Inferrer
+is a static analysis tool, implemented in Java~21 over the JavaParser abstract
+syntax tree library, that infers JML contracts directly from Java source by
+heuristics that pattern-match against the syntax tree. Inferred contracts are
+checked by OpenJML's extended static checking \citep{cok2014openjml}, with
+obligations discharged by Z3 \citep{demoura2008z3}. A static, syntax-driven
+approach requires no test inputs, instrumentation, or execution traces, so it
+applies to a codebase exactly as it sits in a repository; and because the
+heuristics are deterministic functions of the syntax, the same input yields the
+same contracts. The heuristics are unapologetically partial: no claim is made that
+a recovered contract is complete, only that it is sound, useful, and verifiable.
+The discipline that keeps them honest is verification---a candidate contract that
+OpenJML cannot discharge is treated as a defect in the inference to be fixed, not
+as an acceptable approximation to be shipped. Throughout, the thesis distinguishes
+a \emph{verified} specification, which the checker has discharged, from one that is
+merely \emph{well-formed}, which is syntactically valid and scope-correct but has
+not been through that check, and it never allows the distinction to blur.
+
+\section{Thesis structure}
+
+\Cref{ch:background} establishes the conceptual and technical foundations---design
+by contract and its axiomatic antecedents, JML and OpenJML, the SMT machinery, the
+prior art in specification inference, and the emerging landscape of LLM code
+generation and agentic development---and situates the work against related
+research. \Cref{ch:inferrer} presents the JML-Inferrer in detail and reports the
+fidelity and downstream-utility results (the first contribution).
+\Cref{ch:compositional} develops the compositional weakest-precondition pass and
+its application to version-compatibility reasoning (the second contribution).
+\Cref{ch:integration} assembles the validated capabilities into a
+verification-centric reference pipeline for AI-native development (the third
+contribution). \Cref{ch:discussion} discusses the findings and the threats to
+their validity, and \cref{ch:conclusion} summarises the contributions, states the
+limitations---including the boundary between verified and merely well-formed
+specifications---and sets out directions for future work.

@@ -1,0 +1,124 @@
+\chapter{Conclusion}\label{ch:conclusion}
+
+\section{The arc, restated}\label{sec:conc-arc}
+
+This thesis began from an observation about changing economics: as capable
+code-generating agents drive the marginal cost of a plausible implementation
+towards zero, the durable, scarce artefact of a software project ceases to be the
+code and becomes the precise, machine-checkable statement of what the code must
+do. Formal specifications have always promised to be that statement, and the
+machinery for \emph{checking} programs against them---design by contract
+\citep{meyer1992dbc}, the Java Modeling Language \citep{leavens2006jml}, and
+verifiers such as OpenJML \citep{cok2014openjml} discharging obligations through
+Z3 \citep{demoura2008z3}---has been mature for years. What was missing was an
+economical supply of the contracts themselves, and a place for them to do useful
+work across the lifecycle.
+
+The programme answered that gap in three movements, and its shape is captured by
+its title. \emph{Inference} makes specifications cheap: a heuristic static engine
+recovers sound, verifiable contracts from existing code at negligible authoring
+cost. \emph{Composition} makes them reach: a weakest-precondition pass propagates
+those contracts across a call graph, and the same propagation, run across two
+versions of a dependency, turns behavioural version compatibility into a static,
+run-free analysis. \emph{Integration} makes them load-bearing: the inferred,
+verified, compositional contract becomes the verification spine of an AI-native
+development lifecycle---at once the input an agent builds against and the oracle
+its output is checked against. Inference manufactures the artefact, composition
+extends its scope, and integration gives it somewhere to earn its keep; none of
+the three stands alone.
+
+\section{Contributions and research questions}\label{sec:conc-contributions}
+
+The three contributions map onto the three research questions answered in
+\cref{ch:discussion}.
+
+The first contribution (\cref{ch:inferrer}) is the JML-Inferrer: a static engine
+that recovers JML preconditions, postconditions, loop invariants, and assignable
+clauses from unannotated Java by pattern-matching on the abstract syntax tree.
+Its output is validated end to end against OpenJML, so an emitted contract is not
+merely plausible but demonstrably discharges under extended static checking. A
+controlled comparison then shows that supplying these contracts to a language
+model measurably improves the unit tests it generates, relative to the same model
+working from code alone---because a contract supplies the independent oracle a
+generated test needs \citep{barr2015oracle}. This answers RQ1 affirmatively: even
+heuristic, partial, automatically inferred specifications are good enough to
+deliver downstream utility.
+
+The second contribution (\cref{ch:compositional}) is a compositional
+weakest-precondition pass that strictly extends single-pass inference. Propagating
+a callee's contract into its callers recovers well-formed preconditions the local
+pass cannot---approximately $18{,}854$ additional preconditions on the principal
+corpus, reported after well-formedness filtering, so vacuous or unsatisfiable-scope
+contracts are excluded from the count. Because the reasoning that recovers a
+caller's obligation from a callee's contract is exactly the reasoning that
+propagates a contract \emph{change}, the identical mechanism, run differentially,
+computes the behavioural blast-radius of a dependency upgrade. This answers RQ2: a
+dependency change becomes a contract-diff event whose effect on clients can be
+checked rather than discovered in production---a behavioural notion of
+compatibility finer than the declared semantics of a version number
+\citep{preston2013semver}.
+
+The third contribution (\cref{ch:integration}) is a verification-centric
+reference architecture in which one machine-checkable contract plays a dual role:
+input to the implementing agent and oracle for the verifier, with the verifier
+returning counterexamples that close the loop. It supplies the three things that
+current specification-driven agentic lifecycles---the AWS AI-Driven Development
+Lifecycle \citep{awsaidlc}, GitHub's Spec Kit \citep{githubspeckit}, and Kiro
+\citep{awskiro}---lack: a machine-checkable contract rather than prose intent, a
+closed counterexample-guided loop, and an oracle whose authority is independent of
+the code-writing agent. This answers RQ3 at the level of a design validated by
+instantiation of its components.
+
+\section{Limitations}\label{sec:conc-limitations}
+
+Four limitations bound these claims, and the thesis is deliberate about each. The
+first is the boundary between a \emph{verified} specification, which the checker
+has discharged, and a merely \emph{well-formed} one, which is syntactically valid
+and scope-correct but has not passed that check; the compositional reach figure is
+a count of well-formed preconditions, not of verified ones, and the two are never
+conflated. The second is the partiality of heuristic inference: the engine
+recognises the structural patterns it was built for and stays silent elsewhere, so
+its fidelity is a rate over emitted contracts, not a coverage of all behaviour.
+The third is the reach of the verification substrate: Z3 timeouts, non-linear
+arithmetic, and quantified array theories place some true specifications beyond
+mechanical discharge, so silence from the checker is never a guarantee of safety.
+The fourth is that the reference pipeline of \cref{ch:integration} is designed and
+its components individually evidenced, but the integrated, agent-in-the-loop system
+has not been subjected to a controlled end-to-end trial. A fifth caveat cuts
+across the empirical results: the strongest quantitative findings rest on a single
+principal corpus, which establishes the effects in a realistic setting without
+establishing their generality.
+
+\section{Future work}\label{sec:conc-future}
+
+Three directions follow directly. The first is industrial validation of the
+AI-native lifecycle: an action-research case study of the specification-centred
+workflow in a genuine development team \citep{runeson2009casestudy,yin2018case},
+framed to claim feasibility and realism rather than a controlled effect size,
+subject to Human Research Ethics Committee approval and to careful handling of
+confounds such as team experience and the simultaneous adoption of other tooling.
+The second is extending the compositional analysis---deeper inter-procedural
+reasoning and tighter modelling of standard-library and framework contracts---to
+raise the fraction of genuine incompatibilities the gate detects, moving it from
+sound-by-construction towards sound-and-comprehensive, and to replicate the
+findings on codebases beyond the principal corpus, including the messy legacy
+systems that most need retrofitted specifications \citep{feathers2004legacy}. The
+third is the direction deliberately deferred throughout: LLM-assisted inference at
+inference time, in which a language model proposes candidate contracts that the
+formal toolchain then certifies or rejects. The thesis has held this at arm's
+length precisely so that its fidelity claims rest on deterministic heuristics and
+mechanical verification; introducing a generative proposer while preserving that
+guarantee---the verifier remains the authority, the model only a source of
+candidates---is a natural and promising extension.
+
+\section{Closing}\label{sec:conc-closing}
+
+When an agent can regenerate an implementation cheaply, the implementation stops
+holding the value; what endures is the statement of what the software must do. This
+thesis has shown how to make that statement cheap, through inference that recovers
+verified contracts from existing code; how to make it reach, through compositional
+propagation that reasons about compatibility across a call graph; and how to make
+it load-bearing, as the verification spine of how software is built. The path from
+inference to integration is, in the end, a single argument: a formal specification,
+made cheap and placed at the centre, is the right foundation for software
+development in an age when the code can write itself but the intent still cannot.

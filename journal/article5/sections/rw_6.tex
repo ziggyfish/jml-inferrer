@@ -1,0 +1,82 @@
+\subsection{The Test-Oracle Problem and LLM-Based Test Generation}
+\label{subsec:rw6}
+
+A test exercises a program; an \emph{oracle} decides whether the observed
+behaviour is correct. \citet{barr2015oracle} survey this oracle problem and
+establish that, while input generation is now largely automatable, the oracle
+remains the binding constraint on test automation: without a trustworthy
+arbiter of correctness, generated tests can only detect crashes and uncaught
+exceptions, not functional deviation. Their taxonomy distinguishes
+\emph{specified} oracles, derived from a formal description of intended
+behaviour, from \emph{derived} and \emph{implicit} oracles inferred from
+artefacts or general expectations. This article positions its formal-contract
+layer squarely as a \emph{specified} oracle, but one that is recovered and
+ratified rather than assumed to pre-exist.
+
+A long line of work attacks the oracle problem by sidestepping the need for an
+absolute correctness criterion. Metamorphic testing checks
+\emph{relations} between multiple executions---for example, that permuting a
+list and sorting it yields the same result as sorting and permuting---rather
+than asserting any single output; \citet{chen2018metamorphic} and
+\citet{segura2016metamorphic} survey the technique and its reach into
+domains where no conventional oracle exists. Metamorphic relations are
+expressive but partial: they constrain behaviour without fully pinning it,
+and an implementation can satisfy every relation while still being wrong. A
+complementary tradition \emph{infers} oracles from program behaviour. Daikon
+detects likely invariants by observing values across executions and reporting
+properties that held over the observed runs \citep{ernst2007daikon}; the
+resulting invariants are candidate oracles, but they describe what the code
+\emph{did}, not what it \emph{should} do, and are unsound by construction. This
+description-versus-prescription gap is exactly the tension this article
+confronts in its brownfield characterisation phase, where a code-derived
+contract is treated as evidence of intent and prime suspect simultaneously.
+
+Search-based and feedback-directed generators sharpened the gap by automating
+inputs at scale while leaving the oracle largely implicit. EvoSuite evolves
+whole test suites toward coverage targets and, lacking a specification, emits
+\emph{regression} assertions that merely capture current behaviour
+\citep{fraser2011evosuite}; Randoop generates sequences by feedback-directed
+random testing and flags only contract violations and crashes
+\citep{pacheco2007randoop}. Both expose the central weakness: a test suite with
+self-generated assertions is a snapshot, not a correctness judgment, and it
+will faithfully ratify a buggy implementation. Learning-based oracle synthesis
+followed, treating assertion generation as a translation task. ATLAS learns to
+emit assert statements for a test and its focal method via neural machine
+translation \citep{watson2020atlas}, and AthenaTest fine-tunes a transformer on
+mined focal-method/test pairs \citep{tufano2020athenatest}. These systems learn
+the \emph{form} of plausible oracles from human-written corpora but inherit
+whatever (in)correctness those corpora encode, and they offer no machine-
+checkable guarantee that a generated assertion reflects intended behaviour.
+
+The arrival of large language models (LLMs) has accelerated this work without
+resolving the underlying problem. TestPilot generates and adaptively repairs
+unit tests by re-prompting the model with failing tests and error messages
+\citep{schafer2024testpilot}; ChatTester iteratively refines ChatGPT-produced
+tests and improves over earlier neural baselines on compilability and coverage
+\citep{yuan2024chattester}; broad empirical studies report that LLM-generated
+suites achieve competitive coverage and superior readability yet still suffer
+correctness and compilation defects \citep{siddiq2024empirical}. Crucially,
+recent analyses of \emph{LLM-driven oracle generation} document a structural
+hazard: when the same model both implements the code and writes the asserting
+oracle, the oracle tends to encode the model's own (possibly mistaken)
+expectations, yielding tests that pass by construction
+\citep{liu2026oracle}. This is the self-grading, circular-verification defect
+that motivates the present work.
+
+The gap, then, is not a shortage of test-generation machinery but the absence
+of an oracle that is at once \emph{machine-checkable}, \emph{prescriptive}, and
+\emph{independently authored}. Sampling-based oracles---metamorphic relations,
+inferred invariants, learned or LLM-written assertions---judge correctness on a
+finite set of executions and, when produced by the implementing agent,
+collapse into circularity. This article instead elevates a formal JML contract
+to the oracle and discharges it with OpenJML over \emph{all} inputs rather than
+samples, separating the elaborator role that authors the contract from the
+implementer role that satisfies it (the independent-authority constraint). Where
+prior oracle-inference work stops at unsound, code-derived descriptions, the
+proposed pipeline tags each obligation with provenance and assurance,
+triangulates code against tickets and documentation to surface bugs as
+\emph{disagreements}, and feeds OpenJML counterexamples back into a
+CEGIS-shaped synthesis loop---turning the inferred-invariant tradition of
+\citet{ernst2007daikon} and the LLM-test tradition of
+\citet{schafer2024testpilot} from a description-and-eyeball workflow into a
+verified, prescriptive, change-propagating contract layer.

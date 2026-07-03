@@ -1,0 +1,324 @@
+\chapter{Integrating Inferred Specifications into the AI-Native Lifecycle}\label{ch:integration}
+
+The two preceding chapters established that specifications can be inferred cheaply
+and put to use. \Cref{ch:inferrer} showed that heuristic inference recovers sound,
+verifiable contracts from Java source and that supplying them to a language model
+measurably improves the tests it generates; \cref{ch:compositional} showed that a
+second, weakest-precondition pass strictly extends what single-pass inference can
+recover and, in doing so, turns behavioural version compatibility into a static
+analysis. Each treated an inferred contract as an end in itself---an oracle for
+test generation, a property to refine. This chapter draws the threads into a
+single lifecycle argument. It asks what a software development process would look
+like if it were reorganised around a machine-checkable contract as its durable
+source of truth, and answers with a verification-centric \emph{reference
+architecture} in which that contract is the pivot between ambiguous human intent
+and precise machine verification. The instruments of the earlier chapters reappear
+here not as fresh contributions but as the trusted components from which the
+architecture is assembled. The conceptual background---program synthesis, the
+test-oracle problem, and behavioural version compatibility---is surveyed in
+\cref{ch:background} and not repeated.
+
+The motivation is an economic inversion already argued in \cref{ch:introduction}.
+When an agent can regenerate a conforming implementation from a description in
+seconds, the implementation ceases to be the treasured asset and becomes closer to
+a disposable build output; what becomes scarce and durable is the specification of
+intent against which any number of cheap regenerations are measured. The emerging
+agentic, specification-driven lifecycles---GitHub's Spec Kit~\citep{githubspeckit},
+Amazon's AI-Driven Development Life Cycle~\citep{awsaidlc}, and the Kiro
+integrated development environment~\citep{awskiro}---have noticed the inversion and
+place a ``specification'' at their centre, but the specification they organise
+around is natural language, which is not machine-checkable. Examined as a control
+system, these lifecycles exhibit three compounding defects: the spec-to-code step
+is an unverifiable compilation from an informal source; the loop is open, closed
+only by human review or a sampled test suite; and where automated acceptance
+exists it is circular, because the same model that writes the code also writes the
+oracle it is graded against~\citep{liu2023evalplus,liu2026oracle}. These are one
+missing component viewed from three angles: a \emph{verification spine}. This
+chapter supplies it.
+
+\section{Enabling machinery: carriage and continuous integration}\label{sec:int-enablers}
+
+Before the architecture can be described, two prior results must be recalled as
+enablers, because a lifecycle organised around specifications presupposes that
+specifications can travel with the artefacts developers exchange and can be
+produced routinely without disrupting the team. Both were established as
+contributions in their own right; here they are compressed to the role they play
+in the larger pipeline.
+
+\subsection{Carriage: specifications that survive compilation and publication}\label{sec:int-carriage}
+
+A specification that cannot travel with the artefact it describes lives in a
+separate document that drifts out of date and is unavailable to the very
+consumers---verifiers, IDEs, test generators, and models reading an API---that
+would benefit from it. Java libraries ship as JAR files and REST endpoints expose
+only an HTTP signature, so source is the exception rather than the norm. The
+carriage mechanism resolves this by writing inferred JML~\citep{leavens2006jml}
+into runtime-retained class-file annotations via an ASM-based embedder, with a
+parallel OpenAPI~3.x extension family (\texttt{x-jml-*}) for service boundaries and
+a JML stub-file sidecar that OpenJML~\citep{cok2014openjml} reads natively for
+verification. The design descends from the design-by-contract observation that a
+contract is a property of the supplier as seen by a client who most often holds
+only the binary~\citep{meyer1992dbc}. Empirically it round-trips losslessly:
+across six mature libraries totalling 39{,}268 methods, and across 22{,}881 real
+inferred specifications recovered from those libraries' source, every specification
+the harness embeds is recovered byte-for-byte, at a bytecode overhead of roughly
+4.6--10.2\% after format optimisation and at throughputs that comfortably support
+per-pull-request continuous integration. Embedded classes load correctly in JVMs
+that have never seen the annotation type, so a JAR can be enriched in place with no
+risk to consumers and no toolchain change. The single fact the lifecycle needs is
+that a contract produced by inference can be carried, at full fidelity, on the
+artefact a developer actually deploys.
+
+\subsection{Continuous integration: inference as a routine, fail-open step}\label{sec:int-ci}
+
+For inference to change how software is built it must run where development
+happens---in the CI pipeline, on every change, without disrupting the merge train.
+Formal-method tooling is conventionally held to be too slow and too brittle for
+this, and three deliberate design choices overturn that calculus. First,
+\emph{diff-only analysis with content-hash caching}: whole-codebase re-inference
+runs once per merge to the trunk, while per-pull-request work is restricted to
+changed methods, unchanged methods being served from cache. The cache key is a
+SHA-256 hash of the method source together with the canonical form of its callees'
+specifications and the inferrer version, so a callee's specification change
+invalidates precisely its callers and nothing else---the property that makes the
+cache friendly to the compositional analysis of \cref{ch:compositional}. Second,
+\emph{fail-open semantics}: an inference crash, an OpenJML timeout, or a malformed
+clause is logged to the pull-request comment but never blocks the merge, so the
+pipeline is safe to deploy where formal methods have previously been resisted;
+strict gating is available only as an opt-in. Third, \emph{persistent in-place
+reporting}: a reviewer sees one collapsible summary per pull request rather than a
+growing thread of comments. A working reference implementation---a command-line
+driver with \texttt{infer}, \texttt{verify}, \texttt{embed}, and \texttt{summary}
+subcommands, plus templates for GitHub Actions, GitLab CI, and Jenkins---is
+dogfooded against the inferrer's own repository, where a clean-cache run completes
+in roughly ninety seconds and a deliberately introduced syntax error is surfaced
+without blocking the merge. The controlled study of pipeline overhead across
+external repositories is designed but not yet run, a boundary \cref{ch:discussion}
+revisits. The enabling fact is that inference can be a routine CI citizen: cheap,
+incremental, and unobtrusive enough to run as a matter of course.
+
+\section{A verification-centric reference pipeline}\label{sec:int-pipeline}
+
+With carriage and CI in place, the lifecycle can be reorganised around a
+machine-checkable contract. The pipeline is offered as a reference
+architecture---a set of design principles, a layered model, and an end-to-end data
+flow---validated by instantiation rather than asserted as a proven methodology.
+\Cref{fig:int-pipeline} shows its shape.
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    font=\small,
+    box/.style={draw, rounded corners, align=center, text width=7.4cm,
+                minimum height=0.85cm, fill=white, inner sep=3pt},
+    pivot/.style={draw, very thick, align=center, text width=7.9cm,
+                  minimum height=0.85cm, fill=blue!10, inner sep=3pt},
+    lbl/.style={font=\itshape\footnotesize, align=left},
+    arr/.style={-{Latex[length=2.2mm]}, semithick},
+  ]
+    \node[box] (intent) {\textbf{Intent} \footnotesize --- human goals, tickets, docs, existing code};
+    \node[box, below=0.7cm of intent] (elab)
+      {\textbf{Elaboration} \footnotesize(elaborator role): ratify \emph{behaviour}
+       by example; adversarial + vacuity checks};
+    \node[pivot, below=0.7cm of elab] (contract)
+      {\textbf{Formal contract} --- the \textsc{pivot} \footnotesize (a set of
+       $\langle$provenance, assurance$\rangle$-tagged obligations)};
+    \node[box, below=0.7cm of contract] (synth)
+      {\textbf{Synthesis} \footnotesize(implementer role): contract $\rightarrow$
+       code, a disposable build output};
+    \node[box, below=0.7cm of synth] (verif)
+      {\textbf{Verification} \footnotesize: code $\models$ contract? OpenJML ESC
+       $+$ Z3, over \emph{all} inputs};
+    \draw[arr] (intent) -- (elab);
+    \draw[arr] (elab) -- (contract);
+    \draw[arr] (contract) -- node[right=2pt,lbl]{contract as \emph{input}} (synth);
+    \draw[arr] (synth) -- (verif);
+    \draw[arr] (verif.east) -- ++(0.5,0) |- ([yshift=2pt]synth.east)
+      node[pos=0.25,right=1pt,lbl,text width=2.5cm]{fail: counterexample (concrete witness)};
+    \begin{scope}[on background layer]
+      \node[fill=orange!10, rounded corners, fit=(intent)(elab), inner sep=6pt,
+            label={[font=\itshape\footnotesize]above:ambiguous, human-owned world}] {};
+      \node[fill=green!10, rounded corners, fit=(synth)(verif), inner sep=6pt,
+            label={[font=\itshape\footnotesize]below:precise, machine-checkable world}] {};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{The reference pipeline. The formal contract is the pivot between the
+  ambiguous, human-owned world and the precise, machine-checkable world.
+  Elaboration converts intent into a contract under human ratification of
+  behaviour; synthesis and verification form a counterexample-guided loop below the
+  pivot; and the verifier never grades a contract it authored.}
+  \label{fig:int-pipeline}
+\end{figure}
+
+\subsection{The contract as pivot, and its dual role}\label{sec:int-pivot}
+
+A machine-checkable formal contract sits at the centre of the architecture as the
+\emph{pivot} between the informal activity of deciding what is wanted and the
+mechanically checkable activity of producing and certifying code. It is the single
+point at which informality is converted into formality and the only artefact that
+crosses that boundary. Concretely the pivot is expressed in
+JML~\citep{leavens2006jml}, whose pre/postcondition discipline descends from Hoare
+logic~\citep{hoare1969axiomatic}, Dijkstra's weakest-precondition
+calculus~\citep{dijkstra1976discipline}, and Meyer's design by
+contract~\citep{meyer1992dbc}, and discharged by OpenJML extended static
+checking~\citep{cok2014openjml} over Z3~\citep{demoura2008z3}.
+
+The decisive property is that the contract plays two roles at once. It is the
+\emph{input}---the precise intent the synthesis agent builds against---and it is
+the \emph{oracle}---the artefact against which that agent's output is formally
+verified. This duality makes the pipeline self-consistent: there is exactly one
+statement of intent, and code is judged against the very artefact that produced it,
+which is precisely what the natural-language lifecycles cannot achieve, because
+their input has no formal semantics against which output could be checked. The
+historical obstacle to the dual role was the cost of authoring formal contracts;
+that obstacle is removed by the inference of \cref{ch:inferrer} and
+\cref{ch:compositional}, which supplies a draft automatically, so the human's task
+collapses from \emph{authoring} formal text to \emph{ratifying} behaviour.
+
+\subsection{A closed synthesis--verification loop}\label{sec:int-loop}
+
+Below the pivot the ambiguous human world has been left behind: the contract is a
+precise object, and the agent's task is no longer to interpret intent but to
+satisfy an obligation. Here the open generate-then-eyeball cycle is replaced by a
+closed loop shaped like counterexample-guided inductive synthesis
+(CEGIS)~\citep{solarlezama2006sketching,solarlezama2008sketching}. A synthesis
+agent proposes a body; the trusted verifier attempts to prove it satisfies the
+contract over all inputs; and any failure is returned to the agent not as a verdict
+but as a concrete counterexample---a fully instantiated pre-state in which the body
+cannot discharge the obligation---that drives the next attempt. The value lies
+entirely in the quality of that feedback. Self-improving code agents close their
+loop with a sampled test suite, which certifies only the finitely many inputs it
+happened to exercise and whose weakness as a correctness oracle is well
+documented~\citep{liu2023evalplus,chen2021codex}; a failing test reports that one
+input misbehaved but gives no assurance that fixing it will not break another. A
+successful ESC proof, by contrast, certifies the obligation over the entire input
+domain, and a failed one hands the synthesiser a witnessed cause in the same logic
+the verifier reasons in. Because any method with a loop needs an inductive
+invariant that ESC cannot guess, the loop separates two hard problems: the agent
+contributes the algorithmic content, and the inferrer of \cref{ch:inferrer}
+supplies the discharging loop invariant---in the direction-aware, inductively
+preserved form ESC requires---for exactly the loop families it handles. When the
+solver neither proves nor refutes within its budget---Z3 is incomplete on
+multiplicative arithmetic, array theory, and richly quantified preconditions---the
+obligation is not dropped but \emph{degraded} down a ladder from full proof to
+bounded checking to a generated test, with the level achieved recorded on the
+obligation rather than silently lowered. This graduation is what makes a
+verification-centric lifecycle realistic rather than aspirational.
+
+\subsection{Independent authority: a model must not grade its own work}\label{sec:int-authority}
+
+Because the contract is the oracle, verification is meaningful only if the contract
+is not authored by the same agent that writes the code. If one model both proposes
+the contract and satisfies it, the verifier still soundly proves that the code
+meets the contract, but that proof certifies nothing about \emph{intent}: a shared
+misreading is encoded identically in contract and code, which then agree without
+exposing it. This is the self-grading circularity that undermines test-suite
+acceptance and, more acutely, model-driven oracle
+generation~\citep{liu2026oracle}. The \emph{independent-authority constraint}
+therefore partitions the lifecycle into an \emph{elaborator} role---maximally
+faithful, never permitted to see the implementation, and the owner of the
+ratified examples---and an \emph{implementer} role, whose only task is to satisfy
+the contract handed to it. The verifier, reused unchanged, is authored by neither.
+The constraint's scope must be stated honestly: it removes self-grading, but it
+does not by itself decorrelate a shared misreading of intent across two roles of
+the same underlying model. That residual is broken only by human ratification,
+whose authority lies outside the model distribution. Ratification is made feasible
+by a discipline of \emph{ratifying behaviour, not logic}: rather than confirm a
+page of quantified JML, the human is asked concrete questions in domain
+terms---``given an empty list, this contract throws rather than returns zero; is
+that what you want?''---and each confirmed answer becomes a machine-checkable
+pinned example the contract must henceforth satisfy. Every obligation carries a
+provenance tag recording its origin and an assurance tag recording the strongest
+verification level achieved, so that adherence to the constraint is auditable and
+the word ``verified'' stays honest: a reader can see which obligations are
+human-ratified, which are merely machine-inferred, and which were proved as opposed
+to merely tested.
+
+\subsection{Brownfield contract recovery by triangulation}\label{sec:int-brownfield}
+
+Most software is not new, so in the common case no contract exists and one must be
+\emph{recovered}. The difficulty is that the existing code is at once the best
+evidence of what the system does and the prime suspect, since any bug it contains
+is encoded in exactly that code; a contract inferred from code alone therefore
+describes the implementation faithfully, defects included. The recovery phase
+consequently triangulates three independent evidence streams. The \emph{code},
+via the inferrer of \cref{ch:inferrer} and \cref{ch:compositional}, answers what
+the system does; the \emph{issue tracker} answers why, recording the defects and
+edge cases the behaviour has provoked; and the \emph{documentation} answers
+declared intent. The reconciliation is deliberately not a merge that smooths away
+conflict. Its primary product is \emph{disagreement detection}: the points at
+which the streams make incompatible claims are each a hypothesis that something is
+wrong---the code, the documentation, or the recorded understanding. A clause the
+code cannot satisfy but that a documentation- or ticket-derived stream asserts is
+direct evidence of a code-versus-intent gap. This reframing forces a reordering of
+the loop. In greenfield use it is prospective; the first brownfield pass is
+\emph{retroactive}, resolving the recovered discrepancies and establishing a
+ratified baseline before the pipeline is permitted to author any change. Because a
+whole legacy system cannot be formally specified, recovery adopts a \emph{frontier}
+strategy: it specifies only the module under change, the public API surface, and
+the modules named by active tickets, treating the remainder as governed by weak
+inherited-default contracts. Verification during this phase must never be read as a
+proof of correctness; when the contract is dominated by code-inferred clauses,
+verifying the code against it is nearly circular, establishing only that the
+implementation is self-consistent. Correctness relative to intent comes from the
+intent streams and, ultimately, from human ratification---never from the code
+stream alone.
+
+\subsection{Compositional change propagation as a lifecycle capability}\label{sec:int-propagation}
+
+The final capability promotes the compositional refinement of
+\cref{ch:compositional} from an inference-time accuracy gain to a lifecycle
+operation. Because contracts compose along the call graph, a change to a callee's
+contract mechanically \emph{recomputes} the proof obligations of every caller, and
+the callers whose obligations can no longer be discharged are exactly the callers
+the change breaks---identified by re-running the verifier, not the program. The
+analysis is directional in a way that mirrors behavioural subtyping: weakening a
+precondition or strengthening a postcondition is safe and flags no caller, whereas
+strengthening a precondition or weakening a postcondition is potentially breaking
+and yields a ranked, justified, per-call-site work list. The same machinery
+answers two questions the prevailing tooling treats as unrelated---``does this
+internal refactor break any call site?'' and ``does this dependency upgrade break
+any call site?''---because, at the level of contracts, an internal refactor and a
+third-party version bump are the same operation. This is the concrete link between
+the two strands of the thesis core: formal-methods adoption and library
+compatibility are served by one mechanism. It addresses a real gap, since semantic
+versioning is an unreliable compatibility signal~\citep{preston2013semver,
+raemaekers2017semver} and signature-level tools are blind to behavioural breaks
+that leave the signature untouched~\citep{mostafa2017behavioral}. The carriage
+mechanism of \cref{sec:int-carriage} is what makes the library side feasible
+without source, and the cache-backed CI of \cref{sec:int-ci} is what makes
+re-running the analysis on every upgrade economical. The soundness and the limits
+are those of the underlying instrument: a caller reported compatible is compatible
+over the whole specified domain, but a caller the solver cannot decide is reported
+as undetermined rather than silently passed, and because an inferred callee
+contract skews weak, a genuine break may be missed where the inferred contract
+failed to capture the guarantee the caller relied upon. The analysis is therefore
+sound in flagging breaks but not complete, and trustworthy only within the
+specified frontier.
+
+\section{Designed versus measured}\label{sec:int-disclaimer}
+
+A scruple must be stated plainly and held throughout. This pipeline is a
+\emph{reference architecture synthesised from validated components}, not an
+empirically evaluated deployment. Its trusted core already exists and has been
+independently validated in the earlier chapters: the JML-Inferrer and its
+compositional pass that bootstrap draft contracts (\cref{ch:inferrer},
+\cref{ch:compositional}), the OpenJML fork with Z3 as the oracle that never grades
+itself, the artefact-embedding machinery of \cref{sec:int-carriage}, and the
+Dockerised CI pipeline of \cref{sec:int-ci}. The only new software is untrusted
+orchestration---sequencing the phases and managing the counterexample loop---plus
+the model calls that draft and synthesise; none renders a verification verdict.
+The architecture has been exercised only in part: the synthesis--verification loop
+against fixed, known-dischargeable contracts on Apache Commons Lang, while contract
+generation from intent and conversational ratification are specified as a staged
+build plan with full validation deferred. The claim is accordingly one of
+\emph{feasibility and realism}---that the spine can be assembled from parts that
+already work and made to surface real code-versus-intent discrepancies on a genuine
+three-stream corpus---not one of a measured effect at scale. The distinction
+between a \emph{verified} obligation, which OpenJML has discharged, and a merely
+\emph{well-formed} one, which is syntactically valid and scope-correct but
+unproved, is never allowed to blur here: the compositional pass of
+\cref{ch:compositional} contributes well-formed preconditions, and only those the
+verifier discharges are verified. \Cref{ch:discussion} takes up the threats to this
+position in full, and \cref{ch:conclusion} restates the boundary between what has
+been built and what remains to be measured.

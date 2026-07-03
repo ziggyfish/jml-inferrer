@@ -1,0 +1,119 @@
+\chapter{Discussion and Threats to Validity}\label{ch:discussion}
+
+\section{What the three results together establish}\label{sec:disc-arc}
+
+Taken singly, each of the preceding results answers a bounded question; taken
+together they trace a single arc, from inference through composition to
+integration. \Cref{ch:inferrer} establishes that specifications can be recovered
+cheaply---the JML-Inferrer recovers sound, verifiable contracts from unannotated
+Java by syntax-driven heuristics, and supplying those contracts to a language
+model measurably improves the unit tests it generates. \Cref{ch:compositional}
+establishes that the same inferred contracts can be reasoned \emph{about}: a
+compositional, weakest-precondition pass over the call graph strictly extends the
+local heuristics, and---run differentially across two versions of a dependency's
+contract---turns behavioural version-compatibility into a static, run-free
+analysis. \Cref{ch:integration} shows what those capabilities make possible once
+assembled: a reference architecture in which a machine-checkable contract is the
+load-bearing pivot between ambiguous human intent and precise machine
+verification, serving at once as the input an agent builds against and the oracle
+its output is checked against. The movement is from cheap specifications, to
+reasoning about compatibility, to specifications made load-bearing in a lifecycle.
+
+The three research questions may now be assessed against that arc. \textbf{RQ1}
+asked how faithfully specifications can be inferred from unannotated code and
+whether the result is useful downstream; it is answered by \cref{ch:inferrer} and
+answered by \emph{measurement}. Fidelity is anchored to formal verification rather
+than inspection---where the engine emits a contract and OpenJML~\citep{cok2014openjml}
+discharges it through Z3~\citep{demoura2008z3}, the contract is sound with respect
+to the code---a stronger guarantee than the likely-invariant detection of dynamic
+tools such as Daikon~\citep{ernst2007daikon}, and the downstream benefit is
+established by a controlled comparison rather than asserted. \textbf{RQ2} asked
+whether a compositional pass extends inference and whether it enables
+version-compatibility reasoning; it is answered by \cref{ch:compositional}, in part
+by measurement (the additional well-formed preconditions recovered on a large
+corpus) and in part by a design validated by instantiation (the differential
+blast-radius analysis). The link is not analogy but identity: the arrow that, run
+forwards within a version, strengthens a caller's specification is, run across
+versions, the edge that carries a breaking change from a library to its clients.
+\textbf{RQ3} asked whether inferred contracts can serve as the contract layer and
+verification loop of AI-native lifecycles; it is addressed by \cref{ch:integration}
+as a reference architecture that is \emph{designed, not deployed}. The architecture
+is concrete and its components are individually evidenced by the earlier chapters,
+but the end-to-end lifecycle is demonstrated for feasibility and coherence, not
+established by a controlled effect size. That distinction is maintained
+deliberately throughout, and the industrial pilot that would supply such a size is
+future work (\cref{ch:conclusion}).
+
+\section{Threats to validity}\label{sec:disc-threats}
+
+The value of a candid thesis lies partly in its restraint, and several threats
+bound the claims above.
+
+\paragraph{Corpus generalisability (external).} The quantitative evaluation, and
+the compositional-reach measurement in particular, leans on Apache Commons Lang and
+similarly structured Java libraries. These are real, widely-depended-upon codebases
+rather than synthetic benchmarks, so the results are representative of an important
+class of production Java; they are \emph{not} random samples of all Java, and the
+thesis does not claim that the reported figures transfer unchanged to arbitrary
+corpora. A library written in a markedly different idiom---heavy reflection, dynamic
+proxies, concurrency-dominated control flow---may expose patterns the heuristics do
+not recognise and obligations the solver cannot discharge. Multi-corpus replication
+is the obvious next step.
+
+\paragraph{Heuristic partiality (internal).} The inference engine recognises the
+patterns it was built to recognise and is silent elsewhere, so its inferred
+contracts are sound \emph{fragments}, not complete specifications. This biases the
+population of contracts toward the tractable and could inflate apparent fidelity if
+the easy cases are also the verifiable ones. The mitigation is to report fidelity as
+a rate conditioned on emission and verification, and to record the engine's silence
+honestly rather than count it as success: the thesis claims soundness where a
+contract is emitted and verified, never coverage of all behaviours.
+
+\paragraph{SMT boundaries (conclusion).} The verification spine rests on Z3, and
+the underlying logic is undecidable. The programme repeatedly encounters timeouts on
+multiplicative arithmetic, quantified-array-theory queries, and rich preconditions;
+where the solver cannot decide, the pipeline neither confirms nor refutes. An honest
+account records such obligations as \emph{unverified}, not as results the tooling
+did not deliver. Operationally the configuration is tuned to maximise the fraction
+discharged within budget, and the fail-open, sound-in-alarm posture ensures that an
+undecided obligation degrades to ``unverified'' or ``unflagged'' rather than to a
+false guarantee. For the compatibility analysis this makes the reading asymmetric
+and must be stated as such: an alarm is trustworthy, but silence is not a guarantee
+of compatibility, because a break may be missed when a callee contract is inferred
+too weakly to capture the depended-upon behaviour, or when a timeout leaves the
+relevant obligation unproved.
+
+\paragraph{Verified versus well-formed (construct).} The compositional preconditions
+recovered in \cref{ch:compositional}---roughly $18{,}854$ on the corpus
+studied---are \emph{well-formed}: syntactically
+valid and scope-correct, admitted only when their entry-state scope is satisfiable.
+They are \emph{not} separately discharged by extended static checking, and the thesis
+never blurs the two. A verified specification is one the checker has proved against
+the code; a well-formed one has passed a weaker, structural filter. Reporting the
+well-formedness-filtered count as the headline figure is itself part of the
+mitigation, since it excludes vacuous contracts---an inference emitting
+\texttt{ensures true} is trivially verifiable yet says nothing---from being counted
+as wins.
+
+\paragraph{Construct validity of the utility measure.} The downstream-utility study
+of \cref{ch:inferrer} measures test quality by mutation score, a proxy for the
+oracle strength of a generated suite~\citep{barr2015oracle} rather than a direct
+measurement of correctness caught in the field. A proxy can diverge from the
+construct it stands for. The mitigation is that mutation score is an \emph{external}
+effect a vacuous contract cannot produce, giving a check on construct validity
+independent of the contract's internal form. A related internal threat is
+run-to-run variance in the language model: its output is stochastic, so a
+test-generation result depends on a model whose behaviour varies between runs. This
+is mitigated by the paired design---the same prompts with and without the contract
+treatment, so non-determinism is shared across conditions and the treatment effect
+is isolated---but the study uses a single model family, so it establishes direction
+and plausibility rather than a universal effect size.
+
+\paragraph{Composed validity.} Finally, the validity of a composed system is not the
+conjunction of the validities of its parts. Each chapter's result holds under its own
+assumptions, and those assumptions are not identical; an assumption satisfied in
+isolation may be violated in combination. The reference lifecycle of
+\cref{ch:integration} is accordingly claimed as a design coherent in its parts, with
+the interaction effects between them identified as precisely the questions a future
+end-to-end evaluation must measure. Naming that gap is part of the contribution: it
+tells a future evaluator where to look.

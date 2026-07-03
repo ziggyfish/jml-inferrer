@@ -1,0 +1,54 @@
+\section{Empirical Study Design (Planned)}
+\label{sec:empirical}
+
+This article reports a reference design and a working implementation. The empirical study against external production codebases is specified here but unrun; the section exists so the experimental design is reviewable now and the eventual rerun in the follow-up paper is not retrofitted.
+
+\subsection{Subjects}
+
+Five active open-source Java repositories with mature CI:
+
+\begin{itemize}
+    \item Apache Commons Lang
+    \item Caffeine
+    \item Vavr
+    \item Resilience4j
+    \item One ``less-tidy'' subject (candidate: JabRef or Apache Pulsar) selected to broaden external validity beyond the Apache-style mature subjects.
+\end{itemize}
+
+The five are each pinned to a specific commit SHA to make the experiment reproducible.
+
+\subsection{Procedure}
+
+For each subject:
+
+\begin{enumerate}
+    \item Replay the last 6 months of commits through the inference workflow.
+    \item For each commit, run the workflow under two cache configurations: \emph{cold} (cache cleared each commit) and \emph{warm} (cache persists across commits, simulating the production behaviour).
+    \item Record per-commit: cumulative wall-time, cache hit rate (proportion of methods served from cache vs.\ re-inferred), spec churn (lines of inferred-spec change per commit, as a count of additions, deletions, and modifications), inferred-spec count delta, OpenJML verification outcome.
+\end{enumerate}
+
+\subsection{Metrics}
+
+\begin{enumerate}
+    \item \emph{Pipeline overhead}: median, p95, p99 wall-time delta versus the same commits without the inference workflow. Plan decision criterion: p95 overhead $<$ 30\% qualifies as a strong story; 30--60\% is defensible with the caching argument; $>$ 60\% requires re-architecting for incremental analysis (per Section~\ref{sec:workflow}).
+    \item \emph{Cache hit rate per commit}: histogram, plus mean per project. Drives the cost story.
+    \item \emph{Spec churn rate}: lines of inferred-spec change per commit. A ratio of inferred-spec-line-changes to source-line-changes near 1.0 is intuitive; a ratio of 5+ suggests the inferrer is over-reactive to inconsequential code edits.
+    \item \emph{Stability across multiple sprints}: variance of inferred-spec count across the 24~weeks (six months / weekly snapshots). High variance suggests the inferrer is sensitive to small changes; low variance suggests the inferred specs converge.
+\end{enumerate}
+
+\subsection{Qualitative dimension}
+
+A structured trial with 2--3 colleagues each using the workflow on a project of their choice for one week. Pre- and post-trial surveys with the following questions:
+
+\begin{enumerate}
+    \item Would you adopt this in your own CI? Why or why not?
+    \item What output formats made the inferrer's findings actionable?
+    \item What was the worst false positive you saw? The most useful clause?
+    \item Did the build-time overhead change your behaviour (e.g., made you push less often)?
+\end{enumerate}
+
+The qualitative dimension is recognised as the only part of this study that genuinely benefits from real human input, and is the principal reason the empirical evaluation has been deferred to a follow-up rather than fabricated for this article.
+
+\subsection{Threats specific to the planned study}
+
+The repo selection is biased toward Apache-style mature codebases; the inclusion of a ``less-tidy'' subject (candidate JabRef or Pulsar) is the principal mitigation. The qualitative dimension's small N (2--3 participants) means the survey results will be reported as testimonial rather than statistically generalised. The Maven-build-baseline assumption excludes Gradle-built repos; a Gradle-side template is straightforward to adapt and is part of the planned follow-up.
